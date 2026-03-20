@@ -287,7 +287,8 @@ enabled = true
 token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 allowFrom = ["123456789"]
 allowGroups = []
-dmPolicy = "allowlist"</code></pre>
+dmPolicy = "allowlist"
+mentionOnly = false</code></pre>
     </div>
 
     <h3>Supported features</h3>
@@ -295,11 +296,17 @@ dmPolicy = "allowlist"</code></pre>
       <span>Text messages</span>
       <span>Photo attachments</span>
       <span>Voice messages (OGG)</span>
+      <span>Video attachments</span>
+      <span>Audio attachments</span>
+      <span>Animation (GIF) handling</span>
       <span>Typing indicators</span>
       <span>Message editing</span>
       <span>Message deletion</span>
       <span>HTML formatting</span>
       <span>Group chat support</span>
+      <span>Inline keyboard buttons</span>
+      <span>Reply threading</span>
+      <span>Mention-only group filtering</span>
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
     </div>
@@ -344,6 +351,7 @@ token = "your-discord-bot-token"
 allowFrom = ["123456789012345678"]
 allowGroups = []
 dmPolicy = "allowlist"
+mentionOnly = false
 
 [[channels.discord.commands]]
 name = "ask"
@@ -363,10 +371,13 @@ required = true</code></pre>
       <span>Text messages</span>
       <span>Image attachments</span>
       <span>Audio attachments</span>
+      <span>PDF/document downloads</span>
       <span>Typing indicators</span>
       <span>Message editing</span>
       <span>Message deletion</span>
       <span>Guild + DM support</span>
+      <span>Interactive buttons (action rows)</span>
+      <span>Mention-only group filtering</span>
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
     </div>
@@ -497,6 +508,7 @@ doneEmoji = "white_check_mark"</code></pre>
 [channels.whatsapp]
 enabled = true
 allowFrom = ["15037348571"]
+allowGroups = []
 dmPolicy = "allowlist"</code></pre>
     </div>
 
@@ -517,6 +529,9 @@ dmPolicy = "allowlist"</code></pre>
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
     </div>
+
+    <h3>Group session routing</h3>
+    <p>In group chats, sessions are keyed by the group JID (not the individual sender), so all participants in a group share the same conversation context.</p>
 
     <h3>Media handling</h3>
     <p>Images, documents (PDFs, ZIP, etc.), video, and audio are automatically downloaded to <code>~/.oxicrab/media/</code> with the <code>whatsapp_</code> prefix. MIME types are used to infer file extensions. Image documents sent as document attachments are treated as images for vision processing. Audio messages are routed through voice transcription if configured.</p>
@@ -579,21 +594,25 @@ accountSid = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 authToken = "your-auth-token"
 phoneNumber = "+15551234567"
 webhookPort = 8080
+webhookHost = "0.0.0.0"
 webhookPath = "/twilio/webhook"
 webhookUrl = "https://your-server.example.com/twilio/webhook"
 allowFrom = []
+allowGroups = []
 dmPolicy = "allowlist"</code></pre>
     </div>
 
-    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). Empty <strong>allowFrom</strong> denies all senders &mdash; add phone numbers or use <code>["*"]</code> for open access.</div>
+    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). Empty <strong>allowFrom</strong> denies all senders &mdash; add phone numbers or use <code>["*"]</code> for open access. <strong>webhookHost</strong> defaults to <code>"0.0.0.0"</code> (all interfaces); set to <code>"127.0.0.1"</code> when running behind a reverse proxy.</div>
 
     <h3>Supported features</h3>
     <div class="features-list">
       <span>SMS sending/receiving</span>
+      <span>MMS media support (inbound images)</span>
       <span>Conversations API</span>
       <span>HMAC-SHA1 signature validation</span>
       <span>Message chunking (1600 chars)</span>
       <span>Sender allowlist</span>
+      <span>Group access control</span>
       <span>DM policy (pairing)</span>
     </div>
   </div>

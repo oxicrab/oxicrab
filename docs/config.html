@@ -1055,11 +1055,11 @@ blockNetwork = true</code></pre>
         <p>Each channel has additional required fields. See <a href="channels.html">Channel Setup</a> for the complete config blocks. Quick reference:</p>
         <table class="cfg-table">
             <tr><th>Channel</th><th>Required Fields</th></tr>
-            <tr><td>telegram</td><td><code>token</code></td></tr>
-            <tr><td>discord</td><td><code>token</code></td></tr>
+            <tr><td>telegram</td><td><code>token</code>. Optional: <code>mentionOnly</code> (boolean, default false) &mdash; only respond in groups when bot is @mentioned or replied to</td></tr>
+            <tr><td>discord</td><td><code>token</code>. Optional: <code>mentionOnly</code> (boolean, default false) &mdash; only respond in guilds when bot is @mentioned</td></tr>
             <tr><td>slack</td><td><code>botToken</code>, <code>appToken</code>. Optional: <code>thinkingEmoji</code> (default "eyes"), <code>doneEmoji</code> (default "white_check_mark")</td></tr>
             <tr><td>whatsapp</td><td>(none &mdash; scan QR on first run)</td></tr>
-            <tr><td>twilio</td><td><code>accountSid</code>, <code>authToken</code>, <code>phoneNumber</code>, <code>webhookPort</code>, <code>webhookPath</code>, <code>webhookUrl</code></td></tr>
+            <tr><td>twilio</td><td><code>accountSid</code>, <code>authToken</code>, <code>phoneNumber</code>, <code>webhookPort</code>, <code>webhookPath</code>, <code>webhookUrl</code>. Optional: <code>webhookHost</code> (string, default "0.0.0.0") &mdash; interface to bind the webhook server; <code>allowGroups</code> (array, default []) &mdash; restrict to specific Conversation SIDs</td></tr>
         </table>
     </div>
 

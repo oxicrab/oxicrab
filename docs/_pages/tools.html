@@ -305,6 +305,17 @@ maxResults = 5</code></pre>
       <tbody>
         <tr><td>search</td><td>Search memory by keyword or semantic query</td><td>&#x2713;</td></tr>
         <tr><td>explain_last</td><td>Show provenance details of the most recent search</td><td>&#x2713;</td></tr>
+        <tr><td>list_sources</td><td>List all memory source keys with entry counts</td><td>&#x2713;</td></tr>
+        <tr><td>delete</td><td>Delete all entries for a source key (<code>knowledge:</code> entries are protected). Requires <code>source_key</code> parameter.</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Parameters</h3>
+    <table class="action-table">
+      <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>query</td><td>Search query string. Required for <code>search</code> action.</td></tr>
+        <tr><td>source_key</td><td>Source key for the <code>delete</code> action. Required when action is <code>delete</code>.</td></tr>
       </tbody>
     </table>
 
@@ -337,6 +348,9 @@ hybridWeight = 0.5</code></pre>
         <tr><td>send</td><td>Send a workspace file to the current conversation</td><td>&mdash;</td></tr>
       </tbody>
     </table>
+
+    <h3>Pagination</h3>
+    <p>The <code>list</code> action accepts <code>limit</code> (integer, default 50, max 200) and <code>offset</code> (integer, default 0) parameters for pagination.</p>
 
     <h3>File Organization</h3>
     <p>Files written via <code>write_file</code> to workspace category directories (<code>code/</code>, <code>documents/</code>, <code>data/</code>, <code>images/</code>, <code>downloads/</code>, <code>temp/</code>) are automatically tracked in the manifest. Categories are inferred from file extensions. Files are organized into date-based subdirectories (<code>{category}/{YYYY-MM-DD}/{filename}</code>).</p>
@@ -451,6 +465,9 @@ tasks = true</code></pre>
       </tbody>
     </table>
 
+    <h3>Parameters</h3>
+    <p>Mutating actions (<code>create_event</code>, <code>update_event</code>, <code>delete_event</code>, <code>rsvp</code>) accept a <code>send_updates</code> parameter (string: <code>"all"</code>, <code>"externalOnly"</code>, or <code>"none"</code>, default <code>"all"</code>) to control who receives email notifications.</p>
+
     <h3>Setup</h3>
     <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Set <code>"calendar": true</code> and enable the <strong>Google Calendar API</strong> in your Cloud project.</p>
   </div>
@@ -471,6 +488,9 @@ tasks = true</code></pre>
         <tr><td>delete_task</td><td>Delete a task</td><td>&mdash;</td></tr>
       </tbody>
     </table>
+
+    <h3>Pagination</h3>
+    <p><code>list_task_lists</code> and <code>list_tasks</code> automatically paginate through all results using Google's <code>nextPageToken</code> mechanism.</p>
 
     <h3>Setup</h3>
     <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Set <code>"tasks": true</code> and enable the <strong>Google Tasks API</strong> in your Cloud project.</p>
@@ -500,6 +520,9 @@ tasks = true</code></pre>
       </tbody>
     </table>
     <p>Subagents get read-only access (8 of 11 actions). Mutating actions (<code>create_issue</code>, <code>create_pr_review</code>, <code>trigger_workflow</code>) are hidden from the schema and blocked at execution.</p>
+
+    <h3>Pagination</h3>
+    <p>List actions support <code>page</code> (integer, default 1) and <code>per_page</code> (integer, default 10, max 100) parameters. Pagination applies to: <code>list_issues</code>, <code>list_prs</code>, <code>get_workflow_runs</code>, <code>notifications</code>.</p>
 
     <h3>Setup</h3>
     <ol>
@@ -613,6 +636,9 @@ apiKey = "your-sonarr-api-key"</code></pre>
         <tr><td>list</td><td>List notes, optionally filtered by folder</td><td>&#x2713;</td></tr>
       </tbody>
     </table>
+
+    <h3>Pagination</h3>
+    <p>The <code>list</code> (default 100, max 500) and <code>search</code> (default 50, max 500) actions accept <code>limit</code> and <code>offset</code> parameters for pagination.</p>
 
     <h3>Setup</h3>
     <ol>
