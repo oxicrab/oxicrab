@@ -216,3 +216,67 @@ fn test_format_pairing_reply_contains_approve_command() {
     assert!(reply.contains("U123"));
     assert!(reply.contains("XYZW9876"));
 }
+
+// --- check_group_access tests ---
+
+#[test]
+fn test_group_access_empty_allows_all() {
+    assert!(check_group_access("any_group", &[]));
+}
+
+#[test]
+fn test_group_access_wildcard_allows_all() {
+    let groups = vec!["*".to_string()];
+    assert!(check_group_access("anything", &groups));
+}
+
+#[test]
+fn test_group_access_explicit_match() {
+    let groups = vec!["group1".to_string(), "group2".to_string()];
+    assert!(check_group_access("group1", &groups));
+    assert!(check_group_access("group2", &groups));
+}
+
+#[test]
+fn test_group_access_no_match_denied() {
+    let groups = vec!["group1".to_string()];
+    assert!(!check_group_access("group99", &groups));
+}
+
+// --- backoff bounds test over many iterations ---
+
+#[test]
+fn test_backoff_always_bounded() {
+    // Run many attempts and verify bounds hold for every single one
+    for attempt in 0..50 {
+        let delay = exponential_backoff_delay(attempt, 5, 60);
+        // Minimum: the smaller of base or max (since max caps before jitter)
+        // For attempt 0: 5 * 2^0 = 5, capped at 60, jitter adds 0-25%
+        // Maximum possible: 60 + 25% of 60 = 75
+        assert!(
+            delay <= 75,
+            "attempt {attempt}: delay {delay} exceeds max + jitter"
+        );
+    }
+}
+
+// --- normalize_sender_id control character stripping ---
+
+#[test]
+fn test_normalize_strips_control_chars() {
+    assert_eq!(normalize_sender_id("user\x00name"), "username");
+    assert_eq!(normalize_sender_id("user\nname"), "username");
+    assert_eq!(normalize_sender_id("user\rname"), "username");
+    assert_eq!(normalize_sender_id("+\x01user"), "user");
+}
+
+// --- dm_access pairing denied without requester ---
+
+#[test]
+fn test_dm_access_pairing_denies_without_requester() {
+    // No pairing requester set globally, so pairing policy falls back to denied
+    assert!(matches!(
+        check_dm_access("unknown", &[], "test", &DmPolicy::Pairing),
+        DmCheckResult::Denied
+    ));
+}
