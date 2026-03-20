@@ -77,6 +77,17 @@ impl ApprovalStore {
     pub fn generate_id() -> String {
         format!("appr-{}", &uuid::Uuid::new_v4().to_string()[..12])
     }
+
+    /// Return the IDs of all currently pending approvals.
+    /// Useful for integration tests that need to find and resolve approvals.
+    pub fn pending_ids(&self) -> Vec<String> {
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]

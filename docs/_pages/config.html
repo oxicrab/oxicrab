@@ -586,6 +586,53 @@ action = "block"</code></pre>
         <p>User messages are scanned with the configured action. Tool output is always warn-only (tool output may legitimately contain these phrases).</p>
     </div>
 
+    <!-- OPERATOR APPROVAL -->
+    <div id="operator-approval" class="cfg-section">
+        <h2>Operator Approval</h2>
+        <p>Interactive approval workflow for mutating tool actions. When enabled, the bot pauses before executing a covered action, sends an approval request with Approve/Deny buttons, and waits for an operator response. If denied or timed out, the action is not executed and the LLM receives an error result.</p>
+
+        <p>Config path: <code>agents.defaults.approval</code></p>
+        <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.approval]
+enabled = true
+channel = "slack:C0ABC123"
+timeout = 300
+actions = ["google_mail.send", "google_mail.reply"]</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable interactive operator approval for mutating actions</td></tr>
+            <tr><td>channel</td><td>string</td><td>""</td><td>Approval target. Format: <code>"channel:chatId"</code> (e.g., <code>"slack:C0ABC123"</code>). Empty = same conversation (self-approval)</td></tr>
+            <tr><td>timeout</td><td>integer</td><td>300</td><td>Seconds to wait for operator response before auto-deny</td></tr>
+            <tr><td>actions</td><td>string[]</td><td>[]</td><td>Actions requiring approval (e.g., <code>["google_mail.send"]</code>). Empty = all mutating actions</td></tr>
+        </table>
+
+        <h3>Channel format</h3>
+        <p>The <code>channel</code> field uses a <code>"channel_type:chat_id"</code> format, the same format used by cron targets:</p>
+        <ul class="plain">
+            <li><code>"slack:C0ABC123"</code> &mdash; Slack channel ID (not <code>#name</code>)</li>
+            <li><code>"discord:123456789"</code> &mdash; Discord channel ID</li>
+            <li><code>"telegram:12345"</code> &mdash; Telegram chat ID</li>
+        </ul>
+        <p>Leave empty for self-approval (buttons appear in the user's own conversation). The bot must be a member of the configured channel.</p>
+
+        <h3>Action matching</h3>
+        <p>The <code>actions</code> list accepts two formats:</p>
+        <ul class="plain">
+            <li><code>"tool_name.action"</code> &mdash; matches a specific action on a specific tool (e.g. <code>"google_mail.send"</code>)</li>
+            <li><code>"tool_name"</code> &mdash; matches all actions on that tool (e.g. <code>"github"</code> covers all 11 GitHub actions)</li>
+        </ul>
+        <p>When <code>actions</code> is empty, all non-read-only actions across all tools require approval. This is the strictest setting. Single-purpose tools (like <code>exec</code>, <code>write_file</code>) automatically resolve their declared action name &mdash; use <code>"exec.execute"</code> or <code>"write_file.write"</code> in the actions list.</p>
+
+        <h3>Behavior</h3>
+        <ul class="plain">
+            <li><strong>Disabled (default)</strong> &mdash; no interactive approval. The existing hard-block on tools like Gmail, Calendar, and GitHub remains active as a safety net. A startup warning is logged for tools with mutating actions that have no approval gate at all.</li>
+            <li><strong>Enabled, empty actions</strong> &mdash; interactive approval for all mutating actions. The hard-block is replaced with the interactive flow.</li>
+            <li><strong>Enabled, explicit actions</strong> &mdash; interactive approval only for listed actions. Unlisted mutating actions fall through to the legacy hard-block.</li>
+        </ul>
+    </div>
+
     <!-- CONTEXT PROVIDERS -->
     <div id="context-providers" class="cfg-section">
         <h2>Context Providers</h2>

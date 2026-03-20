@@ -664,6 +664,10 @@ impl AgentLoop {
         self.tools.clone()
     }
 
+    pub fn approval_store(&self) -> Arc<crate::agent::approval::ApprovalStore> {
+        self.approval_store.clone()
+    }
+
     /// Resolve per-task overrides from the model routing configuration.
     /// Returns default overrides when routing is not configured or the task
     /// type has no matching rule.

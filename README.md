@@ -36,7 +36,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Tool output stash**: In-memory LRU cache for recovering large tool outputs after truncation
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
-- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, skill file security scanning
+- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, skill file security scanning, interactive operator approval for mutating actions
 
 ## Installation
 

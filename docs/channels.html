@@ -734,6 +734,15 @@ dmPolicy = "pairing"</code></pre>
 
     <h3>Auto-reconnection</h3>
     <p>All channels implement exponential backoff retry loops (5&ndash;60 seconds). Reconnection is automatic after network disconnects or backend errors.</p>
+
+    <h3>Approval channel target</h3>
+    <p>The <a href="config.html#operator-approval">operator approval</a> workflow can route approval requests to a dedicated channel. The <code>channel</code> field in <code>[agents.defaults.approval]</code> uses <code>"channel_type:chat_id"</code> format. The bot must be a member of the target channel. To find the channel ID for each platform:</p>
+    <ul>
+      <li><strong>Slack</strong> &mdash; right-click the channel name, select "View channel details", copy the Channel ID from the bottom of the details panel (starts with <code>C</code>). Example: <code>"slack:C0ABC123"</code></li>
+      <li><strong>Discord</strong> &mdash; enable Developer Mode (User Settings &gt; Advanced &gt; Developer Mode), then right-click the channel and select "Copy Channel ID". Example: <code>"discord:123456789012345678"</code></li>
+      <li><strong>Telegram</strong> &mdash; use <a href="https://t.me/getidsbot">@getidsbot</a> in the target group/channel, or check the URL in Telegram Web (<code>https://web.telegram.org/k/#-XXXXXXXXX</code>). Example: <code>"telegram:-1001234567890"</code></li>
+    </ul>
+    <p>Leave <code>channel</code> empty for self-approval (buttons appear in the same conversation as the user).</p>
   </div>
 
 </div>

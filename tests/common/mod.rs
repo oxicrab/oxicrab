@@ -170,6 +170,7 @@ pub struct TestAgentOverrides {
     pub exfiltration_guard: Option<ExfiltrationGuardConfig>,
     pub prompt_guard_config: Option<PromptGuardConfig>,
     pub sandbox_config: Option<SandboxConfig>,
+    pub approval_config: Option<oxicrab::config::ApprovalConfig>,
 }
 
 pub async fn create_test_agent_with(
@@ -213,6 +214,9 @@ pub async fn create_test_agent_with(
     }
     if let Some(v) = overrides.sandbox_config {
         config.tool_configs.sandbox_config = v;
+    }
+    if let Some(v) = overrides.approval_config {
+        config.approval_config = v;
     }
 
     AgentLoop::new(config)
