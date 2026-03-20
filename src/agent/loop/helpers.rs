@@ -16,6 +16,7 @@ pub(super) struct ApprovalContext<'a> {
     pub store: &'a crate::agent::approval::ApprovalStore,
     pub config: &'a crate::config::ApprovalConfig,
     pub outbound_tx: &'a tokio::sync::mpsc::Sender<OutboundMessage>,
+    pub leak_detector: &'a crate::safety::LeakDetector,
     pub channel: &'a str,
     pub chat_id: &'a str,
     pub sender_id: &'a str,
@@ -174,6 +175,7 @@ pub(super) async fn execute_tool_call(
                 approval.store,
                 approval.config,
                 approval.outbound_tx,
+                approval.leak_detector,
                 approval.channel,
                 approval.chat_id,
                 approval.sender_id,
@@ -232,6 +234,7 @@ async fn await_approval(
     store: &crate::agent::approval::ApprovalStore,
     config: &crate::config::ApprovalConfig,
     outbound_tx: &tokio::sync::mpsc::Sender<OutboundMessage>,
+    leak_detector: &crate::safety::LeakDetector,
     channel: &str,
     chat_id: &str,
     sender_id: &str,
@@ -252,22 +255,17 @@ async fn await_approval(
     };
 
     // Determine operator channel target
-    let operator_target = if config.channel.is_empty() {
-        (channel.to_string(), chat_id.to_string())
+    let (operator_target, operator_channel_key) = if config.channel.is_empty() {
+        ((channel.to_string(), chat_id.to_string()), String::new())
     } else if let Some((ch, id)) = config.channel.split_once(':') {
-        (ch.to_string(), id.to_string())
+        ((ch.to_string(), id.to_string()), config.channel.clone())
     } else {
         warn!(
             "invalid approval channel format '{}', falling back to same conversation",
             config.channel
         );
-        (channel.to_string(), chat_id.to_string())
-    };
-
-    let operator_channel_key = if config.channel.is_empty() {
-        String::new()
-    } else {
-        config.channel.clone()
+        // Use empty key so self-approval semantics apply (accept any source)
+        ((channel.to_string(), chat_id.to_string()), String::new())
     };
 
     // Register the pending approval
@@ -301,6 +299,7 @@ async fn await_approval(
         channel,
         chat_id,
         params,
+        leak_detector,
     );
     let approve_ctx = serde_json::json!({
         "tool": "__approval",
@@ -356,6 +355,7 @@ fn format_approval_request(
     channel: &str,
     chat_id: &str,
     params: &Value,
+    leak_detector: &crate::safety::LeakDetector,
 ) -> String {
     let mut lines = vec![
         "Approval Request".to_string(),
@@ -390,7 +390,9 @@ fn format_approval_request(
                     s
                 }
             };
-            lines.push(format!("{key}: {val_str}"));
+            // Redact any secrets in parameter values before sending to operator channel
+            let redacted = leak_detector.redact(&val_str);
+            lines.push(format!("{key}: {redacted}"));
             count += 1;
         }
     }

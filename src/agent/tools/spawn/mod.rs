@@ -31,7 +31,7 @@ impl Tool for SpawnTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            subagent_access: SubagentAccess::Full,
+            subagent_access: SubagentAccess::Denied,
             actions: actions![spawn],
             category: ToolCategory::System,
             ..Default::default()

@@ -503,6 +503,7 @@ impl AgentLoop {
                         store: &approval_store,
                         config: &approval_config,
                         outbound_tx: &approval_tx,
+                        leak_detector: &self.leak_detector,
                         channel: &exec_channel,
                         chat_id: &exec_chat_id,
                         sender_id: &exec_sender_id,
@@ -529,6 +530,7 @@ impl AgentLoop {
                     let a_channel = exec_channel.clone();
                     let a_chat_id = exec_chat_id.clone();
                     let a_sender_id = exec_sender_id.clone();
+                    let a_leak = self.leak_detector.clone();
                     tokio::task::spawn(async move {
                         if blocked {
                             crate::router::metrics::record_blocked_tool_attempt();
@@ -548,6 +550,7 @@ impl AgentLoop {
                                 store: &a_store,
                                 config: &a_config,
                                 outbound_tx: &a_tx,
+                                leak_detector: &a_leak,
                                 channel: &a_channel,
                                 chat_id: &a_chat_id,
                                 sender_id: &a_sender_id,
