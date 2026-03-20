@@ -1,6 +1,6 @@
 [package]
 name = "oxicrab-core"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2024"
 authors = ["James Turnbull <james@ltl.so>"]
 description = "Core types and traits for the oxicrab framework"

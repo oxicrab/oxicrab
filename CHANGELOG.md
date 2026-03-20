@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.1] - 2026-03-20
+
+### Added
+- **telegram:** bring channel to parity with Discord and Slack ([319e613](https://github.com/oxicrab/oxicrab/commit/319e6131a8552adce950ca28eee4b0108b079e40))
+- **memory:** add management actions, semantic dedup, query expansion, turn-based compaction ([7b734dc](https://github.com/oxicrab/oxicrab/commit/7b734dca50492a4b063c1d494e756413b533ac86))
+- **memory:** token-budget-aware memory context injection ([2bb03eb](https://github.com/oxicrab/oxicrab/commit/2bb03ebeb7a565848e7b02128132574dcac7e3b0))
+- **memory:** make retention days configurable ([a220e55](https://github.com/oxicrab/oxicrab/commit/a220e55d08b80833386576bc3cec727c2b3d6bc8))
+- **memory:** make search result limit configurable ([6265ee6](https://github.com/oxicrab/oxicrab/commit/6265ee6a91cb0d83136641021e7bb9f2795aa68c))
+
+
+### Changed
+- Update docs examples to TOML ([9c7b366](https://github.com/oxicrab/oxicrab/commit/9c7b366e787f816cb3c7af68b475fd6a26d26027))
+
+
+### Documentation
+- update channel, config, and tool documentation ([c50de7f](https://github.com/oxicrab/oxicrab/commit/c50de7ff4ca42623b68b418f39d0a9afc7a8b7ff))
+- Refresh architecture and public docs ([41f99d7](https://github.com/oxicrab/oxicrab/commit/41f99d7efd321c31ff9967cdc7f09dbf1e01b3a8))
+
+
+### Fixed
+- **channels,providers:** comprehensive channel and provider hardening ([04d1b27](https://github.com/oxicrab/oxicrab/commit/04d1b27f4f9b55dca10a4eab17a0edbb89e20ea8))
+- clean up stale comments, dead code, and missing Tasks scope ([c997e3a](https://github.com/oxicrab/oxicrab/commit/c997e3a5c448eca887a6022287a08764a083e57e))
+- **tools:** security hardening, pagination, per-action approval across 6 tools ([5b9214d](https://github.com/oxicrab/oxicrab/commit/5b9214d93b5d869810caad0efc286b5dada51472))
+- **memory:** validate embedding dimensions and warn on model change mismatch ([95616fb](https://github.com/oxicrab/oxicrab/commit/95616fbed9b758b612dc6aa024afcf418d10323f))
+- **memory:** correct hybridWeight semantics and improve FTS ranking ([2fcbfa6](https://github.com/oxicrab/oxicrab/commit/2fcbfa6db7268c66f265e49103daeda8dc2769b1))
+- **gateway:** accept case-insensitive hex in webhook signatures ([495ccb8](https://github.com/oxicrab/oxicrab/commit/495ccb88cc059595a79b2f497340f598bb7eb198))
+
+
+### Maintenance
+- ignore cargo-fuzz local artifacts ([4083d87](https://github.com/oxicrab/oxicrab/commit/4083d87960f66c56fdc12e77aa25f972b1453a80))
+
+
+### Other
+- Make homepage hero channel-first ([12997e7](https://github.com/oxicrab/oxicrab/commit/12997e77c343d773ffe83ceb47aa00ca797ec5a7))
+- Refresh homepage hero and routing copy ([02fa943](https://github.com/oxicrab/oxicrab/commit/02fa943af18deb2f0429f6398935e74ca29f0734))
+
+
+### Performance
+- **db:** run PRAGMA optimize during hygiene ([36b9ee1](https://github.com/oxicrab/oxicrab/commit/36b9ee1791e43c32a4825abb2d0e055d92570a80))
+
+
+### Removed
+- removed old docs ([4c905da](https://github.com/oxicrab/oxicrab/commit/4c905daccd6dcea0dc0b95d7f555175e024ab2e5))
+
 ## [0.16.0] - 2026-03-19
 
 ### Added
@@ -84,6 +128,7 @@ All notable changes to this project will be documented in this file.
 
 
 ### Other
+- Prune stale workspace dependencies ([562c16b](https://github.com/oxicrab/oxicrab/commit/562c16b5ebd3371f0bad6849dd22e44426ffbe90))
 - Keep memory search metrics warning-clean ([6f494ac](https://github.com/oxicrab/oxicrab/commit/6f494ac6e1f913dbb63794f2d094352c43a639d1))
 - Restore known-good sccache action ([9b5343b](https://github.com/oxicrab/oxicrab/commit/9b5343bd64e949a5b77d27f2f6141475f034706a))
 - Align sccache env with working action ([156c4dd](https://github.com/oxicrab/oxicrab/commit/156c4dd7dcb1b4c497c309bfd4a3292c7d708914))
@@ -100,6 +145,8 @@ All notable changes to this project will be documented in this file.
 
 
 ### Removed
+- Remove leaked root package features ([50b22ba](https://github.com/oxicrab/oxicrab/commit/50b22ba2116d074b29a7d4988720def3cefa3eb1))
+- Remove stale browser feature from Docker release build ([715edfd](https://github.com/oxicrab/oxicrab/commit/715edfd1999399652da602e1f92b01abcf92cf8c))
 - Remove stray chromiumoxide root dependency ([36d390c](https://github.com/oxicrab/oxicrab/commit/36d390c0db4aea2a7a0c08b9e7f15e83da383d64))
 
 ## [0.15.0] - 2026-03-17

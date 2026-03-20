@@ -1,6 +1,6 @@
 [package]
 name = "oxicrab-tools-system"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2024"
 authors = ["James Turnbull <james@ltl.so>"]
 description = "System tools for the oxicrab framework (filesystem, shell, tmux)"
