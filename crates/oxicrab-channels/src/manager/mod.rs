@@ -19,6 +19,7 @@ use tracing::{debug, error, info, warn};
 pub struct ChannelManager {
     channels: Vec<Box<dyn BaseChannel>>,
     enabled_channels: Vec<String>,
+    supervisor_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl ChannelManager {
@@ -119,6 +120,7 @@ impl ChannelManager {
         Self {
             channels,
             enabled_channels: enabled,
+            supervisor_handle: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl ChannelManager {
         Self {
             channels,
             enabled_channels: enabled,
+            supervisor_handle: None,
         }
     }
 
@@ -191,7 +194,42 @@ impl ChannelManager {
         Ok(())
     }
 
+    /// Check all channels for health and restart any that have died.
+    /// Returns the number of channels that were restarted.
+    pub async fn check_and_restart_unhealthy(&mut self) -> usize {
+        let mut restarted = 0;
+        for channel in &mut self.channels {
+            if !channel.is_healthy().await {
+                let name = channel.name().to_string();
+                warn!("channel {} is unhealthy, attempting restart", name);
+
+                // Stop first to clean up any residual state
+                if let Err(e) = channel.stop().await {
+                    warn!("error stopping unhealthy channel {}: {}", name, e);
+                }
+
+                // Restart the channel
+                match channel.start().await {
+                    Ok(()) => {
+                        info!("channel {} restarted successfully", name);
+                        restarted += 1;
+                    }
+                    Err(e) => {
+                        error!(
+                            "failed to restart channel {}: {} (will retry on next check)",
+                            name, e
+                        );
+                    }
+                }
+            }
+        }
+        restarted
+    }
+
     pub async fn stop_all(&mut self) -> Result<()> {
+        if let Some(handle) = self.supervisor_handle.take() {
+            handle.abort();
+        }
         for channel in &mut self.channels {
             if let Err(e) = channel.stop().await {
                 tracing::warn!("error stopping channel {}: {}", channel.name(), e);

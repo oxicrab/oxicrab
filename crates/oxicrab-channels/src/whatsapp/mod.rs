@@ -470,6 +470,14 @@ impl BaseChannel for WhatsAppChannel {
         Ok(())
     }
 
+    async fn is_healthy(&self) -> bool {
+        if let Some(ref handle) = self.bot_handle {
+            !handle.is_finished()
+        } else {
+            false
+        }
+    }
+
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         let client_guard = self.client.lock().await;
         if let Some(client) = client_guard.as_ref() {

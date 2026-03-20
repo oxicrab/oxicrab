@@ -669,15 +669,37 @@ fn start_channels_loop(
             Err(e) => error!("Error starting channels: {}", e),
         }
 
-        // Consume outbound messages and typing events
-        // Use a shared reference for typing via Arc since we need it in a spawned task
-        let channels = Arc::new(channels);
+        // Wrap in Arc<Mutex> for shared access between outbound loop,
+        // typing consumer, and supervisor task
+        let channels = Arc::new(tokio::sync::Mutex::new(channels));
         let channels_for_typing = channels.clone();
+        let channels_for_supervisor = channels.clone();
 
         // Spawn typing indicator consumer
         tokio::spawn(async move {
             while let Some((channel, chat_id)) = typing_rx.recv().await {
-                channels_for_typing.send_typing(&channel, &chat_id).await;
+                channels_for_typing
+                    .lock()
+                    .await
+                    .send_typing(&channel, &chat_id)
+                    .await;
+            }
+        });
+
+        // Spawn supervisor task: periodically checks channel health and restarts dead ones
+        tokio::spawn(async move {
+            // Wait before first check to let channels fully initialize
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                let restarted = channels_for_supervisor
+                    .lock()
+                    .await
+                    .check_and_restart_unhealthy()
+                    .await;
+                if restarted > 0 {
+                    info!("supervisor restarted {} channel(s)", restarted);
+                }
             }
         });
 
@@ -715,6 +737,9 @@ fn start_channels_loop(
                     .unwrap_or_default();
                 let key = (msg.channel.clone(), msg.chat_id.clone());
 
+                // Lock channels for the send operation
+                let channels_guard = channels.lock().await;
+
                 if is_status {
                     // Accumulate status lines and snapshot for use after borrow ends
                     let content_snapshot = {
@@ -728,7 +753,7 @@ fn start_channels_loop(
 
                     if let Some(existing_id) = status_msg_ids.get(&key) {
                         // Try to edit existing status message
-                        if let Err(e) = channels
+                        if let Err(e) = channels_guard
                             .edit_message(&key.0, &key.1, existing_id, &content_snapshot)
                             .await
                         {
@@ -751,7 +776,7 @@ fn start_channels_loop(
                             metadata: msg.metadata.clone(),
                             ..Default::default()
                         };
-                        match channels.send_and_get_id(&status_msg).await {
+                        match channels_guard.send_and_get_id(&status_msg).await {
                             Ok(Some(id)) => {
                                 e.insert(id);
                             }
@@ -766,18 +791,21 @@ fn start_channels_loop(
                 } else {
                     // Regular message — delete status message if one exists, then send
                     if let Some(msg_id) = status_msg_ids.remove(&key)
-                        && let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await
+                        && let Err(e) = channels_guard.delete_message(&key.0, &key.1, &msg_id).await
                     {
                         debug!("Status delete failed: {}", e);
                     }
                     status_content.remove(&key);
 
-                    if let Err(e) = channels.send(&msg).await {
+                    if let Err(e) = channels_guard.send(&msg).await {
                         error!("Error sending message to channels: {}", e);
                     } else {
                         info!("Successfully sent outbound message to channel manager");
                     }
                 }
+
+                // Drop the lock before waiting for the next message
+                drop(channels_guard);
             } else {
                 warn!("Outbound message receiver closed");
                 break;
@@ -785,15 +813,8 @@ fn start_channels_loop(
         }
 
         // Graceful shutdown - stop all channels when loop ends
-        match Arc::try_unwrap(channels) {
-            Ok(mut ch) => {
-                if let Err(e) = ch.stop_all().await {
-                    error!("Error stopping channels during shutdown: {}", e);
-                }
-            }
-            Err(_) => {
-                debug!("Channels still referenced by typing task, will be dropped");
-            }
-        }
+        channels.lock().await.stop_all().await.unwrap_or_else(|e| {
+            error!("Error stopping channels during shutdown: {}", e);
+        });
     })
 }

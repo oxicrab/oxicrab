@@ -428,52 +428,6 @@ impl BaseChannel for SlackChannel {
 
         *self.running.lock().await = true;
 
-        // Fetch bot's own user ID
-        let params = HashMap::new();
-        match self.send_slack_api("auth.test", &params).await {
-            Ok(auth) => {
-                let bot_id = auth
-                    .get("user_id")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string);
-                if let Some(ref id) = bot_id
-                    && let Ok(re) = compile_slack_mention(id)
-                {
-                    *self.mention_regex.lock().await = Some(re);
-                }
-                *self.bot_user_id.lock().await = bot_id;
-                let user = auth
-                    .get("user")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
-                let user_id = auth
-                    .get("user_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                info!("Slack bot connected as {} (ID: {})", user, user_id);
-            }
-            Err(e) => {
-                error!("Slack auth_test failed: {}", e);
-                return Err(anyhow::anyhow!("Slack auth_test failed: {e}"));
-            }
-        }
-
-        // Set presence to active (optional - requires users:write scope)
-        let mut presence_params = HashMap::new();
-        presence_params.insert("presence", Value::String("auto".to_string()));
-        if let Err(e) = self
-            .send_slack_api("users.setPresence", &presence_params)
-            .await
-        {
-            // Only warn if it's not a missing scope error (which is expected if scope not granted)
-            let error_msg = e.to_string();
-            if error_msg.contains("missing_scope") {
-                debug!("Slack presence setting skipped (missing users:write scope)");
-            } else {
-                warn!("Failed to set Slack presence: {}", e);
-            }
-        }
-
         info!("Starting Slack bot (Socket Mode)...");
 
         // Connect to Socket Mode via WebSocket
@@ -501,11 +455,94 @@ impl BaseChannel for SlackChannel {
             // Then connect to that URL
 
             let mut reconnect_attempt = 0u32;
+            let mut auth_completed = false;
             loop {
                 // Check running flag for clean shutdown
                 if !*running.lock().await {
                     info!("Slack WebSocket shutting down (running=false)");
                     break;
+                }
+
+                // Fetch bot's own user ID (retried each reconnect until successful)
+                if !auth_completed {
+                    let auth_url = "https://slack.com/api/auth.test";
+                    match ws_client
+                        .post(auth_url)
+                        .header("Authorization", format!("Bearer {bot_token}"))
+                        .send()
+                        .await
+                    {
+                        Ok(resp) => match resp.json::<Value>().await {
+                            Ok(auth) if auth.get("ok").and_then(Value::as_bool) == Some(true) => {
+                                let new_bot_id = auth
+                                    .get("user_id")
+                                    .and_then(Value::as_str)
+                                    .map(ToString::to_string);
+                                if let Some(ref id) = new_bot_id
+                                    && let Ok(re) = compile_slack_mention(id)
+                                {
+                                    *mention_regex.lock().await = Some(re);
+                                }
+                                *bot_user_id.lock().await = new_bot_id;
+                                let user = auth
+                                    .get("user")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("unknown");
+                                let uid = auth
+                                    .get("user_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default();
+                                info!("Slack bot authenticated as {} (ID: {})", user, uid);
+                                auth_completed = true;
+
+                                // Set presence to active (optional)
+                                let presence_resp = ws_client
+                                    .post("https://slack.com/api/users.setPresence")
+                                    .header("Authorization", format!("Bearer {bot_token}"))
+                                    .form(&[("presence", "auto")])
+                                    .send()
+                                    .await;
+                                if let Err(e) = presence_resp {
+                                    let error_msg = e.to_string();
+                                    if error_msg.contains("missing_scope") {
+                                        debug!(
+                                            "Slack presence setting skipped (missing users:write scope)"
+                                        );
+                                    } else {
+                                        warn!("failed to set Slack presence: {}", e);
+                                    }
+                                }
+                            }
+                            Ok(auth) => {
+                                let err = auth
+                                    .get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("unknown");
+                                error!("Slack auth.test failed: {}", err);
+                                let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                                reconnect_attempt += 1;
+                                warn!("retrying Slack auth in {} seconds...", delay);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Slack auth.test response parse error: {}", e);
+                                let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                                reconnect_attempt += 1;
+                                warn!("retrying Slack auth in {} seconds...", delay);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                                continue;
+                            }
+                        },
+                        Err(e) => {
+                            error!("Slack auth.test network error: {}", e);
+                            let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                            reconnect_attempt += 1;
+                            warn!("retrying Slack connection in {} seconds...", delay);
+                            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                            continue;
+                        }
+                    }
                 }
                 debug!("Attempting to connect to Slack Socket Mode...");
                 debug!(
@@ -609,6 +646,7 @@ impl BaseChannel for SlackChannel {
                             response.status()
                         );
                         reconnect_attempt = 0;
+                        let conn_start = std::time::Instant::now();
                         let (mut write, mut read) = ws_stream.split();
 
                         while let Some(msg) = read.next().await {
@@ -742,6 +780,26 @@ impl BaseChannel for SlackChannel {
                                 _ => {}
                             }
                         }
+
+                        // Connection dropped — decay backoff if it was stable
+                        let elapsed = conn_start.elapsed().as_secs();
+                        if elapsed > 300 {
+                            reconnect_attempt = 0;
+                        } else if elapsed > 60 && reconnect_attempt > 0 {
+                            reconnect_attempt /= 2;
+                        }
+
+                        // Check if we should still reconnect
+                        if !*running.lock().await {
+                            break;
+                        }
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!(
+                            "Slack Socket Mode connection lost, reconnecting in {} seconds...",
+                            delay
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                     }
                     Err(e) => {
                         let error_str = e.to_string();
@@ -784,6 +842,14 @@ impl BaseChannel for SlackChannel {
         }
         info!("Stopping Slack bot...");
         Ok(())
+    }
+
+    async fn is_healthy(&self) -> bool {
+        if let Some(ref handle) = self.ws_handle {
+            !handle.is_finished()
+        } else {
+            false
+        }
     }
 
     async fn send_typing(&self, chat_id: &str) -> Result<()> {

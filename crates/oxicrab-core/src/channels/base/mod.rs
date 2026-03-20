@@ -9,6 +9,13 @@ pub trait BaseChannel: Send + Sync {
     async fn stop(&mut self) -> anyhow::Result<()>;
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
 
+    /// Check if the channel's background task is still running.
+    /// Returns `true` if healthy, `false` if the task has exited or panicked.
+    /// Default: always returns `true` (channels without background tasks).
+    async fn is_healthy(&self) -> bool {
+        true
+    }
+
     /// Send a typing indicator to signal the bot is processing.
     /// Default is a no-op for channels that don't support typing indicators.
     async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {

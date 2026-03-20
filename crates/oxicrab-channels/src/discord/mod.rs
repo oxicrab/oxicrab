@@ -722,6 +722,14 @@ impl BaseChannel for DiscordChannel {
         Ok(())
     }
 
+    async fn is_healthy(&self) -> bool {
+        if let Some(ref handle) = self._client_handle {
+            !handle.is_finished()
+        } else {
+            false
+        }
+    }
+
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         let channel_id = chat_id
             .parse::<u64>()

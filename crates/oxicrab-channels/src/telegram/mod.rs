@@ -296,6 +296,14 @@ impl BaseChannel for TelegramChannel {
         Ok(())
     }
 
+    async fn is_healthy(&self) -> bool {
+        if let Some(ref handle) = self.dispatcher_handle {
+            !handle.is_finished()
+        } else {
+            false
+        }
+    }
+
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         let chat_id = chat_id
             .parse::<i64>()

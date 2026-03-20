@@ -491,6 +491,15 @@ impl BaseChannel for TwilioChannel {
         Ok(())
     }
 
+    async fn is_healthy(&self) -> bool {
+        if let Some(ref handle) = self.server_handle {
+            !handle.is_finished()
+        } else {
+            // Twilio hasn't started yet, or was stopped
+            self.shutdown_tx.is_none()
+        }
+    }
+
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if !msg.media.is_empty() {
             warn!(
