@@ -340,6 +340,130 @@ mod merge_tests {
         assert_eq!(buttons.len(), 1);
         assert_eq!(buttons[0]["id"], "rss-accept-x");
     }
+
+    #[test]
+    fn test_merge_preserves_context_field() {
+        // Tool-suggested buttons carry context (e.g. ActionDispatchPayload JSON).
+        // Verify merge does not strip the context field.
+        let mut meta = HashMap::new();
+        let tool_meta = vec![(
+            "tool".to_string(),
+            HashMap::from([(
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
+                serde_json::json!([
+                    {"id": "rss-accept-x", "label": "Accept", "style": "primary",
+                     "context": "{\"tool\":\"rss\",\"params\":{\"action\":\"accept\"}}"}
+                ]),
+            )]),
+        )];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(
+            buttons[0]["context"],
+            "{\"tool\":\"rss\",\"params\":{\"action\":\"accept\"}}"
+        );
+    }
+
+    #[test]
+    fn test_merge_tool_suggested_order_preserved() {
+        // When multiple tool calls produce buttons across iterations,
+        // the final order should reflect tool order, not be randomized.
+        let tool_meta = vec![
+            (
+                "todoist".to_string(),
+                HashMap::from([(
+                    crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
+                    serde_json::json!([
+                        {"id": "task-1", "label": "Complete Task 1", "style": "primary"},
+                    ]),
+                )]),
+            ),
+            (
+                "calendar".to_string(),
+                HashMap::from([(
+                    crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
+                    serde_json::json!([
+                        {"id": "event-1", "label": "RSVP", "style": "success"},
+                    ]),
+                )]),
+            ),
+            (
+                "todoist".to_string(),
+                HashMap::from([(
+                    crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
+                    serde_json::json!([
+                        {"id": "task-2", "label": "Complete Task 2", "style": "primary"},
+                    ]),
+                )]),
+            ),
+        ];
+        let mut meta = HashMap::new();
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 3);
+        // Order: task-1, event-1, task-2 (insertion order across iterations)
+        assert_eq!(buttons[0]["id"], "task-1");
+        assert_eq!(buttons[1]["id"], "event-1");
+        assert_eq!(buttons[2]["id"], "task-2");
+    }
+
+    #[test]
+    fn test_cap_at_five_tool_suggested_take_priority_over_llm() {
+        // 4 tool-suggested + 3 LLM → cap at 5, tool buttons first
+        let tool_meta = vec![(
+            "tool".to_string(),
+            HashMap::from([(
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
+                serde_json::json!([
+                    {"id": "t1", "label": "T1", "style": "primary"},
+                    {"id": "t2", "label": "T2", "style": "primary"},
+                    {"id": "t3", "label": "T3", "style": "primary"},
+                    {"id": "t4", "label": "T4", "style": "primary"},
+                ]),
+            )]),
+        )];
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([
+                {"id": "l1", "label": "L1", "style": "secondary"},
+                {"id": "l2", "label": "L2", "style": "secondary"},
+                {"id": "l3", "label": "L3", "style": "secondary"},
+            ]),
+        )]);
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 5, "total capped at 5");
+        // All 4 tool-suggested should be present
+        let ids: Vec<&str> = buttons.iter().filter_map(|b| b["id"].as_str()).collect();
+        assert!(ids.contains(&"t1"));
+        assert!(ids.contains(&"t2"));
+        assert!(ids.contains(&"t3"));
+        assert!(ids.contains(&"t4"));
+        // Only 1 LLM button fits
+        assert!(ids.contains(&"l1"), "first LLM button should make the cut");
+    }
+
+    #[test]
+    fn test_buttons_without_id_are_ignored() {
+        // Malformed buttons (no ID) should not crash or produce duplicates
+        let tool_meta = vec![(
+            "tool".to_string(),
+            HashMap::from([(
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
+                serde_json::json!([
+                    {"label": "No ID", "style": "primary"},
+                    {"id": "valid", "label": "Valid", "style": "primary"},
+                ]),
+            )]),
+        )];
+        let mut meta = HashMap::new();
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        // The no-id button is skipped by the dedup logic (seen_ids.insert fails for None)
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(buttons[0]["id"], "valid");
+    }
 }
 
 #[cfg(test)]

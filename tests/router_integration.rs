@@ -489,3 +489,79 @@ async fn test_direct_dispatch_with_cron_action_source() {
         "cron dispatch should produce output"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Router context persistence across process_direct calls
+// ---------------------------------------------------------------------------
+
+/// Verify that router context (active_tool + directives) survives across
+/// multiple process_direct_with_overrides calls via session metadata.
+/// This ensures that when a tool sets directives in call 1, those directives
+/// are available for routing decisions in call 2.
+#[tokio::test]
+async fn test_router_context_persists_across_process_direct_calls() {
+    let tmp = TempDir::new().expect("create temp dir");
+    let session_key = "test:router_persist";
+
+    // Call 1: Direct dispatch to list_dir via button action.
+    // The tool itself doesn't set directives, but the router context
+    // should persist the dispatch history in session metadata.
+    let provider1 = MockLLMProvider::with_responses(vec![]);
+    let agent = create_test_agent_with(provider1, &tmp, TestAgentOverrides::default()).await;
+
+    let dispatch = ActionDispatch {
+        tool: "list_dir".into(),
+        params: json!({"path": tmp.path().to_str().unwrap()}),
+        source: ActionSource::Button {
+            action_id: "btn-list".into(),
+        },
+    };
+    let overrides = AgentRunOverrides {
+        action: Some(dispatch),
+        ..Default::default()
+    };
+
+    let result1 = agent
+        .process_direct_with_overrides("", session_key, "telegram", "chat1", &overrides)
+        .await
+        .expect("first dispatch");
+
+    assert!(
+        !result1.content.is_empty(),
+        "first dispatch should produce tool output"
+    );
+
+    // Call 2: Normal message through the same session.
+    // The LLM should be called (FullLLM path) since list_dir doesn't
+    // install directives. The key test: no crash from router context
+    // serialization/deserialization, and session history is preserved.
+    let provider2 = MockLLMProvider::with_responses(vec![text_response("I see the files.")]);
+    let calls2 = provider2.calls.clone();
+    let agent2 = create_test_agent_with(provider2, &tmp, TestAgentOverrides::default()).await;
+
+    let response2 = agent2
+        .process_direct("What files are there?", session_key, "telegram", "chat1")
+        .await
+        .expect("second call");
+
+    assert_eq!(response2, "I see the files.");
+
+    // Verify the LLM received session history from the first dispatch
+    let recorded = calls2.lock().expect("lock calls");
+    assert_eq!(recorded.len(), 1, "LLM should be called once");
+    let messages = &recorded[0].messages;
+    // History should contain at least: system + previous user action + previous assistant + current user
+    assert!(
+        messages.len() >= 4,
+        "session history should include previous dispatch, got {} messages",
+        messages.len()
+    );
+    // The previous dispatch should appear in history
+    let has_action_msg = messages
+        .iter()
+        .any(|m| m.role == "user" && m.content.contains("[action:"));
+    assert!(
+        has_action_msg,
+        "session history should contain the previous action dispatch record"
+    );
+}

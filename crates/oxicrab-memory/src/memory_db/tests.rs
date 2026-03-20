@@ -1,20 +1,6 @@
 use super::*;
 
 #[test]
-fn test_hash_text_deterministic() {
-    let h1 = hash_text("hello world");
-    let h2 = hash_text("hello world");
-    assert_eq!(h1, h2);
-}
-
-#[test]
-fn test_hash_text_different_inputs() {
-    let h1 = hash_text("hello");
-    let h2 = hash_text("world");
-    assert_ne!(h1, h2);
-}
-
-#[test]
 fn test_fts_query_simple() {
     let q = fts_query("hello world");
     assert!(q.contains("hello"));
@@ -306,14 +292,6 @@ fn test_token_record_and_summary() {
     assert_eq!(summary[0].total_input_tokens, 3000);
     assert_eq!(summary[0].total_output_tokens, 1500);
     assert_eq!(summary[0].call_count, 2);
-}
-
-#[test]
-fn test_fusion_strategy_default_is_weighted_score() {
-    assert_eq!(
-        oxicrab_core::config::schema::FusionStrategy::default(),
-        oxicrab_core::config::schema::FusionStrategy::WeightedScore
-    );
 }
 
 #[test]

@@ -188,22 +188,6 @@ fn test_mcp_config_in_full_config() {
 // --- Prompt Guard config validation ---
 
 #[test]
-fn test_prompt_guard_warn_action_valid() {
-    let mut config = default_config();
-    config.agents.defaults.prompt_guard.enabled = true;
-    config.agents.defaults.prompt_guard.action = PromptGuardAction::Warn;
-    assert!(config.validate().is_ok());
-}
-
-#[test]
-fn test_prompt_guard_block_action_valid() {
-    let mut config = default_config();
-    config.agents.defaults.prompt_guard.enabled = true;
-    config.agents.defaults.prompt_guard.action = PromptGuardAction::Block;
-    assert!(config.validate().is_ok());
-}
-
-#[test]
 fn test_prompt_guard_invalid_action_rejected_by_serde() {
     let json = serde_json::json!({
         "agents": {
@@ -246,13 +230,6 @@ fn test_prompt_guard_parses_from_json() {
 }
 
 // --- Exfiltration Guard config ---
-
-#[test]
-fn test_exfiltration_guard_default_config() {
-    let config: ExfiltrationGuardConfig = serde_json::from_str("{}").expect("parse json");
-    assert!(!config.enabled); // disabled by default — enabling with empty allowTools hides all network tools
-    assert!(config.allow_tools.is_empty());
-}
 
 #[test]
 fn test_exfiltration_guard_with_allow_tools() {

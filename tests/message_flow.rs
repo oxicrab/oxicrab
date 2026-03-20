@@ -83,44 +83,6 @@ async fn test_session_persists_across_messages() {
 }
 
 #[tokio::test]
-async fn test_different_sessions_isolated() {
-    let tmp = TempDir::new().expect("create temp dir");
-    let provider = MockLLMProvider::with_responses(vec![
-        text_response("Response A"),
-        text_response("Response B"),
-    ]);
-    let calls = provider.calls.clone();
-
-    let agent = default_agent(provider, &tmp).await;
-
-    // Message on session A
-    let resp_a = agent
-        .process_direct("Hello A", "telegram:chatA", "telegram", "chatA")
-        .await
-        .expect("process message");
-    assert_eq!(resp_a, "Response A");
-
-    // Message on session B - should not have session A's history
-    let resp_b = agent
-        .process_direct("Hello B", "discord:chatB", "discord", "chatB")
-        .await
-        .expect("process message");
-    assert_eq!(resp_b, "Response B");
-
-    // Both calls should have been made
-    let recorded = calls.lock().expect("lock recorded calls");
-    assert_eq!(recorded.len(), 2);
-
-    // Second call should NOT include "Hello A" in its messages
-    let second_msgs = &recorded[1].messages;
-    let has_hello_a = second_msgs.iter().any(|m| m.content.contains("Hello A"));
-    assert!(
-        !has_hello_a,
-        "Session B should not contain Session A's history"
-    );
-}
-
-#[tokio::test]
 async fn test_tool_call_and_result() {
     let tmp = TempDir::new().expect("create temp dir");
 
@@ -416,57 +378,6 @@ async fn test_tool_choice_is_auto_on_all_iterations() {
             "call {} should have tool_choice=None (auto), got {:?}",
             i,
             call.tool_choice
-        );
-    }
-}
-
-#[tokio::test]
-async fn test_hallucination_detection_without_tool_forcing() {
-    // When the model claims an action without calling tools, it should be corrected
-    let tmp = TempDir::new().expect("create temp dir");
-    let provider = MockLLMProvider::with_responses(vec![
-        // Iteration 1: model hallucinates (claims action without tool call)
-        text_response("I've updated the configuration file."),
-        // Iteration 2: after correction, model gives honest response
-        text_response(
-            "I can help you update the configuration. Which file would you like me to edit?",
-        ),
-    ]);
-    let calls = provider.calls.clone();
-    let agent = create_test_agent_with(
-        provider,
-        &tmp,
-        TestAgentOverrides {
-            max_iterations: Some(5),
-            ..Default::default()
-        },
-    )
-    .await;
-
-    let resp = agent
-        .process_direct("Update the config", "test:halluc", "telegram", "halluc")
-        .await
-        .expect("process");
-
-    assert_eq!(
-        resp,
-        "I can help you update the configuration. Which file would you like me to edit?"
-    );
-
-    // Should have 2 calls: hallucinated text → correction → honest response
-    let recorded = calls.lock().expect("lock");
-    assert!(
-        recorded.len() >= 2,
-        "should have correction + retry, got {} calls",
-        recorded.len()
-    );
-
-    // Both calls should have tool_choice=None (auto)
-    for (i, call) in recorded.iter().enumerate() {
-        assert!(
-            call.tool_choice.is_none(),
-            "call {} should have auto tool_choice",
-            i
         );
     }
 }

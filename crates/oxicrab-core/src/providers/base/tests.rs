@@ -41,27 +41,6 @@ fn llm_response_has_tool_calls() {
     assert!(with_tools.has_tool_calls());
 }
 
-struct NoopProvider;
-
-#[async_trait]
-impl LLMProvider for NoopProvider {
-    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
-        Ok(LLMResponse {
-            content: Some("ok".into()),
-            ..Default::default()
-        })
-    }
-    fn default_model(&self) -> &'static str {
-        "noop"
-    }
-}
-
-#[tokio::test]
-async fn default_warmup_returns_ok() {
-    let provider = NoopProvider;
-    assert!(provider.warmup().await.is_ok());
-}
-
 #[test]
 fn message_assistant_with_thinking() {
     let msg = Message::assistant_with_thinking(
@@ -81,45 +60,6 @@ fn message_assistant_with_thinking() {
 fn message_assistant_with_thinking_none() {
     let msg = Message::assistant_with_thinking("answer", None, None, None);
     assert!(msg.reasoning_content.is_none());
-}
-
-#[test]
-fn message_assistant_default_has_no_reasoning() {
-    let msg = Message::assistant("answer", None);
-    assert!(msg.reasoning_content.is_none());
-}
-
-#[test]
-fn response_format_json_object() {
-    let fmt = ResponseFormat::JsonObject;
-    assert!(matches!(fmt, ResponseFormat::JsonObject));
-}
-
-#[test]
-fn response_format_json_schema() {
-    let fmt = ResponseFormat::JsonSchema {
-        name: "person".into(),
-        schema: serde_json::json!({"type": "object"}),
-    };
-    match fmt {
-        ResponseFormat::JsonSchema { name, schema } => {
-            assert_eq!(name, "person");
-            assert_eq!(schema["type"], "object");
-        }
-        ResponseFormat::JsonObject => panic!("expected JsonSchema"),
-    }
-}
-
-#[test]
-fn test_chat_request_builder_defaults() {
-    let req = ChatRequest::builder(vec![Message::user("hi")], 100).build();
-    assert_eq!(req.messages.len(), 1);
-    assert_eq!(req.max_tokens, 100);
-    assert!(req.model.is_none());
-    assert!(req.temperature.is_none());
-    assert!(req.tools.is_none());
-    assert!(req.tool_choice.is_none());
-    assert!(req.response_format.is_none());
 }
 
 #[test]

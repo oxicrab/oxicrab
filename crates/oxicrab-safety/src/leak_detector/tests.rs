@@ -194,21 +194,6 @@ fn test_redact_covers_known_secrets() {
     assert!(!redacted.contains(&b64));
 }
 
-#[test]
-fn test_decode_hex_valid() {
-    assert_eq!(hex::decode("48656c6c6f").ok(), Some(b"Hello".to_vec()));
-}
-
-#[test]
-fn test_decode_hex_odd_length() {
-    assert!(hex::decode("123").is_err());
-}
-
-#[test]
-fn test_decode_hex_invalid_chars() {
-    assert!(hex::decode("zzzz").is_err());
-}
-
 // --- Aho-Corasick two-phase tests ---
 
 #[test]

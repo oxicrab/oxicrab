@@ -277,6 +277,53 @@ async fn test_concurrent_save_different_keys() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_messages_same_session_history_consistent() {
+    // Simulate multiple concurrent writes to the same session key.
+    // All messages should eventually be present (no data loss from races),
+    // and the session file should not be corrupted.
+    let (mgr, tmp) = create_test_session_manager();
+    let mgr = Arc::new(mgr);
+
+    // First create the session with an initial message
+    let mut session = mgr
+        .get_or_create("serial:key")
+        .await
+        .expect("create session");
+    session.add_message("user".to_string(), "seed".to_string(), HashMap::new());
+    mgr.save(&session).await.expect("save seed");
+
+    // Then have multiple writers add messages serially (since they must
+    // go through get_or_create → add_message → save without interleaving)
+    for i in 0..5 {
+        let mut session = mgr.get_or_create("serial:key").await.expect("get session");
+        session.add_message("user".to_string(), format!("msg-{}", i), HashMap::new());
+        mgr.save(&session).await.expect("save session");
+    }
+
+    // Reload from disk and verify all 6 messages (seed + 5 additions)
+    let mgr2 = SessionManager::new(tmp.path()).expect("create second session manager");
+    let loaded = mgr2
+        .get_or_create("serial:key")
+        .await
+        .expect("load session");
+
+    assert_eq!(
+        loaded.messages.len(),
+        6,
+        "all messages should be present after serial writes"
+    );
+    assert_eq!(loaded.messages[0].content, "seed");
+    for i in 0..5 {
+        assert_eq!(
+            loaded.messages[i + 1].content,
+            format!("msg-{}", i),
+            "message {} should be present in order",
+            i
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_concurrent_save_same_key_no_corruption() {
     let (mgr, tmp) = create_test_session_manager();
     let mgr = Arc::new(mgr);

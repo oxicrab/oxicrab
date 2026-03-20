@@ -535,3 +535,224 @@ async fn flush_to_memory_preserves_output_with_normal_finish_reason() {
         "normal finish_reason=stop should preserve output"
     );
 }
+
+// ── split_at_turn_boundary tests ─────────────────────────
+
+fn role_msg(role: &str) -> HashMap<String, Value> {
+    HashMap::from([
+        ("role".into(), json!(role)),
+        ("content".into(), json!("test")),
+    ])
+}
+
+#[test]
+fn split_at_turn_boundary_basic_two_turns() {
+    // 2 turns: [user, assistant] + [user, assistant, tool, assistant]
+    let msgs = vec![
+        role_msg("user"),
+        role_msg("assistant"),
+        role_msg("user"),
+        role_msg("assistant"),
+        role_msg("tool"),
+        role_msg("assistant"),
+    ];
+    // Keep 1 turn → split at index 2 (start of second user message)
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 2);
+    // Keep 2 turns → split at index 0 (keep everything)
+    assert_eq!(split_at_turn_boundary(&msgs, 2), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_no_user_messages() {
+    // No user messages — no turns to find
+    let msgs = vec![
+        role_msg("assistant"),
+        role_msg("tool"),
+        role_msg("assistant"),
+    ];
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_single_turn() {
+    let msgs = vec![role_msg("user"), role_msg("assistant")];
+    // Keep 1 turn → everything is one turn, keep all
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_empty() {
+    let msgs: Vec<HashMap<String, Value>> = vec![];
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_keep_zero() {
+    // keep_turns=0 returns 0 (nothing to keep)
+    let msgs = vec![role_msg("user"), role_msg("assistant")];
+    assert_eq!(split_at_turn_boundary(&msgs, 0), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_more_turns_requested_than_available() {
+    // Only 2 turns but requesting 5 → keep all (split at earliest user)
+    let msgs = vec![
+        role_msg("user"),
+        role_msg("assistant"),
+        role_msg("user"),
+        role_msg("assistant"),
+    ];
+    assert_eq!(split_at_turn_boundary(&msgs, 5), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_three_turns() {
+    // 3 turns: [user, asst] [user, tool, asst] [user, asst]
+    let msgs = vec![
+        role_msg("user"),      // 0 - turn 1 start
+        role_msg("assistant"), // 1
+        role_msg("user"),      // 2 - turn 2 start
+        role_msg("tool"),      // 3
+        role_msg("assistant"), // 4
+        role_msg("user"),      // 5 - turn 3 start
+        role_msg("assistant"), // 6
+    ];
+    // Keep 1 → split at 5 (only last turn)
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 5);
+    // Keep 2 → split at 2 (turns 2 and 3)
+    assert_eq!(split_at_turn_boundary(&msgs, 2), 2);
+    // Keep 3 → split at 0 (all turns)
+    assert_eq!(split_at_turn_boundary(&msgs, 3), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_consecutive_user_messages() {
+    // Each user message starts its own turn even if consecutive
+    let msgs = vec![
+        role_msg("user"),      // 0 - turn 1
+        role_msg("user"),      // 1 - turn 2
+        role_msg("assistant"), // 2
+    ];
+    // Keep 1 → split at 1 (second user message starts last turn)
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 1);
+    // Keep 2 → split at 0
+    assert_eq!(split_at_turn_boundary(&msgs, 2), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_tool_heavy_single_turn() {
+    // Single turn with many tool calls
+    let msgs = vec![
+        role_msg("user"),
+        role_msg("assistant"),
+        role_msg("tool"),
+        role_msg("assistant"),
+        role_msg("tool"),
+        role_msg("assistant"),
+        role_msg("tool"),
+        role_msg("assistant"),
+    ];
+    // Keep 1 → only one turn, keep all
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 0);
+}
+
+// ── Anthropic-style tool_use with mixed orphans ──────────
+
+#[test]
+fn strip_orphans_anthropic_mixed_tool_use_partial_results() {
+    // Anthropic-style assistant with two tool_use blocks in content,
+    // but only one has a matching result — the orphaned one should be stripped.
+    let mut msgs = vec![
+        user_msg("analyze these"),
+        HashMap::from([
+            ("role".into(), json!("assistant")),
+            (
+                "content".into(),
+                json!([
+                    {"type": "text", "text": "Let me check that."},
+                    {"type": "tool_use", "id": "tu_1", "name": "read_file", "input": {"path": "test.txt"}},
+                    {"type": "tool_use", "id": "tu_2", "name": "list_dir", "input": {"path": "."}},
+                ]),
+            ),
+        ]),
+        // Only tu_1 has a result — tu_2 is orphaned
+        tool_result_msg("tu_1", "file contents here"),
+    ];
+
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0, "no orphaned results");
+    assert_eq!(orphaned_calls, 1, "tu_2 has no result");
+
+    // Verify tu_2 was stripped from the content array
+    let content = msgs[1]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2, "text + tu_1 should remain");
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "tool_use");
+    assert_eq!(content[1]["id"], "tu_1");
+}
+
+#[test]
+fn strip_orphans_mixed_openai_and_anthropic_styles() {
+    // Message with both OpenAI-style tool_calls AND Anthropic-style content blocks.
+    // Both orphans should be detected and stripped.
+    let mut msgs = vec![
+        user_msg("test hybrid"),
+        HashMap::from([
+            ("role".into(), json!("assistant")),
+            (
+                "content".into(),
+                json!([
+                    {"type": "text", "text": "processing"},
+                    {"type": "tool_use", "id": "ant_1", "name": "read", "input": {}},
+                ]),
+            ),
+            (
+                "tool_calls".into(),
+                json!([
+                    {"id": "oai_1", "name": "write", "input": {}}
+                ]),
+            ),
+        ]),
+        // Both tool calls have results
+        tool_result_msg("ant_1", "read result"),
+        tool_result_msg("oai_1", "write result"),
+    ];
+
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 0);
+    assert_eq!(msgs.len(), 4);
+
+    // Now remove one result to create an orphan
+    msgs.remove(3); // remove oai_1 result
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 1, "oai_1 should be orphaned");
+    // oai_1 should be stripped from tool_calls
+    assert!(
+        !msgs[1].contains_key("tool_calls"),
+        "empty tool_calls key should be removed"
+    );
+    // Anthropic tool_use should still be present
+    let content = msgs[1]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[1]["id"], "ant_1");
+}
+
+#[test]
+fn strip_orphans_tool_result_with_null_id() {
+    // A tool result with a null tool_call_id is malformed and should be removed
+    let mut msgs = vec![
+        user_msg("test"),
+        HashMap::from([
+            ("role".into(), json!("tool")),
+            ("content".into(), json!("malformed")),
+            ("tool_call_id".into(), Value::Null),
+        ]),
+        assistant_msg("ok"),
+    ];
+    let (orphaned_results, _) = strip_orphaned_tool_messages(&mut msgs);
+    // Null ID means as_str() returns None → removed as malformed
+    assert_eq!(orphaned_results, 1);
+    assert_eq!(msgs.len(), 2);
+}

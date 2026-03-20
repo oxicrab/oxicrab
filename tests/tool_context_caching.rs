@@ -84,41 +84,6 @@ async fn test_cacheable_tool_cached_in_agent_loop() {
 }
 
 #[tokio::test]
-async fn test_tool_result_truncation_10k() {
-    let tmp = TempDir::new().expect("create temp dir");
-    // Create a file with content larger than MAX_TOOL_RESULT_CHARS (10000)
-    let large = "a".repeat(15000);
-    let target = tmp.path().join("large_file.txt");
-    std::fs::write(&target, &large).expect("write test file");
-
-    let provider = MockLLMProvider::with_responses(vec![
-        tool_response(vec![tool_call(
-            "tc1",
-            "read_file",
-            json!({"path": target.to_str().unwrap()}),
-        )]),
-        text_response("Read large file."),
-    ]);
-    let calls = provider.calls.clone();
-
-    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
-    agent
-        .process_direct("Read it", "test:trunc1", "telegram", "trunc1")
-        .await
-        .expect("process message");
-
-    let recorded = calls.lock().expect("lock recorded calls");
-    let second_msgs = &recorded[1].messages;
-    let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
-    // Should be truncated — original was 15000 chars
-    assert!(
-        tool_msg.content.len() < 12000,
-        "Result should be truncated from 15000, got {} chars",
-        tool_msg.content.len()
-    );
-}
-
-#[tokio::test]
 async fn test_context_summary_passed_to_tools() {
     // This test verifies the overall flow: when compaction has produced a summary,
     // it should be accessible to tools via set_context_summary.

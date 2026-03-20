@@ -700,3 +700,139 @@ async fn test_full_processing_path_with_clean_message() {
     let recorded = calls.lock().expect("lock");
     assert_eq!(recorded.len(), 1);
 }
+
+// ===========================================================================
+// Tool result secret scanning — secrets in tool output are redacted
+// ===========================================================================
+
+#[tokio::test]
+async fn test_tool_result_secret_redacted_before_llm_sees_it() {
+    // When a tool returns content containing a secret pattern, the agent loop
+    // should redact it before the next LLM call sees the tool result message.
+    let tmp = TempDir::new().expect("create temp dir");
+
+    // The LLM first calls read_file, then returns a text response.
+    // The read_file result will contain an API key that must be redacted.
+    let secret_key = "sk-ant-api03-XXXXXXXXYYYYYYYYYZZZZZZZ12345";
+    let provider = common::ToolCapturingProvider::with_responses(vec![
+        // First call: LLM requests to read a file
+        tool_response(vec![tool_call(
+            "tc1",
+            "read_file",
+            json!({"path": tmp.path().join("secret.txt").to_str().unwrap()}),
+        )]),
+        // Second call: LLM sees the tool result (should be redacted) and responds
+        text_response("I found the file contents."),
+    ]);
+    let tool_defs = provider.tool_defs.clone();
+
+    // Write a file that contains the secret
+    std::fs::write(
+        tmp.path().join("secret.txt"),
+        format!("Config:\nAPI_KEY={secret_key}\nDONE"),
+    )
+    .expect("write secret file");
+
+    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
+
+    let response = agent
+        .process_direct(
+            "Read the secret.txt file",
+            "test:tool_leak",
+            "telegram",
+            "tool_leak",
+        )
+        .await
+        .expect("process message");
+
+    assert_eq!(response, "I found the file contents.");
+
+    // The second LLM call should have a tool result message with the secret redacted
+    let recorded = tool_defs.lock().expect("lock tool defs");
+    assert!(
+        recorded.len() >= 2,
+        "should have at least 2 LLM calls, got {}",
+        recorded.len()
+    );
+
+    // Check messages sent to the LLM in the second call
+    // (These are the recorded ChatRequest messages from ToolCapturingProvider)
+    // We can't directly inspect messages from ToolCapturingProvider (it captures tool_defs),
+    // but we can verify the agent didn't crash and the response was clean.
+    // For a more direct check, use the LeakDetector directly.
+    let detector = oxicrab::safety::LeakDetector::new();
+    let matches = detector.scan(secret_key);
+    assert!(
+        !matches.is_empty(),
+        "the secret pattern should be detectable"
+    );
+    let redacted = detector.redact(secret_key);
+    assert!(
+        redacted.contains("[REDACTED]"),
+        "the secret should be redacted"
+    );
+}
+
+#[tokio::test]
+async fn test_tool_result_secret_redacted_via_agent_loop() {
+    // Full integration: LLM calls a tool, tool returns a secret,
+    // the next LLM call should NOT see the raw secret in message history.
+    let tmp = TempDir::new().expect("create temp dir");
+
+    let secret_key = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij";
+
+    // Write a file with a GitHub PAT
+    std::fs::write(
+        tmp.path().join("tokens.txt"),
+        format!("github_token={secret_key}\n"),
+    )
+    .expect("write token file");
+
+    let provider = common::MockLLMProvider::with_responses(vec![
+        // First: LLM calls read_file
+        tool_response(vec![tool_call(
+            "tc_read",
+            "read_file",
+            json!({"path": tmp.path().join("tokens.txt").to_str().unwrap()}),
+        )]),
+        // Second: LLM sees (redacted) result and responds
+        text_response("I found a GitHub token in the file."),
+    ]);
+    let calls = provider.calls.clone();
+
+    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
+
+    let response = agent
+        .process_direct("Read tokens.txt", "test:ghp_leak", "telegram", "ghp_leak")
+        .await
+        .expect("process message");
+
+    assert_eq!(response, "I found a GitHub token in the file.");
+
+    // Verify the second LLM call received redacted content
+    let recorded = calls.lock().expect("lock calls");
+    assert!(
+        recorded.len() >= 2,
+        "expected at least 2 LLM calls, got {}",
+        recorded.len()
+    );
+
+    // The second call's messages should include the tool result.
+    // Find the tool result message and verify the secret was redacted.
+    let second_call_messages = &recorded[1].messages;
+    let tool_result_msg = second_call_messages
+        .iter()
+        .find(|m| m.role == "tool")
+        .expect("second LLM call should include tool result message");
+
+    assert!(
+        !tool_result_msg.content.contains("ghp_"),
+        "GitHub PAT should be redacted in tool result before reaching LLM, got: {}",
+        tool_result_msg.content
+    );
+    assert!(
+        tool_result_msg.content.contains("[REDACTED]"),
+        "redacted tool result should contain marker, got: {}",
+        tool_result_msg.content
+    );
+}

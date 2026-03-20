@@ -1,20 +1,6 @@
 use super::*;
 
 #[test]
-fn rate_limit_is_provider_error() {
-    let err = OxicrabError::RateLimit {
-        retry_after: Some(30),
-    };
-    assert!(matches!(err, OxicrabError::RateLimit { .. }));
-}
-
-#[test]
-fn auth_error_variant() {
-    let err = OxicrabError::Auth("invalid key".into());
-    assert!(matches!(err, OxicrabError::Auth(..)));
-}
-
-#[test]
 fn is_retryable_provider() {
     let retryable = OxicrabError::Provider {
         message: "timeout".into(),

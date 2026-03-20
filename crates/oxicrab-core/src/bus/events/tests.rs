@@ -32,13 +32,6 @@ fn test_session_key_different_chats() {
 }
 
 #[test]
-fn test_session_key_same_inputs() {
-    let a = make_inbound("slack", "C123");
-    let b = make_inbound("slack", "C123");
-    assert_eq!(a.session_key(), b.session_key());
-}
-
-#[test]
 fn test_inbound_serde_roundtrip() {
     let msg = make_inbound("telegram", "42");
     let json = serde_json::to_string(&msg).unwrap();
