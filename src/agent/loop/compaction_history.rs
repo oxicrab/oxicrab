@@ -141,26 +141,22 @@ impl AgentLoop {
         // Compact old messages. Strip checkpoint/recovery annotations from the
         // previous summary before feeding it to the compaction LLM, so they don't
         // accumulate across cycles (annotations are re-appended below).
-        let clean_summary = previous_summary
-            .split("\n\n[Checkpoint]")
-            .next()
-            .unwrap_or(&previous_summary)
-            .split("\n\n[Cognitive")
-            .next()
-            .unwrap_or(&previous_summary)
-            .split("\n\n[Recovery")
-            .next()
-            .unwrap_or(&previous_summary);
+        // Annotations are prefixed with SOH (\x01) so they can't collide with
+        // LLM-generated text. For backward compatibility, also strip legacy
+        // annotations without the sentinel.
+        let clean_summary = strip_annotations(&previous_summary);
         if let Some(ref compactor) = self.compactor {
             match compactor.compact(old_messages, clean_summary).await {
                 Ok(summary) => {
-                    // Build recovery-enriched summary
+                    // Build recovery-enriched summary. Annotations are prefixed
+                    // with SOH (\x01) so `strip_annotations()` can reliably
+                    // remove them without colliding with LLM-generated text.
                     let mut recovery_summary = summary.clone();
                     if let Some(ref cp) = checkpoint {
-                        let _ = write!(recovery_summary, "\n\n[Checkpoint] {cp}");
+                        let _ = write!(recovery_summary, "\n\n\x01[Checkpoint] {cp}");
                     }
                     if let Some(ref crumb) = cognitive_crumb {
-                        let _ = write!(recovery_summary, "\n\n{crumb}");
+                        let _ = write!(recovery_summary, "\n\n\x01{crumb}");
                     }
                     if !last_user_msg.is_empty() {
                         // Truncate last user message to avoid bloating the summary
@@ -170,7 +166,7 @@ impl AgentLoop {
                             .collect();
                         let _ = write!(
                             recovery_summary,
-                            "\n\n[Recovery] The conversation was compacted. \
+                            "\n\n\x01[Recovery] The conversation was compacted. \
                              Continue from where you left off. Last user request: {truncated_msg}"
                         );
                     }
@@ -273,4 +269,23 @@ impl AgentLoop {
             Ok(recent_messages.to_vec())
         }
     }
+}
+
+/// Strip checkpoint/cognitive/recovery annotations from a compaction summary.
+///
+/// Current annotations use a SOH (`\x01`) sentinel prefix. For backward
+/// compatibility with summaries written before the sentinel was added, we
+/// also strip the legacy bare markers.
+fn strip_annotations(summary: &str) -> &str {
+    // Sentinel-prefixed markers (current format)
+    let s = summary
+        .split("\n\n\x01[Checkpoint]")
+        .next()
+        .unwrap_or(summary);
+    let s = s.split("\n\n\x01[Cognitive").next().unwrap_or(s);
+    let s = s.split("\n\n\x01[Recovery").next().unwrap_or(s);
+    // Legacy markers (no sentinel)
+    let s = s.split("\n\n[Checkpoint]").next().unwrap_or(s);
+    let s = s.split("\n\n[Cognitive").next().unwrap_or(s);
+    s.split("\n\n[Recovery").next().unwrap_or(s)
 }

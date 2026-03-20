@@ -36,9 +36,27 @@ pub(super) fn handle_text_response(
     tool_names: &[String],
 ) -> TextAction {
     // Layer 1 only: action claims without tool calls. Single retry.
+    //
+    // Skip when the user's message is a "remember" request — the LLM echoing
+    // back "I'll remember..." or "I've saved..." is legitimate, not hallucination.
+    let is_remember_echo = messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .is_some_and(|m| {
+            let lower = m.content.to_lowercase();
+            lower.starts_with("remember ")
+                || lower.starts_with("please remember ")
+                || lower.starts_with("don't forget ")
+                || lower.starts_with("note that ")
+                || lower.starts_with("keep in mind ")
+                || lower.starts_with("remember that ")
+                || lower.starts_with("remember: ")
+        });
     if !*layer1_fired
         && !any_tools_called
         && !tool_names.is_empty()
+        && !is_remember_echo
         && contains_action_claims(content)
     {
         warn!("hallucination layer 1: action claims detected without tool calls");

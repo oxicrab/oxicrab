@@ -393,7 +393,7 @@ fn is_pure_greeting_or_filler(content: &str) -> bool {
     }
     let normalized = trimmed
         .to_lowercase()
-        .trim_end_matches(|c: char| c.is_ascii_punctuation())
+        .trim_end_matches(|c: char| !c.is_alphanumeric() && !c.is_whitespace())
         .to_string();
     if normalized.is_empty() {
         return true;

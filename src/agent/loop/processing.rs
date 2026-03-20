@@ -549,24 +549,19 @@ impl AgentLoop {
             strip_audio_tags(&msg.content)
         };
 
-        // Inbound secret scanning: redact secrets before they reach the LLM or
-        // get persisted in session history / memory.
-        let redacted = self.leak_detector.redact(&content);
-        if redacted == content {
+        // Inbound secret scanning: detect first (cheaper), then redact only if
+        // secrets were found. Avoids the cost of a second full scan.
+        let matches = self.leak_detector.scan(&content);
+        if matches.is_empty() {
             return content;
         }
 
-        let names: Vec<&str> = self
-            .leak_detector
-            .scan(&content)
-            .iter()
-            .map(|m| m.name)
-            .collect();
+        let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
         warn!(
-            "security: secret detected in inbound message from {}:{}: {:?} — redacted",
+            "security: secret detected in inbound message from {}:{}: {:?} — redacting",
             msg.channel, msg.sender_id, names
         );
-        redacted
+        self.leak_detector.redact(&content)
     }
 
     fn encode_non_audio_media(media: &[String]) -> Vec<crate::providers::base::ImageData> {
@@ -630,8 +625,16 @@ impl AgentLoop {
         // Lock the target session to prevent concurrent modification.
         // process_message() locks on msg.session_key() which is "system:{chat_id}",
         // but we modify the origin session "{origin_channel}:{origin_chat_id}".
+        // Use try_lock first to avoid potential ABBA deadlock when two system
+        // messages with crossed targets arrive simultaneously.
         let target_lock = self.session_lock(&session_key);
-        let _target_guard = target_lock.lock().await;
+        let _target_guard = if let Ok(guard) = target_lock.try_lock() {
+            guard
+        } else {
+            warn!("could not acquire origin session lock for system message, retrying");
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            target_lock.lock().await
+        };
         let session = self.sessions.get_or_create(&session_key).await?;
         let request_id = format!("req-{}", Uuid::new_v4());
 
@@ -1503,10 +1506,18 @@ impl AgentLoop {
                 .request_id
                 .clone()
                 .unwrap_or_else(|| format!("req-{}", Uuid::new_v4()));
+            // Extract context_summary from session so tools have compaction
+            // context, matching handle_direct_dispatch behavior.
+            let session = self.sessions.get_or_create(session_key).await?;
+            let context_summary = session
+                .metadata
+                .get("compaction_summary")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             let ctx = Self::build_execution_context_with_metadata(
                 channel,
                 chat_id,
-                None,
+                context_summary,
                 overrides.metadata.clone(),
                 &request_id,
                 &format!("{channel}:{chat_id}"),
@@ -1626,10 +1637,15 @@ impl AgentLoop {
             .request_id
             .as_deref()
             .unwrap_or(&request_id);
+        let context_summary = session
+            .metadata
+            .get("compaction_summary")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         let exec_ctx = Self::build_execution_context_with_metadata(
             channel,
             chat_id,
-            None,
+            context_summary,
             overrides.metadata.clone(),
             effective_request_id,
             session_key,

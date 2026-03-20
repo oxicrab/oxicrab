@@ -48,7 +48,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
@@ -94,6 +94,7 @@ pub struct AgentLoop {
     /// sessions to be processed concurrently.
     session_locks: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
+    shutdown_notify: Arc<Notify>,
     task_tracker: Arc<TaskTracker>,
     temperature: Option<f32>,
     tool_temperature: Option<f32>,
@@ -428,6 +429,7 @@ impl AgentLoop {
             _subagents: Some(subagents),
             session_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
             running: Arc::new(tokio::sync::Mutex::new(false)),
+            shutdown_notify: Arc::new(Notify::new()),
             task_tracker: Arc::new(TaskTracker::new()),
             temperature,
             tool_temperature,
@@ -516,11 +518,11 @@ impl AgentLoop {
         }
     }
 
-    /// Run the agent loop, processing inbound messages until the channel closes.
+    /// Run the agent loop, processing inbound messages until the channel closes
+    /// or [`stop()`](Self::stop) is called.
     ///
-    /// **Shutdown:** The caller must cancel the spawned task (e.g. via `tokio::select!`)
-    /// to stop the loop. The `stop()` method sets an advisory flag but does not
-    /// wake the blocked `recv()` call.
+    /// **Shutdown:** Calling `stop()` signals the shutdown notify, which wakes the
+    /// blocked `recv()` via `tokio::select!`.
     pub async fn run(&self) -> Result<()> {
         *self.running.lock().await = true;
         info!("agent loop started, waiting for messages");
@@ -534,11 +536,16 @@ impl AgentLoop {
                 break;
             }
 
-            // Check for messages - lock receiver only for recv()
-            // Note: This is necessary because receivers are !Sync
+            // Race inbound recv against shutdown signal so stop() wakes the loop.
             let msg_opt = {
                 let mut rx = self.inbound_rx.lock().await;
-                rx.recv().await
+                tokio::select! {
+                    msg = rx.recv() => msg,
+                    () = self.shutdown_notify.notified() => {
+                        info!("agent loop received shutdown signal");
+                        break;
+                    }
+                }
             };
 
             if let Some(msg) = msg_opt {
@@ -627,6 +634,7 @@ impl AgentLoop {
             let mut guard = self.running.lock().await;
             *guard = false;
         }
+        self.shutdown_notify.notify_waiters();
         self.task_tracker.cancel_all().await;
     }
 
@@ -667,8 +675,14 @@ impl AgentLoop {
 
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
         // Periodically evict stale session locks to prevent unbounded growth.
-        // Strong count == 1 means only the map holds a reference (no active processing).
-        self.evict_stale_session_locks();
+        // Only run every 100 messages to avoid the overhead on every call.
+        static EVICT_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        if EVICT_COUNTER
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .is_multiple_of(100)
+        {
+            self.evict_stale_session_locks();
+        }
 
         let session_key = msg.session_key();
         let lock = self.session_lock(&session_key);

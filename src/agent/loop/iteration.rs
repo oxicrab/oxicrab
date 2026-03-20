@@ -553,10 +553,16 @@ impl AgentLoop {
         // gets a result so safety checks below still scan all entries).
         let mut results = results;
         if results.len() < tool_calls.len() {
+            let missing: Vec<&str> = tool_calls[results.len()..]
+                .iter()
+                .map(|tc| tc.name.as_str())
+                .collect();
             error!(
-                "tool_calls and results length mismatch: {} vs {} — adding error results for missing entries",
+                "tool result count mismatch: expected {}, got {}, missing {} result(s) for {:?}",
                 tool_calls.len(),
-                results.len()
+                results.len(),
+                tool_calls.len() - results.len(),
+                missing
             );
             while results.len() < tool_calls.len() {
                 results.push(ToolResult::error("Tool execution result was lost"));
