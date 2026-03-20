@@ -32,7 +32,7 @@ pub async fn run() -> Result<()> {
             }
         }
         Commands::Agent { message, session } => {
-            subcommands::agent(message, session).await?;
+            Box::pin(subcommands::agent(message, session)).await?;
         }
         Commands::Cron { cmd } => {
             cron_cmd::cron_command(cmd).await?;

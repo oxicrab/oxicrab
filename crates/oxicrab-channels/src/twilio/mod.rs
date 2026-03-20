@@ -1,4 +1,4 @@
-use crate::utils::{DmCheckResult, check_dm_access, format_pairing_reply};
+use crate::utils::{DmCheckResult, check_dm_access, check_group_access, format_pairing_reply};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::Router;
@@ -18,12 +18,15 @@ use subtle::ConstantTimeEq;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+/// Maximum size for downloaded MMS media (20 MB).
+const MAX_MMS_DOWNLOAD: usize = 20 * 1024 * 1024;
+
 type HmacSha1 = Hmac<Sha1>;
 
 pub struct TwilioChannel {
     config: TwilioConfig,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    running: Arc<tokio::sync::Mutex<bool>>,
+    shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
     server_handle: Option<tokio::task::JoinHandle<()>>,
     client: reqwest::Client,
 }
@@ -33,7 +36,7 @@ impl TwilioChannel {
         Self {
             config,
             inbound_tx,
-            running: Arc::new(tokio::sync::Mutex::new(false)),
+            shutdown_tx: None,
             server_handle: None,
             client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -46,12 +49,15 @@ impl TwilioChannel {
 
 #[derive(Clone)]
 struct WebhookState {
-    auth_token: String,
+    auth_token: Arc<str>,
     webhook_url: String,
     phone_number: String,
     allow_from: Vec<String>,
+    allow_groups: Vec<String>,
     dm_policy: oxicrab_core::config::schema::DmPolicy,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
+    client: reqwest::Client,
+    account_sid: String,
 }
 
 fn validate_twilio_signature(
@@ -79,49 +85,145 @@ fn validate_twilio_signature(
     expected.as_bytes().ct_eq(signature.as_bytes()).into()
 }
 
+/// Download an MMS media file and save to ~/.oxicrab/media/.
+async fn download_mms_media(
+    client: &reqwest::Client,
+    account_sid: &str,
+    auth_token: &str,
+    media_url: &str,
+    content_type: &str,
+    index: u32,
+    message_sid: &str,
+) -> Option<String> {
+    let ext = match content_type {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "video/mp4" => "mp4",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/ogg" => "ogg",
+        "application/pdf" => "pdf",
+        _ => "bin",
+    };
+
+    let media_dir = match crate::media_utils::media_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            warn!("failed to create media directory: {}", e);
+            return None;
+        }
+    };
+
+    let safe_sid = crate::media_utils::safe_filename(message_sid);
+    let file_path = media_dir.join(format!("twilio_{safe_sid}_{index}.{ext}"));
+
+    // Twilio MMS media URLs require authentication
+    let resp = match client
+        .get(media_url)
+        .basic_auth(account_sid, Some(auth_token))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("failed to download MMS media: {}", e);
+            return None;
+        }
+    };
+
+    if !resp.status().is_success() {
+        warn!("MMS media download failed ({})", resp.status());
+        return None;
+    }
+
+    let bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!("failed to read MMS media bytes: {}", e);
+            return None;
+        }
+    };
+
+    if bytes.len() > MAX_MMS_DOWNLOAD {
+        warn!("MMS media too large ({} bytes), skipping", bytes.len());
+        return None;
+    }
+
+    if let Err(e) = tokio::fs::write(&file_path, &bytes).await {
+        warn!("failed to write MMS media file: {}", e);
+        return None;
+    }
+
+    Some(file_path.to_string_lossy().to_string())
+}
+
 async fn webhook_handler(
     State(state): State<WebhookState>,
     headers: HeaderMap,
     body: String,
 ) -> axum::response::Response {
+    // Skip signature validation if webhook_url is empty (warn at startup, not per-request)
+    let validate_signature = !state.webhook_url.is_empty();
+
     // Extract signature header
-    let Some(signature) = headers
-        .get("X-Twilio-Signature")
-        .and_then(|v| v.to_str().ok())
-    else {
-        warn!("twilio webhook: missing X-Twilio-Signature header");
-        return StatusCode::FORBIDDEN.into_response();
-    };
-    let signature = signature.to_string();
+    if validate_signature {
+        let Some(signature) = headers
+            .get("X-Twilio-Signature")
+            .and_then(|v| v.to_str().ok())
+        else {
+            warn!("twilio webhook: missing X-Twilio-Signature header");
+            return StatusCode::FORBIDDEN.into_response();
+        };
+        let signature = signature.to_string();
+
+        // Parse form-encoded body for validation
+        let params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+
+        // Validates against the configured webhook_url, not the inbound request URL.
+        // This is standard for Twilio integrations behind reverse proxies — the URL
+        // must match what Twilio was configured to call. If validation fails, check
+        // that the webhookUrl config matches the URL configured in Twilio's console.
+        if !validate_twilio_signature(&state.auth_token, &signature, &state.webhook_url, &params) {
+            warn!("twilio webhook: invalid signature");
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
 
     // Parse form-encoded body
     let params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
 
-    // Validates against the configured webhook_url, not the inbound request URL.
-    // This is standard for Twilio integrations behind reverse proxies — the URL
-    // must match what Twilio was configured to call. If validation fails, check
-    // that the webhookUrl config matches the URL configured in Twilio's console.
-    if !validate_twilio_signature(&state.auth_token, &signature, &state.webhook_url, &params) {
-        warn!("twilio webhook: invalid signature");
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
     // Detect format: SMS webhook has "From"/"To"/"MessageSid",
     // Conversations webhook has "EventType"/"Author"/"ConversationSid"
-    let (sender, chat_id, body_text) = if params.contains_key("MessageSid") {
+    let (sender, chat_id, mut body_text, message_sid) = if params.contains_key("MessageSid") {
         // SMS webhook format
         let from = params.get("From").map_or("", String::as_str);
         let body = params.get("Body").map_or("", String::as_str);
+        let msg_sid = params
+            .get("MessageSid")
+            .map_or("", String::as_str)
+            .to_string();
         debug!("twilio webhook: SMS from={}, body_len={}", from, body.len());
         // Use sender phone number as chat_id so sessions group by person
-        (from.to_string(), from.to_string(), body.to_string())
+        (
+            from.to_string(),
+            from.to_string(),
+            body.to_string(),
+            msg_sid,
+        )
     } else if params.get("EventType").map_or("", String::as_str) == "onMessageAdded" {
         // Conversations webhook format
         let author = params.get("Author").map_or("", String::as_str);
         let conv_sid = params.get("ConversationSid").map_or("", String::as_str);
         let body = params.get("Body").map_or("", String::as_str);
+        let msg_sid = params
+            .get("MessageSid")
+            .map_or("", String::as_str)
+            .to_string();
         debug!(
             "twilio webhook: conversation event author={}, sid={}",
             author, conv_sid
@@ -131,7 +233,12 @@ async fn webhook_handler(
             debug!("twilio webhook: ignoring own message");
             return StatusCode::OK.into_response();
         }
-        (author.to_string(), conv_sid.to_string(), body.to_string())
+        (
+            author.to_string(),
+            conv_sid.to_string(),
+            body.to_string(),
+            msg_sid,
+        )
     } else {
         let event_type = params.get("EventType").map_or("", String::as_str);
         debug!("twilio webhook: ignoring event type: {}", event_type);
@@ -147,6 +254,15 @@ async fn webhook_handler(
     // Conversations messages (ConversationSid) are group messages — skip DM access check.
     // SMS messages (MessageSid) are always 1:1 so DM access applies.
     let is_group = params.contains_key("ConversationSid");
+
+    // Check group access for Conversations
+    if is_group && !check_group_access(&chat_id, &state.allow_groups) {
+        debug!(
+            "twilio webhook: conversation {} not in allowGroups",
+            chat_id
+        );
+        return StatusCode::OK.into_response();
+    }
 
     // Check access based on dmPolicy (skip for group messages, consistent with other channels)
     if !is_group {
@@ -173,14 +289,46 @@ async fn webhook_handler(
         }
     }
 
+    // Handle MMS media attachments
+    let num_media = params
+        .get("NumMedia")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    for i in 0..num_media {
+        let url_key = format!("MediaUrl{i}");
+        let type_key = format!("MediaContentType{i}");
+        if let Some(media_url) = params.get(&url_key) {
+            let content_type = params
+                .get(&type_key)
+                .map_or("application/octet-stream", String::as_str);
+
+            if let Some(path) = download_mms_media(
+                &state.client,
+                &state.account_sid,
+                &state.auth_token,
+                media_url,
+                content_type,
+                i,
+                &message_sid,
+            )
+            .await
+            {
+                let tag = if content_type.starts_with("image/") {
+                    format!("\n[image: {path}]")
+                } else {
+                    format!("\n[document: {path}]")
+                };
+                body_text.push_str(&tag);
+            }
+        }
+    }
+
     if body_text.is_empty() {
         debug!("twilio webhook: empty message body");
         return StatusCode::OK.into_response();
     }
 
-    // Conversations API messages (ConversationSid) can be group chats;
-    // SMS messages (phone number chat_id) are always 1:1.
-    let is_group = params.contains_key("ConversationSid");
     let message = InboundMessage::builder("twilio", sender, chat_id, body_text)
         .is_group(is_group)
         .build();
@@ -193,6 +341,57 @@ async fn webhook_handler(
     StatusCode::OK.into_response()
 }
 
+/// Send a Twilio API request with retry for 429 and 5xx errors.
+async fn send_with_retry(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    account_sid: &str,
+    auth_token: &str,
+    form_params: &[(&str, &str)],
+) -> Result<()> {
+    for attempt in 0u32..3 {
+        let resp = client
+            .post(url.clone())
+            .basic_auth(account_sid, Some(auth_token))
+            .form(form_params)
+            .send()
+            .await?;
+
+        let status = resp.status();
+
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(2);
+            warn!("twilio rate limited, retrying after {retry_after}s");
+            tokio::time::sleep(std::time::Duration::from_secs(retry_after)).await;
+            continue;
+        }
+
+        if status.is_server_error() && attempt < 2 {
+            warn!("twilio server error ({}), retrying", status);
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            continue;
+        }
+
+        if !status.is_success() {
+            // Don't include raw error body — may contain account SIDs and request URLs
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let error_msg = body["message"].as_str().unwrap_or("unknown error");
+            return Err(anyhow::anyhow!("twilio API error ({status}): {error_msg}"));
+        }
+
+        return Ok(());
+    }
+
+    Err(anyhow::anyhow!(
+        "twilio API request failed after 3 attempts"
+    ))
+}
+
 #[async_trait]
 impl BaseChannel for TwilioChannel {
     fn name(&self) -> &'static str {
@@ -200,66 +399,73 @@ impl BaseChannel for TwilioChannel {
     }
 
     async fn start(&mut self) -> Result<()> {
-        let mut running = self.running.lock().await;
-        if *running {
+        if self.shutdown_tx.is_some() {
             return Ok(());
         }
-        *running = true;
-        drop(running);
 
-        // Validate webhook URL before using it for signature verification
-        if let Ok(parsed) = url::Url::parse(&self.config.webhook_url) {
-            if parsed.scheme() != "https"
-                && !parsed
-                    .host_str()
-                    .is_some_and(|h| h == "localhost" || h.starts_with("127."))
-            {
-                warn!(
-                    "twilio webhook_url uses {} (not HTTPS) — signature validation may fail in production",
-                    parsed.scheme()
-                );
-            }
-        } else {
-            warn!(
-                "twilio webhook_url is not a valid URL: {}",
-                self.config.webhook_url
-            );
+        // Warn if webhook_url is empty — signature validation will be skipped
+        if self.config.webhook_url.is_empty() {
+            warn!("twilio webhookUrl is empty — webhook signature validation is disabled");
         }
 
+        // Validate webhook URL before using it for signature verification
+        if !self.config.webhook_url.is_empty() {
+            if let Ok(parsed) = url::Url::parse(&self.config.webhook_url) {
+                if parsed.scheme() != "https"
+                    && !parsed
+                        .host_str()
+                        .is_some_and(|h| h == "localhost" || h.starts_with("127."))
+                {
+                    warn!(
+                        "twilio webhook_url uses {} (not HTTPS) — signature validation may fail in production",
+                        parsed.scheme()
+                    );
+                }
+            } else {
+                warn!(
+                    "twilio webhook_url is not a valid URL: {}",
+                    self.config.webhook_url
+                );
+            }
+        }
+
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+
         let state = WebhookState {
-            auth_token: self.config.auth_token.clone(),
+            auth_token: Arc::from(self.config.auth_token.as_str()),
             webhook_url: self.config.webhook_url.clone(),
             phone_number: self.config.phone_number.clone(),
             allow_from: self.config.allow_from.clone(),
+            allow_groups: self.config.allow_groups.clone(),
             dm_policy: self.config.dm_policy.clone(),
             inbound_tx: self.inbound_tx.clone(),
+            client: self.client.clone(),
+            account_sid: self.config.account_sid.clone(),
         };
 
         let webhook_path = self.config.webhook_path.clone();
         let webhook_port = self.config.webhook_port;
+        let webhook_host = self.config.webhook_host.clone();
 
         let app = Router::new()
             .route(&webhook_path, post(webhook_handler))
             .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
             .with_state(state);
 
-        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], webhook_port));
+        let bind_addr: std::net::IpAddr = webhook_host
+            .parse()
+            .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+        let addr = std::net::SocketAddr::from((bind_addr, webhook_port));
         let listener = tokio::net::TcpListener::bind(addr).await?;
         info!(
-            "twilio webhook server listening on 0.0.0.0:{}{}",
-            webhook_port, webhook_path
+            "twilio webhook server listening on {}:{}{}",
+            webhook_host, webhook_port, webhook_path
         );
 
-        let running = self.running.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, app)
                 .with_graceful_shutdown(async move {
-                    loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        if !*running.lock().await {
-                            break;
-                        }
-                    }
+                    let _ = shutdown_rx.changed().await;
                 })
                 .await
             {
@@ -267,15 +473,16 @@ impl BaseChannel for TwilioChannel {
             }
         });
 
+        self.shutdown_tx = Some(shutdown_tx);
         self.server_handle = Some(handle);
         info!("twilio channel started");
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<()> {
-        let mut running = self.running.lock().await;
-        *running = false;
-        drop(running);
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(true);
+        }
 
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
@@ -295,7 +502,7 @@ impl BaseChannel for TwilioChannel {
         let chunks = split_message(&msg.content, 1600);
 
         for chunk in chunks {
-            let response = if msg.chat_id.starts_with('+') {
+            if msg.chat_id.starts_with('+') {
                 // SMS API: chat_id is a phone number
                 // SECURITY: credentials transmitted exclusively over HTTPS (hardcoded scheme)
                 let url = reqwest::Url::parse(&format!(
@@ -303,16 +510,18 @@ impl BaseChannel for TwilioChannel {
                     urlencoding::encode(&self.config.account_sid)
                 ))
                 .context("invalid Twilio SMS API URL")?;
-                self.client
-                    .post(url)
-                    .basic_auth(&self.config.account_sid, Some(&self.config.auth_token))
-                    .form(&[
+                send_with_retry(
+                    &self.client,
+                    url,
+                    &self.config.account_sid,
+                    &self.config.auth_token,
+                    &[
                         ("Body", chunk.as_str()),
                         ("To", &msg.chat_id),
                         ("From", &self.config.phone_number),
-                    ])
-                    .send()
-                    .await?
+                    ],
+                )
+                .await?;
             } else {
                 // Conversations API: chat_id is a ConversationSid
                 // SECURITY: credentials transmitted exclusively over HTTPS (hardcoded scheme)
@@ -321,21 +530,14 @@ impl BaseChannel for TwilioChannel {
                     urlencoding::encode(&msg.chat_id)
                 ))
                 .context("invalid Twilio Conversations API URL")?;
-                self.client
-                    .post(url)
-                    .basic_auth(&self.config.account_sid, Some(&self.config.auth_token))
-                    .form(&[("Body", chunk.as_str()), ("Author", "oxicrab")])
-                    .send()
-                    .await?
-            };
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "unknown".to_string());
-                return Err(anyhow::anyhow!("twilio API error ({status}): {body}"));
+                send_with_retry(
+                    &self.client,
+                    url,
+                    &self.config.account_sid,
+                    &self.config.auth_token,
+                    &[("Body", chunk.as_str()), ("Author", "oxicrab")],
+                )
+                .await?;
             }
         }
 

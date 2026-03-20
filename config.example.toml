@@ -63,6 +63,7 @@ enabled = false
 token = "your-discord-bot-token"
 allowFrom = []
 dmPolicy = "allowlist"
+mentionOnly = false
 allowGroups = []
 
 [[channels.discord.commands]]
@@ -87,6 +88,7 @@ doneEmoji = "white_check_mark"
 [channels.whatsapp]
 enabled = false
 allowFrom = []
+allowGroups = []
 dmPolicy = "allowlist"
 
 [channels.twilio]
@@ -96,8 +98,10 @@ authToken = "your-twilio-auth-token"
 phoneNumber = "+1234567890"
 webhookPort = 8080
 webhookPath = "/twilio/webhook"
+webhookHost = "0.0.0.0"
 webhookUrl = "https://your-domain.com/twilio/webhook"
 allowFrom = []
+allowGroups = []
 dmPolicy = "allowlist"
 
 [providers]

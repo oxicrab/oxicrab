@@ -626,6 +626,20 @@ impl BaseChannel for SlackChannel {
                                             continue;
                                         }
 
+                                        // Handle disconnect message — Slack asks
+                                        // us to reconnect (server rotation, etc.)
+                                        if event_type == "disconnect" {
+                                            let reason = event
+                                                .get("reason")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("unknown");
+                                            info!(
+                                                "Slack Socket Mode disconnect requested: {}",
+                                                reason
+                                            );
+                                            break;
+                                        }
+
                                         // Acknowledge events_api and interactive messages via WebSocket
                                         // Slack Socket Mode requires acknowledgments to be sent back through the WebSocket
                                         if (event_type == "events_api"

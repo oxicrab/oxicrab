@@ -6,6 +6,9 @@ pub struct WhatsAppConfig {
     pub enabled: bool,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    /// Restrict which group chats the bot responds in. Empty = all groups allowed.
+    #[serde(default, rename = "allowGroups")]
+    pub allow_groups: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
 }
@@ -15,6 +18,7 @@ impl Default for WhatsAppConfig {
         Self {
             enabled: false,
             allow_from: Vec::new(),
+            allow_groups: Vec::new(),
             dm_policy: default_dm_policy(),
         }
     }
@@ -99,6 +103,9 @@ pub struct DiscordConfig {
     pub commands: Vec<DiscordCommand>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
+    /// When true, only respond in guilds when the bot is @mentioned. DMs are unaffected.
+    #[serde(default, rename = "mentionOnly")]
+    pub mention_only: bool,
 }
 
 impl Default for DiscordConfig {
@@ -110,6 +117,7 @@ impl Default for DiscordConfig {
             allow_groups: Vec::new(),
             commands: default_discord_commands(),
             dm_policy: default_dm_policy(),
+            mention_only: false,
         }
     }
 }
@@ -122,6 +130,7 @@ redact_debug!(
     allow_groups,
     commands,
     dm_policy,
+    mention_only,
 );
 
 fn default_thinking_emoji() -> String {
@@ -186,6 +195,10 @@ fn default_webhook_port() -> u16 {
     8080
 }
 
+fn default_webhook_host() -> String {
+    "0.0.0.0".to_string()
+}
+
 fn default_webhook_path() -> String {
     "/twilio/webhook".to_string()
 }
@@ -231,10 +244,15 @@ pub struct TwilioConfig {
     pub webhook_port: u16,
     #[serde(default = "default_webhook_path", rename = "webhookPath")]
     pub webhook_path: String,
+    #[serde(default = "default_webhook_host", rename = "webhookHost")]
+    pub webhook_host: String,
     #[serde(default, rename = "webhookUrl")]
     pub webhook_url: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    /// Restrict which Conversations the bot responds in. Empty = all allowed.
+    #[serde(default, rename = "allowGroups")]
+    pub allow_groups: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
 }
@@ -248,8 +266,10 @@ impl Default for TwilioConfig {
             phone_number: String::new(),
             webhook_port: default_webhook_port(),
             webhook_path: default_webhook_path(),
+            webhook_host: default_webhook_host(),
             webhook_url: String::new(),
             allow_from: Vec::new(),
+            allow_groups: Vec::new(),
             dm_policy: default_dm_policy(),
         }
     }
@@ -263,8 +283,10 @@ redact_debug!(
     phone_number,
     webhook_port,
     webhook_path,
+    webhook_host,
     webhook_url,
     allow_from,
+    allow_groups,
     dm_policy,
 );
 

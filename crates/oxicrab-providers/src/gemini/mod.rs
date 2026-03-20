@@ -71,17 +71,35 @@ impl GeminiProvider {
             anyhow::bail!("Gemini response blocked (finishReason: {reason})");
         }
 
-        let content = candidate["content"]["parts"].as_array().and_then(|parts| {
-            let texts: Vec<String> = parts
-                .iter()
-                .filter_map(|p| p["text"].as_str().map(std::string::ToString::to_string))
-                .collect();
-            if texts.is_empty() {
-                None
-            } else {
-                Some(texts.join("\n\n"))
+        // Separate thinking parts (thought: true) from regular text parts.
+        // Gemini 2.0+ models with thinking enabled return thought=true on thinking parts.
+        let mut text_parts: Vec<String> = Vec::new();
+        let mut reasoning_parts: Vec<String> = Vec::new();
+        if let Some(parts) = candidate["content"]["parts"].as_array() {
+            for part in parts {
+                if part
+                    .get("thought")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if let Some(text) = part["text"].as_str() {
+                        reasoning_parts.push(text.to_string());
+                    }
+                } else if let Some(text) = part["text"].as_str() {
+                    text_parts.push(text.to_string());
+                }
             }
-        });
+        }
+        let content = if text_parts.is_empty() {
+            None
+        } else {
+            Some(text_parts.join("\n\n"))
+        };
+        let reasoning_content = if reasoning_parts.is_empty() {
+            None
+        } else {
+            Some(reasoning_parts.join("\n\n"))
+        };
 
         let mut tool_calls = Vec::new();
         if let Some(parts) = candidate["content"]["parts"].as_array() {
@@ -118,6 +136,7 @@ impl GeminiProvider {
         Ok(LLMResponse {
             content,
             tool_calls,
+            reasoning_content,
             input_tokens,
             output_tokens,
             finish_reason,
@@ -162,8 +181,13 @@ impl LLMProvider for GeminiProvider {
                     .as_deref()
                     .and_then(|id| tool_id_to_name.get(id))
                     .map_or("unknown", String::as_str);
-                let response_value: Value = serde_json::from_str(&msg.content)
-                    .unwrap_or_else(|_| json!({"result": &msg.content}));
+                let response_value: Value = if msg.is_error {
+                    // Wrap error results so Gemini sees the error semantics
+                    json!({"error": &msg.content})
+                } else {
+                    serde_json::from_str(&msg.content)
+                        .unwrap_or_else(|_| json!({"result": &msg.content}))
+                };
                 gemini_contents.push(json!({
                     "role": "function",
                     "parts": [{

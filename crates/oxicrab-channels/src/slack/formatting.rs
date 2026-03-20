@@ -6,13 +6,47 @@ pub(super) fn format_for_slack(text: &str) -> String {
     }
     // Convert markdown tables to Slack-friendly format (before other transforms).
     let text = convert_tables(text);
-    // Slack uses *bold* not **bold**.
-    let text = RegexPatterns::markdown_bold().replace_all(&text, r"*$1*");
-    // Slack uses ~strike~ not ~~strike~~.
-    let text = RegexPatterns::markdown_strike().replace_all(&text, r"~$1~");
-    // Slack links: [text](url) -> <url|text>.
-    let re_link = RegexPatterns::markdown_link();
-    re_link.replace_all(&text, r"<$2|$1>").to_string()
+
+    // Protect code blocks and inline code from formatting conversions.
+    // Split on ``` fences: even-indexed segments are outside code blocks,
+    // odd-indexed segments are inside fenced code blocks.
+    let fenced_parts: Vec<&str> = text.split("```").collect();
+    let mut result = String::with_capacity(text.len());
+    for (i, part) in fenced_parts.iter().enumerate() {
+        if i > 0 {
+            result.push_str("```");
+        }
+        if i % 2 == 1 {
+            // Inside a fenced code block — preserve as-is
+            result.push_str(part);
+        } else {
+            // Outside fenced code blocks — protect inline code with backticks
+            result.push_str(&format_non_code_segments(part));
+        }
+    }
+    result
+}
+
+/// Apply markdown-to-Slack conversions only to parts outside inline code spans.
+fn format_non_code_segments(text: &str) -> String {
+    let inline_parts: Vec<&str> = text.split('`').collect();
+    let mut result = String::with_capacity(text.len());
+    for (i, part) in inline_parts.iter().enumerate() {
+        if i > 0 {
+            result.push('`');
+        }
+        if i % 2 == 1 {
+            // Inside inline code — preserve as-is
+            result.push_str(part);
+        } else {
+            // Outside all code — apply conversions
+            let converted = RegexPatterns::markdown_bold().replace_all(part, r"*$1*");
+            let converted = RegexPatterns::markdown_strike().replace_all(&converted, r"~$1~");
+            let converted = RegexPatterns::markdown_link().replace_all(&converted, r"<$2|$1>");
+            result.push_str(&converted);
+        }
+    }
+    result
 }
 
 /// Convert markdown tables to Slack-friendly key-value format.

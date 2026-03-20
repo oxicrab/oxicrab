@@ -7,7 +7,7 @@ use oxicrab_core::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 
@@ -86,7 +86,7 @@ impl LLMProvider for AnthropicProvider {
             None => None,
         };
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages.clone());
+        let (system, anthropic_messages) = anthropic_common::convert_messages(&req.messages);
 
         let mut payload = json!({
             "model": req.model.as_deref().unwrap_or(&self.default_model),
@@ -111,21 +111,22 @@ impl LLMProvider for AnthropicProvider {
 
         if let Some(ref tools) = req.tools {
             payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
-            let choice = match req.tool_choice.as_deref().unwrap_or("auto") {
-                v @ ("auto" | "any" | "none") => v,
-                other => {
-                    warn!("unsupported tool_choice '{}', defaulting to 'auto'", other);
-                    "auto"
+            match req.tool_choice.as_deref().unwrap_or("auto") {
+                v @ ("auto" | "any" | "none") => {
+                    payload["tool_choice"] = json!({"type": v});
+                }
+                tool_name => {
+                    payload["tool_choice"] = json!({"type": "tool", "name": tool_name});
                 }
             };
-            payload["tool_choice"] = json!({"type": choice});
         }
 
         let mut req_builder = self
             .client
             .post(&self.base_url)
             .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01");
+            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "claude-code-20250219");
         req_builder = req_builder.header("x-session-affinity", crate::session_affinity_id());
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
@@ -163,6 +164,7 @@ impl LLMProvider for AnthropicProvider {
             .post(&self.base_url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "claude-code-20250219")
             .header("content-type", "application/json")
             .timeout(Duration::from_secs(15));
         req_builder = req_builder.header("x-session-affinity", crate::session_affinity_id());

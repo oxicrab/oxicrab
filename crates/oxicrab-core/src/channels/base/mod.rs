@@ -86,7 +86,43 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     }
 
     // Filter out empty chunks (e.g., from leading "\n\n" producing a trimmed empty string)
-    chunks.into_iter().filter(|c| !c.is_empty()).collect()
+    let chunks: Vec<String> = chunks.into_iter().filter(|c| !c.is_empty()).collect();
+
+    // Repair split code blocks: if a chunk has an odd number of ``` fences,
+    // close the code block in the current chunk and re-open it in the next.
+    repair_code_fences(chunks)
+}
+
+/// Ensure each chunk has balanced ``` fences. An odd count means a code block
+/// was split across chunks. We close it at the end of the current chunk and
+/// re-open it at the start of the next.
+fn repair_code_fences(chunks: Vec<String>) -> Vec<String> {
+    if chunks.len() <= 1 {
+        return chunks;
+    }
+    let mut result = Vec::with_capacity(chunks.len());
+    let mut carry_lang = String::new();
+    for chunk in chunks {
+        let mut c = if carry_lang.is_empty() {
+            chunk
+        } else {
+            // Re-open code block from previous chunk
+            format!("```{carry_lang}\n{chunk}")
+        };
+        carry_lang.clear();
+        let fence_count = c.matches("```").count();
+        if fence_count % 2 == 1 {
+            // Extract the language tag from the opening fence (e.g. ```rust)
+            if let Some(pos) = c.rfind("```") {
+                let after_fence = &c[pos + 3..];
+                let lang = after_fence.lines().next().unwrap_or("").trim().to_string();
+                carry_lang = lang;
+            }
+            c.push_str("\n```");
+        }
+        result.push(c);
+    }
+    result
 }
 
 #[cfg(test)]

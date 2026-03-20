@@ -19,6 +19,9 @@ pub struct LLMResponse {
     pub reasoning_content: Option<String>,
     /// Anthropic thinking block signature (required when replaying thinking blocks)
     pub reasoning_signature: Option<String>,
+    /// Opaque redacted thinking blocks that must be replayed verbatim.
+    /// Contains the `data` field from each `redacted_thinking` content block.
+    pub redacted_thinking_blocks: Option<Vec<String>>,
     /// Input token count reported by the provider (if available).
     /// Used for precise compaction threshold checks.
     pub input_tokens: Option<u64>,
@@ -64,6 +67,9 @@ pub struct Message {
     pub reasoning_content: Option<String>,
     /// Anthropic thinking block signature (required when replaying thinking blocks)
     pub reasoning_signature: Option<String>,
+    /// Opaque redacted thinking blocks that must be replayed verbatim.
+    /// Contains the `data` field from each `redacted_thinking` content block.
+    pub redacted_thinking_blocks: Option<Vec<String>>,
 }
 
 impl Message {

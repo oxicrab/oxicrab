@@ -4,6 +4,58 @@ fn allow_list(nums: &[&str]) -> Vec<String> {
     nums.iter().map(ToString::to_string).collect()
 }
 
+// --- normalize_jid tests ---
+
+#[test]
+fn test_normalize_jid_strips_device_suffix() {
+    assert_eq!(
+        normalize_jid("15037348571:20@s.whatsapp.net"),
+        "15037348571@s.whatsapp.net"
+    );
+}
+
+#[test]
+fn test_normalize_jid_preserves_clean_jid() {
+    assert_eq!(
+        normalize_jid("15037348571@s.whatsapp.net"),
+        "15037348571@s.whatsapp.net"
+    );
+}
+
+#[test]
+fn test_normalize_jid_adds_default_domain() {
+    assert_eq!(normalize_jid("15037348571"), "15037348571@s.whatsapp.net");
+}
+
+#[test]
+fn test_normalize_jid_bare_number_with_device() {
+    assert_eq!(
+        normalize_jid("15037348571:20"),
+        "15037348571@s.whatsapp.net"
+    );
+}
+
+#[test]
+fn test_normalize_jid_group_jid() {
+    assert_eq!(
+        normalize_jid("120363123456789@g.us"),
+        "120363123456789@g.us"
+    );
+}
+
+#[test]
+fn test_normalize_jid_lid() {
+    assert_eq!(normalize_jid("194506284601577@lid"), "194506284601577@lid");
+}
+
+#[test]
+fn test_normalize_jid_lid_with_device() {
+    assert_eq!(
+        normalize_jid("194506284601577:33@lid"),
+        "194506284601577@lid"
+    );
+}
+
 // --- should_skip_own_message tests ---
 
 #[test]

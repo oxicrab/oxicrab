@@ -56,7 +56,8 @@ name = "oxicrab"
 path = "src/main.rs"
 
 [features]
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "local-whisper", "embeddings", "tool-rss"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "local-whisper", "embeddings", "tool-rss", "gateway"]
+gateway = ["dep:oxicrab-gateway"]
 keyring-store = ["dep:keyring"]
 local-whisper = ["oxicrab-transcription/local-whisper"]
 embeddings = ["oxicrab-memory/embeddings"]
@@ -76,7 +77,7 @@ oxicrab-tools-google = { path = "crates/oxicrab-tools-google" }
 oxicrab-tools-browser = { path = "crates/oxicrab-tools-browser" }
 oxicrab-tools-obsidian = { path = "crates/oxicrab-tools-obsidian" }
 oxicrab-channels = { path = "crates/oxicrab-channels", default-features = false }
-oxicrab-gateway = { path = "crates/oxicrab-gateway" }
+oxicrab-gateway = { path = "crates/oxicrab-gateway", optional = true }
 oxicrab-memory = { path = "crates/oxicrab-memory", default-features = false, features = ["rss"] }
 oxicrab-providers = { path = "crates/oxicrab-providers" }
 oxicrab-router = { path = "crates/oxicrab-router" }

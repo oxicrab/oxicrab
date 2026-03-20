@@ -221,6 +221,12 @@ impl LLMProvider for OpenAIProvider {
                     );
                 }
 
+                // Prefix tool error results so the LLM sees the error semantics
+                // (OpenAI's API has no is_error field on tool messages)
+                if msg.role == "tool" && msg.is_error {
+                    m["content"] = json!(format!("[Error] {}", msg.content));
+                }
+
                 if let Some(ref tool_call_id) = msg.tool_call_id {
                     m["tool_call_id"] = json!(tool_call_id);
                 }

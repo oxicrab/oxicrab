@@ -117,7 +117,7 @@ impl ProviderErrorHandler {
             .await
             .unwrap_or_else(|_| "unknown error".to_string());
 
-        if status == 429 {
+        if status == 429 || status == 529 {
             Self::log_and_handle_error(&anyhow::anyhow!("Rate limit exceeded"), provider, "chat");
             return Err(Self::handle_rate_limit(status.as_u16(), retry_after)
                 .unwrap_err()

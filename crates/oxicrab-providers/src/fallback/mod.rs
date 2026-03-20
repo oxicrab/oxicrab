@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::errors::OxicrabError;
 use oxicrab_core::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use std::sync::Arc;
 use tracing::warn;
@@ -93,6 +94,20 @@ impl LLMProvider for FallbackProvider {
                     return Ok(response);
                 }
                 Err(e) => {
+                    // Don't fall back on non-transient errors (auth, config, bad request)
+                    let is_non_transient = e
+                        .downcast_ref::<OxicrabError>()
+                        .is_some_and(|ox| !ox.is_retryable());
+                    if is_non_transient {
+                        warn!(
+                            "provider {} ({}) failed with non-transient error, not falling back: {}",
+                            i + 1,
+                            model_name,
+                            e
+                        );
+                        return Err(e);
+                    }
+
                     if is_last {
                         warn!("provider {} ({}) failed: {}", i + 1, model_name, e);
                     } else {

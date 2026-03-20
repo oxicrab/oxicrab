@@ -19,18 +19,18 @@ pub struct AnthropicTool {
 
 /// Convert generic messages to Anthropic API format.
 /// Returns (`system_prompt`, `anthropic_messages`).
-pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<AnthropicMessage>) {
+pub fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessage>) {
     let mut system_parts = Vec::new();
     let mut anthropic_messages = Vec::new();
 
     for msg in messages {
         match msg.role.as_str() {
             "system" => {
-                system_parts.push(msg.content);
+                system_parts.push(msg.content.clone());
             }
             "user" => {
                 let content = if msg.images.is_empty() {
-                    Value::String(msg.content)
+                    Value::String(msg.content.clone())
                 } else {
                     let mut parts = Vec::new();
                     if !msg.content.is_empty() {
@@ -64,18 +64,28 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
             "assistant" => {
                 let mut content: Vec<Value> = Vec::new();
 
-                // Replay thinking block before text/tool_use blocks
+                // Replay thinking block before text/tool_use blocks.
+                // Only emit when we have a signature — the Anthropic API rejects
+                // thinking blocks without a signature.
                 if let Some(ref thinking) = msg.reasoning_content
                     && !thinking.is_empty()
+                    && let Some(ref sig) = msg.reasoning_signature
                 {
-                    let mut thinking_block = json!({
+                    content.push(json!({
                         "type": "thinking",
-                        "thinking": thinking
-                    });
-                    if let Some(ref sig) = msg.reasoning_signature {
-                        thinking_block["signature"] = json!(sig);
+                        "thinking": thinking,
+                        "signature": sig
+                    }));
+                }
+
+                // Replay any redacted_thinking blocks (opaque, must be sent back verbatim)
+                if let Some(ref blocks) = msg.redacted_thinking_blocks {
+                    for data in blocks {
+                        content.push(json!({
+                            "type": "redacted_thinking",
+                            "data": data
+                        }));
                     }
-                    content.push(thinking_block);
                 }
 
                 // Only include text block if content is non-empty
@@ -87,7 +97,7 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                     }));
                 }
 
-                if let Some(tool_calls) = msg.tool_calls {
+                if let Some(ref tool_calls) = msg.tool_calls {
                     for tc in tool_calls {
                         content.push(json!({
                             "type": "tool_use",
@@ -107,7 +117,7 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                 }
             }
             "tool" => {
-                if let Some(tool_call_id) = msg.tool_call_id {
+                if let Some(ref tool_call_id) = msg.tool_call_id {
                     let mut result = json!({
                         "type": "tool_result",
                         "tool_use_id": tool_call_id,
@@ -211,6 +221,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
     let mut tool_calls = Vec::new();
     let mut reasoning_content: Option<String> = None;
     let mut reasoning_signature = None;
+    let mut redacted_thinking_blocks: Vec<String> = Vec::new();
 
     if let Some(content_array) = json["content"].as_array() {
         for block in content_array {
@@ -228,22 +239,23 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                     });
                 }
                 Some("thinking") => {
-                    // Anthropic API uses "thinking" key; some versions use "text".
-                    // Concatenate multiple thinking blocks (can occur with extended thinking).
+                    // Keep only the last thinking block — its signature is authoritative
+                    // and concatenating multiple blocks creates a signature mismatch.
                     if let Some(thought) = block["thinking"]
                         .as_str()
                         .or_else(|| block["text"].as_str())
                     {
-                        if let Some(ref mut existing) = reasoning_content {
-                            existing.push('\n');
-                            existing.push_str(thought);
-                        } else {
-                            reasoning_content = Some(thought.to_string());
-                        }
+                        reasoning_content = Some(thought.to_string());
                     }
-                    // Keep the last signature (the final thinking block's signature is authoritative)
                     if let Some(sig) = block["signature"].as_str() {
                         reasoning_signature = Some(sig.to_string());
+                    }
+                }
+                Some("redacted_thinking") => {
+                    // Opaque redacted thinking blocks must be captured and replayed
+                    // verbatim — the API rejects responses that drop them.
+                    if let Some(data) = block["data"].as_str() {
+                        redacted_thinking_blocks.push(data.to_string());
                     }
                 }
                 _ => {}
@@ -273,11 +285,18 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         .as_str()
         .map(std::string::ToString::to_string);
 
+    let redacted = if redacted_thinking_blocks.is_empty() {
+        None
+    } else {
+        Some(redacted_thinking_blocks)
+    };
+
     LLMResponse {
         content,
         tool_calls,
         reasoning_content,
         reasoning_signature,
+        redacted_thinking_blocks: redacted,
         input_tokens,
         output_tokens,
         cache_creation_input_tokens,

@@ -578,7 +578,7 @@ impl LLMProvider for AnthropicOAuthProvider {
             None => None,
         };
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages.clone());
+        let (system, anthropic_messages) = anthropic_common::convert_messages(&req.messages);
 
         let mut payload = json!({
             "model": model,
@@ -603,14 +603,14 @@ impl LLMProvider for AnthropicOAuthProvider {
 
         if let Some(ref tools) = req.tools {
             payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
-            let choice = match req.tool_choice.as_deref().unwrap_or("auto") {
-                v @ ("auto" | "any" | "none") => v,
-                other => {
-                    warn!("unsupported tool_choice '{}', defaulting to 'auto'", other);
-                    "auto"
+            match req.tool_choice.as_deref().unwrap_or("auto") {
+                v @ ("auto" | "any" | "none") => {
+                    payload["tool_choice"] = json!({"type": v});
+                }
+                tool_name => {
+                    payload["tool_choice"] = json!({"type": "tool", "name": tool_name});
                 }
             };
-            payload["tool_choice"] = json!({"type": choice});
         }
 
         // Try the request, and on 401 refresh the token and retry once.
@@ -659,17 +659,16 @@ impl LLMProvider for AnthropicOAuthProvider {
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         });
-        let result = self
+        let mut warmup_req = self
             .client
             .post(API_URL)
             .header("Authorization", format!("Bearer {token}"))
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
             .header("x-session-affinity", crate::session_affinity_id())
-            .timeout(std::time::Duration::from_secs(15))
-            .json(&payload)
-            .send()
-            .await;
+            .timeout(std::time::Duration::from_secs(15));
+        for (key, value) in claude_code_headers() {
+            warmup_req = warmup_req.header(key, value);
+        }
+        let result = warmup_req.json(&payload).send().await;
         match result {
             Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
                 // Token was stale despite expires_at not elapsed (e.g. Claude CLI

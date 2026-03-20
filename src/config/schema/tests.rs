@@ -753,6 +753,7 @@ fn credential_overlays() -> Vec<(&'static str, serde_json::Value)> {
         ("/channels/twilio/phoneNumber", json!("+1234567890")),
         ("/channels/twilio/webhookPort", json!(8080)),
         ("/channels/twilio/webhookPath", json!("/twilio/webhook")),
+        ("/channels/twilio/webhookHost", json!("0.0.0.0")),
         (
             "/channels/twilio/webhookUrl",
             json!("https://your-domain.com/twilio/webhook"),

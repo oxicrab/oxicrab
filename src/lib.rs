@@ -22,6 +22,7 @@ pub mod config;
 pub mod cron;
 pub mod dispatch;
 pub(crate) mod errors;
+#[cfg(feature = "gateway")]
 pub mod gateway;
 pub(crate) mod observability;
 pub mod pairing;
@@ -38,6 +39,7 @@ pub mod fuzz_api {
     pub use crate::utils::url_security::validate_and_resolve;
 
     /// Wrapper around `gateway::validate_webhook_signature` for fuzz targets.
+    #[cfg(feature = "gateway")]
     pub fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
         oxicrab_gateway::validate_webhook_signature(secret, signature, body)
     }

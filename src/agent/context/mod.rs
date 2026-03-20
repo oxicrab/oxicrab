@@ -491,13 +491,15 @@ impl ContextBuilder {
         tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>>,
         reasoning_content: Option<&str>,
         reasoning_signature: Option<&str>,
+        redacted_thinking_blocks: Option<Vec<String>>,
     ) {
-        let msg = crate::providers::base::Message::assistant_with_thinking(
+        let mut msg = crate::providers::base::Message::assistant_with_thinking(
             content.unwrap_or_default(),
             tool_calls,
             reasoning_content.map(String::from),
             reasoning_signature.map(String::from),
         );
+        msg.redacted_thinking_blocks = redacted_thinking_blocks;
         messages.push(msg);
     }
 }

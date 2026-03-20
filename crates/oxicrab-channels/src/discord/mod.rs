@@ -39,6 +39,8 @@ struct Handler {
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
     dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
+    mention_only: bool,
+    bot_user_id: Arc<tokio::sync::OnceCell<serenity::model::id::UserId>>,
 }
 
 impl Handler {
@@ -186,10 +188,11 @@ impl Handler {
             }
         }
 
-        // Defer update
-        let defer = CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new());
-        if let Err(e) = comp.create_response(&ctx.http, defer).await {
-            error!("Failed to defer Discord component interaction: {}", e);
+        // Acknowledge the component interaction (type 6: DEFERRED_UPDATE_MESSAGE)
+        // Using Acknowledge instead of Defer to avoid showing a "thinking..." message
+        let ack = CreateInteractionResponse::Acknowledge;
+        if let Err(e) = comp.create_response(&ctx.http, ack).await {
+            error!("Failed to acknowledge Discord component interaction: {}", e);
             return;
         }
 
@@ -286,14 +289,32 @@ impl EventHandler for Handler {
             }
         }
 
-        // Download image attachments
+        // Mention-only filtering: in guilds, only respond if the bot was @mentioned
+        if is_group && self.mention_only {
+            if let Some(bot_id) = self.bot_user_id.get() {
+                let mentioned = msg.mentions.iter().any(|u| u.id == *bot_id);
+                if !mentioned {
+                    debug!(
+                        "discord: ignoring guild message (mention_only enabled, bot not mentioned)"
+                    );
+                    return;
+                }
+            } else {
+                debug!(
+                    "discord: mention_only enabled but bot user ID not yet known, allowing message"
+                );
+            }
+        }
+
+        // Download attachments (images, audio, PDFs)
         let mut media_paths = Vec::new();
         let mut content = msg.content.clone();
         for attachment in &msg.attachments {
             let content_type = attachment.content_type.as_deref().unwrap_or_default();
             let is_image = content_type.starts_with("image/");
             let is_audio = content_type.starts_with("audio/");
-            if !is_image && !is_audio {
+            let is_pdf = content_type == "application/pdf";
+            if !is_image && !is_audio && !is_pdf {
                 continue;
             }
             let (ext, tag) = if is_image {
@@ -307,6 +328,8 @@ impl EventHandler for Handler {
                     },
                     "image",
                 )
+            } else if is_pdf {
+                ("pdf", "document")
             } else {
                 (
                     match content_type {
@@ -402,29 +425,37 @@ impl EventHandler for Handler {
             ready.user.name, ready.user.id
         );
 
-        // Register slash commands
-        for cmd_config in &self.commands {
-            let mut command =
-                CreateCommand::new(&cmd_config.name).description(&cmd_config.description);
-            for opt in &cmd_config.options {
-                command = command.add_option(
-                    CreateCommandOption::new(
-                        CommandOptionType::String,
-                        &opt.name,
-                        &opt.description,
-                    )
-                    .required(opt.required),
-                );
+        // Store bot user ID for mention-only filtering
+        let _ = self.bot_user_id.set(ready.user.id);
+
+        // Register slash commands (bulk overwrite, idempotent)
+        let commands: Vec<CreateCommand> = self
+            .commands
+            .iter()
+            .map(|cmd_config| {
+                let mut command =
+                    CreateCommand::new(&cmd_config.name).description(&cmd_config.description);
+                for opt in &cmd_config.options {
+                    command = command.add_option(
+                        CreateCommandOption::new(
+                            CommandOptionType::String,
+                            &opt.name,
+                            &opt.description,
+                        )
+                        .required(opt.required),
+                    );
+                }
+                command
+            })
+            .collect();
+
+        match serenity::model::application::Command::set_global_commands(&ctx.http, commands).await
+        {
+            Ok(cmds) => {
+                let names: Vec<_> = cmds.iter().map(|c| format!("/{}", c.name)).collect();
+                info!("registered Discord slash commands: {}", names.join(", "));
             }
-            match serenity::model::application::Command::create_global_command(&ctx.http, command)
-                .await
-            {
-                Ok(cmd) => info!("Registered Discord slash command: /{}", cmd.name),
-                Err(e) => error!(
-                    "Failed to register Discord slash command /{}: {}",
-                    cmd_config.name, e
-                ),
-            }
+            Err(e) => error!("failed to register Discord slash commands: {}", e),
         }
     }
 }
@@ -460,7 +491,8 @@ impl DiscordChannel {
     }
 }
 
-/// Send a followup message via Discord's webhook API for deferred interactions
+/// Send a followup message via Discord's webhook API for deferred interactions.
+/// Retries once on 429 rate limit responses.
 async fn send_interaction_followup(
     http_client: &reqwest::Client,
     app_id: &str,
@@ -473,7 +505,40 @@ async fn send_interaction_followup(
         urlencoding::encode(app_id),
         urlencoding::encode(token)
     );
-    let resp = http_client.post(&url).json(payload).send().await?;
+
+    // Serialize once so we can retry on 429
+    let body_bytes = serde_json::to_vec(payload)?;
+
+    let resp = http_client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(body_bytes.clone())
+        .send()
+        .await?;
+
+    if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(2.0);
+        warn!("discord API rate limited, retrying after {retry_after}s");
+        tokio::time::sleep(std::time::Duration::from_secs_f64(retry_after)).await;
+
+        let retry_resp = http_client
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(body_bytes)
+            .send()
+            .await?;
+        if !retry_resp.status().is_success() {
+            let status = retry_resp.status();
+            let body = retry_resp.text().await.unwrap_or_default();
+            anyhow::bail!("Discord webhook followup failed ({status}): {body}");
+        }
+        return Ok(());
+    }
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -483,7 +548,8 @@ async fn send_interaction_followup(
     Ok(())
 }
 
-/// Send a media file as a multipart followup
+/// Send a media file as a multipart followup.
+/// Retries once on 429 rate limit responses.
 async fn send_interaction_media_followup(
     http_client: &reqwest::Client,
     app_id: &str,
@@ -502,10 +568,37 @@ async fn send_interaction_media_followup(
         .unwrap_or("file")
         .to_string();
     let file_bytes = tokio::fs::read(file_path).await?;
-    let part = reqwest::multipart::Part::bytes(file_bytes).file_name(file_name);
-    let form = reqwest::multipart::Form::new().part("files[0]", part);
 
+    let build_form = |bytes: Vec<u8>, name: String| {
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(name);
+        reqwest::multipart::Form::new().part("files[0]", part)
+    };
+
+    let form = build_form(file_bytes.clone(), file_name.clone());
     let resp = http_client.post(&url).multipart(form).send().await?;
+
+    if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(2.0);
+        warn!("discord API rate limited on media followup, retrying after {retry_after}s");
+        tokio::time::sleep(std::time::Duration::from_secs_f64(retry_after)).await;
+
+        let retry_form = build_form(file_bytes, file_name);
+        let retry_resp = http_client.post(&url).multipart(retry_form).send().await?;
+        if !retry_resp.status().is_success() {
+            let status = retry_resp.status();
+            let body = retry_resp.text().await.unwrap_or_default();
+            warn!(
+                "Discord webhook media followup failed ({}): {}",
+                status, body
+            );
+        }
+        return Ok(());
+    }
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -537,9 +630,12 @@ impl BaseChannel for DiscordChannel {
         let allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let commands = self.config.commands.clone();
+        let mention_only = self.config.mention_only;
         let inbound_tx = self.inbound_tx.clone();
         let running = self.running.clone();
         let dispatch_store = self.dispatch_store.clone();
+        let bot_user_id: Arc<tokio::sync::OnceCell<serenity::model::id::UserId>> =
+            Arc::new(tokio::sync::OnceCell::new());
 
         let handle = tokio::spawn(async move {
             let mut reconnect_attempt = 0u32;
@@ -561,6 +657,8 @@ impl BaseChannel for DiscordChannel {
                         .unwrap_or_else(|_| reqwest::Client::new()),
                     commands: commands.clone(),
                     dispatch_store: dispatch_store.clone(),
+                    mention_only,
+                    bot_user_id: bot_user_id.clone(),
                 };
 
                 info!("Connecting to Discord gateway...");
@@ -821,7 +919,14 @@ impl BaseChannel for DiscordChannel {
         let channel_id = chat_id.parse::<u64>()?;
         let msg_id = message_id.parse::<u64>()?;
         let channel = serenity::model::id::ChannelId::new(channel_id);
-        let builder = serenity::builder::EditMessage::new().content(content);
+        // Truncate to Discord's 2000-char message limit
+        let truncated = if content.len() > 2000 {
+            let boundary = content.floor_char_boundary(2000);
+            &content[..boundary]
+        } else {
+            content
+        };
+        let builder = serenity::builder::EditMessage::new().content(truncated);
         channel
             .edit_message(
                 &self.serenity_http,
@@ -872,6 +977,14 @@ impl DiscordChannel {
             {
                 warn!("discord: failed to send interaction media {}: {}", path, e);
             }
+        }
+
+        // If no text chunks and no embeds/components, send a fallback so the
+        // deferred interaction does not hang indefinitely
+        if chunks.is_empty() && embeds.is_empty() && components.is_empty() && msg.media.is_empty() {
+            let payload = serde_json::json!({ "content": "(no response)" });
+            send_interaction_followup(&self.http_client, app_id, token, &payload).await?;
+            return Ok(());
         }
 
         // Send text chunks

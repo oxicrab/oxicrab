@@ -4,7 +4,7 @@ use oxicrab_core::providers::base::ImageData;
 #[test]
 fn test_convert_user_message_text_only() {
     let messages = vec![Message::user("hello")];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].role, "user");
@@ -22,7 +22,7 @@ fn test_convert_user_message_with_images() {
             data: "base64data".to_string(),
         }],
     );
-    let (_, result) = convert_messages(vec![msg]);
+    let (_, result) = convert_messages(&[msg]);
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].role, "user");
@@ -52,7 +52,7 @@ fn test_convert_user_message_with_multiple_images() {
             },
         ],
     );
-    let (_, result) = convert_messages(vec![msg]);
+    let (_, result) = convert_messages(&[msg]);
 
     let content = result[0].content.as_array().unwrap();
     assert_eq!(content.len(), 3); // 1 text + 2 images
@@ -69,7 +69,7 @@ fn test_convert_user_message_image_with_empty_text() {
             data: "data".to_string(),
         }],
     );
-    let (_, result) = convert_messages(vec![msg]);
+    let (_, result) = convert_messages(&[msg]);
 
     let content = result[0].content.as_array().unwrap();
     // Empty text should be omitted, only image block
@@ -91,7 +91,7 @@ fn test_convert_mixed_messages_images_only_on_user() {
         Message::assistant("I see an image", None),
         Message::user("follow up with no image"),
     ];
-    let (system, result) = convert_messages(messages);
+    let (system, result) = convert_messages(&messages);
 
     assert!(system.is_some());
     assert_eq!(result.len(), 3); // user, assistant, user
@@ -110,7 +110,7 @@ fn test_convert_user_message_with_pdf_document() {
             data: "cGRmZGF0YQ==".to_string(),
         }],
     );
-    let (_, result) = convert_messages(vec![msg]);
+    let (_, result) = convert_messages(&[msg]);
 
     let content = result[0].content.as_array().unwrap();
     assert_eq!(content.len(), 2);
@@ -136,7 +136,7 @@ fn test_convert_user_message_mixed_image_and_document() {
             },
         ],
     );
-    let (_, result) = convert_messages(vec![msg]);
+    let (_, result) = convert_messages(&[msg]);
 
     let content = result[0].content.as_array().unwrap();
     assert_eq!(content.len(), 3); // text + image + document
@@ -167,7 +167,7 @@ fn test_consecutive_tool_results_merged() {
         Message::tool_result("tc1".to_string(), "result1".to_string(), false),
         Message::tool_result("tc2".to_string(), "result2".to_string(), false),
     ];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
 
     // Should be: user, assistant, user (merged tool results)
     assert_eq!(
@@ -192,7 +192,7 @@ fn test_user_after_tool_result_merged() {
         Message::tool_result("tc1".to_string(), "result".to_string(), false),
         Message::user("follow up"),
     ];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
 
     // Should be: user, assistant, user (merged tool_result + text)
     assert_eq!(result.len(), 3);
@@ -339,7 +339,7 @@ fn test_convert_system_messages_joined() {
         Message::system("rule 2"),
         Message::user("hello"),
     ];
-    let (system, msgs) = convert_messages(messages);
+    let (system, msgs) = convert_messages(&messages);
     assert_eq!(system.as_deref(), Some("rule 1\n\nrule 2"));
     assert_eq!(msgs.len(), 1);
 }
@@ -351,7 +351,7 @@ fn test_convert_tool_result_with_error() {
         "something failed".to_string(),
         true,
     )];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
     assert_eq!(result.len(), 1);
     let content = result[0].content.as_array().unwrap();
     assert_eq!(content[0]["is_error"], true);
@@ -367,7 +367,7 @@ fn test_convert_assistant_empty_content_omitted() {
             arguments: json!({}),
         }]),
     )];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
     let content = result[0].content.as_array().unwrap();
     // Empty text should be omitted, only tool_use block present
     assert_eq!(content.len(), 1);
@@ -477,7 +477,7 @@ fn test_convert_assistant_message_with_thinking() {
         Some("Let me reason about this...".to_string()),
         Some("sig_abc".to_string()),
     )];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
     assert_eq!(result.len(), 1);
     let content = result[0].content.as_array().unwrap();
     // Should have thinking block followed by text block
@@ -492,7 +492,7 @@ fn test_convert_assistant_message_with_thinking() {
 #[test]
 fn test_convert_assistant_no_thinking_no_extra_block() {
     let messages = vec![Message::assistant("Just text", None)];
-    let (_, result) = convert_messages(messages);
+    let (_, result) = convert_messages(&messages);
     let content = result[0].content.as_array().unwrap();
     // Should have only text block, no thinking
     assert_eq!(content.len(), 1);
@@ -519,7 +519,7 @@ fn test_thinking_roundtrip_parse_then_convert() {
     );
 
     // Convert back to Anthropic format
-    let (_, converted) = convert_messages(vec![msg]);
+    let (_, converted) = convert_messages(&[msg]);
     let content = converted[0].content.as_array().unwrap();
     assert_eq!(content.len(), 2);
     assert_eq!(content[0]["type"], "thinking");

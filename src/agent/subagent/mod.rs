@@ -426,12 +426,14 @@ async fn run_subagent_inner(
             }
 
             // Add assistant message
-            messages.push(Message::assistant_with_thinking(
+            let mut assistant_msg = Message::assistant_with_thinking(
                 response.content.clone().unwrap_or_default(),
                 Some(response.tool_calls.clone()),
                 response.reasoning_content.clone(),
                 response.reasoning_signature.clone(),
-            ));
+            );
+            assistant_msg.redacted_thinking_blocks = response.redacted_thinking_blocks.clone();
+            messages.push(assistant_msg);
 
             // Execute tools in parallel (same pattern as main agent loop)
             let tool_lookups: Vec<_> = response

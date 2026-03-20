@@ -239,6 +239,7 @@ impl AgentLoop {
                     Some(response.tool_calls.clone()),
                     response.reasoning_content.as_deref(),
                     response.reasoning_signature.as_deref(),
+                    response.redacted_thinking_blocks.clone(),
                 );
 
                 // Start periodic typing indicator before tool execution
