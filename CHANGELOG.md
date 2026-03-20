@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.2] - 2026-03-20
+
+### Documentation
+- fix stale README version and CLAUDE.md toolchain reference ([e139d7b](https://github.com/oxicrab/oxicrab/commit/e139d7be88ce813fd34b28279d3c2c8f8f31802e))
+
+
+### Fixed
+- **docs:** reference actual rust-toolchain.toml (pins stable 1.94.0) ([62f4122](https://github.com/oxicrab/oxicrab/commit/62f4122bf1d84bf7015d52b7b43a4df252fe8772))
+- **channels:** automatic reconnection after network outage ([d7e2961](https://github.com/oxicrab/oxicrab/commit/d7e296154f3f16670702207e7b3dfeb260c7b727))
+
+
+### Testing
+- remove theatre, add real gap coverage ([1972ab8](https://github.com/oxicrab/oxicrab/commit/1972ab8fede8e112de1b005b6459fe057b89068b))
+- **channels,safety:** add supervisor, reconnection, and safety integration tests ([d96b5b7](https://github.com/oxicrab/oxicrab/commit/d96b5b70b7c2f876ba7098fb4d1a2997092ba683))
+
 ## [0.16.1] - 2026-03-20
 
 ### Added
@@ -22,6 +37,10 @@ All notable changes to this project will be documented in this file.
 
 
 ### Fixed
+- **cli,bus,router,observability:** comprehensive polish across remaining subsystems ([d45f146](https://github.com/oxicrab/oxicrab/commit/d45f146867f417899acaf6f973771eb56e7d2cf9))
+- **security,config,mcp,tests:** harden security patterns, config validation, MCP lifecycle ([935c777](https://github.com/oxicrab/oxicrab/commit/935c77726f477ec7c1dab83a39788d29c3f97db6))
+- **agent-loop:** shutdown signal, lock safety, hallucination accuracy ([49c16e6](https://github.com/oxicrab/oxicrab/commit/49c16e6508afc63890192c178ecde394bb52b65a))
+- **ci:** revert gateway to non-optional dep, fix gmail depth test ([561e323](https://github.com/oxicrab/oxicrab/commit/561e323e98e6fdd989e5ab8e18b4f2005a2b20bc))
 - **channels,providers:** comprehensive channel and provider hardening ([04d1b27](https://github.com/oxicrab/oxicrab/commit/04d1b27f4f9b55dca10a4eab17a0edbb89e20ea8))
 - clean up stale comments, dead code, and missing Tasks scope ([c997e3a](https://github.com/oxicrab/oxicrab/commit/c997e3a5c448eca887a6022287a08764a083e57e))
 - **tools:** security hardening, pagination, per-action approval across 6 tools ([5b9214d](https://github.com/oxicrab/oxicrab/commit/5b9214d93b5d869810caad0efc286b5dada51472))
