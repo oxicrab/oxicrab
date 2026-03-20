@@ -108,6 +108,10 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return check_ip_allowed(IpAddr::V4(v4));
             }
+            // Also check deprecated IPv4-compatible addresses (::x.x.x.x)
+            if let Some(v4) = v6.to_ipv4() {
+                return check_ip_allowed(IpAddr::V4(v4));
+            }
             let segments = v6.segments();
             // fe80::/10 link-local
             if segments[0] & 0xffc0 == 0xfe80 {

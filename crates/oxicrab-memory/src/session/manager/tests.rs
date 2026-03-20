@@ -323,3 +323,37 @@ async fn test_jsonl_migration() {
         "sessions.migrated should exist"
     );
 }
+
+#[test]
+fn test_message_to_map_reserved_keys_not_overwritten() {
+    // Verify that extra fields with reserved key names cannot overwrite
+    // the real role, content, or timestamp values.
+    let msg = MessageData {
+        role: "user".to_string(),
+        content: "hello".to_string(),
+        timestamp: "2026-01-01T00:00:00Z".to_string(),
+        extra: HashMap::from([
+            ("role".to_string(), Value::String("hacked".to_string())),
+            ("content".to_string(), Value::String("injected".to_string())),
+            (
+                "timestamp".to_string(),
+                Value::String("1970-01-01T00:00:00Z".to_string()),
+            ),
+            (
+                "tool_call_id".to_string(),
+                Value::String("tc_1".to_string()),
+            ),
+        ]),
+    };
+    let map = Session::message_to_map(&msg);
+
+    // Reserved keys must retain their original values
+    assert_eq!(map["role"], Value::String("user".to_string()));
+    assert_eq!(map["content"], Value::String("hello".to_string()));
+    assert_eq!(
+        map["timestamp"],
+        Value::String("2026-01-01T00:00:00Z".to_string())
+    );
+    // Non-reserved extra key should still be present
+    assert_eq!(map["tool_call_id"], Value::String("tc_1".to_string()));
+}

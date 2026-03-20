@@ -1,7 +1,7 @@
 pub mod proxy;
 
 use crate::agent::tools::Tool;
-use crate::config::{McpConfig, SandboxConfig};
+use crate::config::{McpConfig, McpTrust, SandboxConfig};
 use anyhow::Result;
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
@@ -15,7 +15,7 @@ use proxy::McpProxyTool;
 struct RunningMcpServer {
     client: rmcp::service::RunningService<rmcp::RoleClient, ()>,
     server_name: String,
-    trust_level: String,
+    trust_level: McpTrust,
 }
 
 /// Manages connections to MCP servers and discovers their tools.
@@ -70,7 +70,7 @@ impl McpManager {
         command: &str,
         args: &[String],
         env: &std::collections::HashMap<String, String>,
-        trust: &str,
+        trust: &McpTrust,
         sandbox: &SandboxConfig,
         workspace: &Path,
     ) -> Result<RunningMcpServer> {
@@ -127,14 +127,14 @@ impl McpManager {
         Ok(RunningMcpServer {
             client,
             server_name: name.to_string(),
-            trust_level: trust.to_string(),
+            trust_level: trust.clone(),
         })
     }
 
     /// Discover all tools across all connected MCP servers and wrap them as `impl Tool`.
     /// Returns `(trust_level, tool)` tuples so callers can apply trust-based filtering.
-    pub async fn discover_tools(&self) -> Vec<(String, Arc<dyn Tool>)> {
-        let mut tools: Vec<(String, Arc<dyn Tool>)> = Vec::new();
+    pub async fn discover_tools(&self) -> Vec<(McpTrust, Arc<dyn Tool>)> {
+        let mut tools: Vec<(McpTrust, Arc<dyn Tool>)> = Vec::new();
 
         for server in &self.servers {
             let Ok(mcp_tools_result) = tokio::time::timeout(

@@ -424,6 +424,30 @@ pub struct McpConfig {
     pub servers: std::collections::HashMap<String, McpServerConfig>,
 }
 
+/// Trust level for MCP servers.
+///
+/// - `Local`: full access, no approval required
+/// - `Verified`: requires approval for each tool call
+/// - `Community`: read-only safe tools only (filtered by keyword)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum McpTrust {
+    Local,
+    #[default]
+    Verified,
+    Community,
+}
+
+impl std::fmt::Display for McpTrust {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local => write!(f, "local"),
+            Self::Verified => write!(f, "verified"),
+            Self::Community => write!(f, "community"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerConfig {
@@ -435,17 +459,13 @@ pub struct McpServerConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Trust level for this MCP server: "local" (full access), "verified"
-    /// (requires approval), or "community" (read-only safe tools only).
-    #[serde(default = "default_mcp_trust")]
-    pub trust: String,
+    /// (requires approval, default), or "community" (read-only safe tools only).
+    #[serde(default)]
+    pub trust: McpTrust,
     /// Landlock sandbox config for the MCP server child process.
     /// Defaults to enabled with network blocked (same as shell tool).
     #[serde(default)]
     pub sandbox: SandboxConfig,
-}
-
-fn default_mcp_trust() -> String {
-    "local".to_string()
 }
 
 fn default_transcription_api_base() -> String {

@@ -52,8 +52,8 @@ pub fn apply_to_command(
     rules: &SandboxRules,
 ) -> anyhow::Result<()> {
     use landlock::{
-        ABI, Access, AccessFs, AccessNet, PathBeneath, PathFd, Ruleset, RulesetAttr,
-        RulesetCreatedAttr,
+        ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, PathBeneath, PathFd, Ruleset,
+        RulesetAttr, RulesetCreatedAttr,
     };
 
     let abi = ABI::V5;
@@ -69,6 +69,7 @@ pub fn apply_to_command(
             let full_access = AccessFs::from_all(abi);
 
             let mut ruleset = Ruleset::default()
+                .set_compatibility(CompatLevel::BestEffort)
                 .handle_access(full_access)
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
 

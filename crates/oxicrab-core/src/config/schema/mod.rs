@@ -199,7 +199,7 @@ pub struct A2aConfig {
 /// Configuration for a named webhook receiver endpoint.
 ///
 /// Each webhook is available at `POST /api/webhook/{name}`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
     /// Whether this webhook is active. Disabled webhooks return 404.
     #[serde(default = "default_true")]
@@ -221,6 +221,16 @@ pub struct WebhookConfig {
     #[serde(default)]
     pub dispatch: Option<WebhookDispatchConfig>,
 }
+
+redact_debug!(
+    WebhookConfig,
+    enabled,
+    redact(secret),
+    template,
+    targets,
+    agent_turn,
+    dispatch,
+);
 
 impl Default for WebhookConfig {
     fn default() -> Self {
@@ -405,6 +415,12 @@ impl Config {
         {
             return Err(OxicrabError::Config(
                 "agents.defaults.memory.hybridWeight must be a finite number between 0.0 and 1.0"
+                    .into(),
+            ));
+        }
+        if m.rrf_k == 0 {
+            return Err(OxicrabError::Config(
+                "agents.defaults.memory.rrfK must be at least 1 (0 would cause division by zero)"
                     .into(),
             ));
         }
@@ -805,6 +821,7 @@ impl Config {
             ("moonshot", &self.providers.moonshot),
             ("zhipu", &self.providers.zhipu),
             ("dashscope", &self.providers.dashscope),
+            ("minimax", &self.providers.minimax),
             ("vllm", &self.providers.vllm.base),
             ("ollama", &self.providers.ollama.base),
         ];
@@ -852,6 +869,7 @@ impl Config {
                 "anthropic_oauth_refresh",
                 &self.providers.anthropic_oauth.refresh_token,
             ),
+            ("minimax_api_key", &self.providers.minimax.api_key),
             ("telegram_token", &self.channels.telegram.token),
             ("discord_token", &self.channels.discord.token),
             ("slack_bot_token", &self.channels.slack.bot_token),

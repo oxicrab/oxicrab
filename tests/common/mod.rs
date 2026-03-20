@@ -8,7 +8,7 @@ use oxicrab::config::{
     CognitiveConfig, CompactionConfig, ExfiltrationGuardConfig, PromptGuardConfig, SandboxConfig,
 };
 use oxicrab::providers::base::{
-    ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition,
+    ChatRequest, LLMProvider, LLMResponse, Message, ResponseFormat, ToolCallRequest, ToolDefinition,
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -22,6 +22,7 @@ pub struct RecordedCall {
     pub temperature: Option<f32>,
     pub max_tokens: u32,
     pub tool_choice: Option<String>,
+    pub response_format: Option<ResponseFormat>,
 }
 
 pub struct MockLLMProvider {
@@ -53,6 +54,7 @@ impl LLMProvider for MockLLMProvider {
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
                 tool_choice: req.tool_choice.clone(),
+                response_format: req.response_format.clone(),
             });
 
         let response = self.responses.lock().expect("lock responses").pop_front();
@@ -79,6 +81,22 @@ pub fn text_response(content: &str) -> LLMResponse {
 pub fn tool_response(calls: Vec<ToolCallRequest>) -> LLMResponse {
     LLMResponse {
         tool_calls: calls,
+        ..Default::default()
+    }
+}
+
+pub fn thinking_response(content: &str, thinking: &str) -> LLMResponse {
+    LLMResponse {
+        content: Some(content.to_string()),
+        reasoning_content: Some(thinking.to_string()),
+        ..Default::default()
+    }
+}
+
+pub fn response_with_finish(content: &str, finish_reason: &str) -> LLMResponse {
+    LLMResponse {
+        content: Some(content.to_string()),
+        finish_reason: Some(finish_reason.to_string()),
         ..Default::default()
     }
 }
@@ -232,6 +250,7 @@ impl LLMProvider for FailingMockProvider {
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
                 tool_choice: req.tool_choice.clone(),
+                response_format: req.response_format.clone(),
             });
         Err(anyhow::anyhow!("{}", self.error_message))
     }

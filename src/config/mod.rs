@@ -9,7 +9,7 @@ pub use schema::{
     ChatModels, ChatRoutingConfig, ChatThresholds, CircuitBreakerConfig, CognitiveConfig,
     CompactionConfig, Config, ContextProviderConfig, CredentialHelperConfig, DiscordCommand,
     DiscordCommandOption, DiscordConfig, DmPolicy, ExecToolConfig, ExfiltrationGuardConfig,
-    FusionStrategy, GatewayConfig, GitHubConfig, GoogleConfig, ImageGenConfig, McpConfig,
+    FusionStrategy, GatewayConfig, GitHubConfig, GoogleConfig, ImageGenConfig, McpConfig, McpTrust,
     MediaConfig, MemoryConfig, ModelRoutingConfig, ObsidianConfig, PromptGuardAction,
     PromptGuardConfig, ProviderConfig, ProvidersConfig, RouterConfig, RssConfig, SandboxConfig,
     SlackConfig, TaskRouting, TelegramConfig, TodoistConfig, ToolsConfig, TranscriptionConfig,

@@ -54,6 +54,22 @@ impl Session {
         content: impl Into<String>,
         extra: HashMap<String, Value>,
     ) {
+        let mut extra = extra;
+
+        // Cap reasoning_content to prevent multi-MB session bloat
+        const MAX_REASONING_CHARS: usize = 2000;
+        if let Some(Value::String(rc)) = extra.get("reasoning_content")
+            && rc.len() > MAX_REASONING_CHARS
+        {
+            extra.insert(
+                "reasoning_content".to_string(),
+                Value::String(format!(
+                    "{}...[truncated]",
+                    &rc[..rc.floor_char_boundary(MAX_REASONING_CHARS)]
+                )),
+            );
+        }
+
         let msg = MessageData {
             role: role.into(),
             content: content.into(),
@@ -88,6 +104,8 @@ impl Session {
     }
 
     fn message_to_map(m: &MessageData) -> HashMap<String, Value> {
+        const RESERVED_KEYS: &[&str] = &["role", "content", "timestamp"];
+
         let mut map = HashMap::new();
         map.insert("role".to_string(), Value::String(m.role.clone()));
         map.insert("content".to_string(), Value::String(m.content.clone()));
@@ -95,7 +113,9 @@ impl Session {
             map.insert("timestamp".to_string(), Value::String(m.timestamp.clone()));
         }
         for (k, v) in &m.extra {
-            map.insert(k.clone(), v.clone());
+            if !RESERVED_KEYS.contains(&k.as_str()) {
+                map.insert(k.clone(), v.clone());
+            }
         }
         map
     }

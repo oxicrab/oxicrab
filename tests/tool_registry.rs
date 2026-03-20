@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use oxicrab::agent::tools::base::ExecutionContext;
+use oxicrab::agent::tools::tool_search::{ActivatedTools, ToolIndexEntry, ToolSearchTool};
 use oxicrab::agent::tools::{Tool, ToolRegistry, ToolResult};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A simple test tool that echoes back its parameters.
@@ -317,4 +319,163 @@ async fn test_multiple_tools_registered() {
     assert!(registry.get("error_tool").is_some());
     assert!(registry.get("panic_tool").is_some());
     assert!(registry.get("nonexistent").is_none());
+}
+
+/// A tool that requires an integer parameter, used to test auto-casting.
+struct IntegerParamTool;
+
+#[async_trait]
+impl Tool for IntegerParamTool {
+    fn name(&self) -> &str {
+        "integer_tool"
+    }
+    fn description(&self) -> &'static str {
+        "A tool with an integer parameter"
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "count": { "type": "integer", "description": "A count value" }
+            },
+            "required": ["count"]
+        })
+    }
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
+        // This will fail if the param wasn't auto-cast from string to integer
+        let count = params["count"]
+            .as_i64()
+            .ok_or_else(|| anyhow::anyhow!("count is not an integer"))?;
+        Ok(ToolResult::new(format!("Count: {count}")))
+    }
+}
+
+#[tokio::test]
+async fn test_tool_param_auto_casting() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(IntegerParamTool));
+
+    // Pass a string "42" where the schema expects an integer.
+    // The registry's coerce_params_to_schema should auto-cast it.
+    let result = registry
+        .execute("integer_tool", json!({"count": "42"}), &default_ctx())
+        .await
+        .expect("execute integer_tool with string param");
+
+    assert!(!result.is_error, "auto-casting should prevent error");
+    assert!(
+        result.content.contains("Count: 42"),
+        "expected 'Count: 42', got: {}",
+        result.content
+    );
+}
+
+/// A simple tool used for deferred registration testing.
+struct DeferredEchoTool;
+
+#[async_trait]
+impl Tool for DeferredEchoTool {
+    fn name(&self) -> &str {
+        "deferred_echo"
+    }
+    fn description(&self) -> &'static str {
+        "A deferred echo tool for testing"
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "text": { "type": "string" }
+            }
+        })
+    }
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
+        let text = params["text"].as_str().unwrap_or("no text");
+        Ok(ToolResult::new(format!("Deferred: {text}")))
+    }
+}
+
+#[tokio::test]
+async fn test_deferred_tool_activation_flow() {
+    let activated = ActivatedTools::new();
+
+    // Build an index for tool_search
+    let index = vec![
+        ToolIndexEntry {
+            name: "echo".into(),
+            description: "Echoes the input".into(),
+            deferred: false,
+        },
+        ToolIndexEntry {
+            name: "deferred_echo".into(),
+            description: "A deferred echo tool for testing".into(),
+            deferred: true,
+        },
+    ];
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool));
+    registry.register_deferred(Arc::new(DeferredEchoTool));
+    registry.register(Arc::new(ToolSearchTool::new(index, activated.clone())));
+
+    // Step 1: Deferred tool should NOT appear in default definitions
+    let defs = registry.get_tool_definitions();
+    let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+    assert!(
+        !names.contains(&"deferred_echo"),
+        "deferred tool should be excluded from definitions"
+    );
+    assert!(
+        names.contains(&"echo"),
+        "regular tool should be in definitions"
+    );
+    assert!(
+        names.contains(&"tool_search"),
+        "tool_search should be in definitions"
+    );
+
+    // Step 2: Use tool_search to discover the deferred tool
+    let request_id = "test-req-1";
+    let search_ctx = ExecutionContext {
+        metadata: HashMap::from([(
+            "request_id".to_string(),
+            Value::String(request_id.to_string()),
+        )]),
+        ..ExecutionContext::default()
+    };
+    let search_result = registry
+        .execute("tool_search", json!({"query": "deferred"}), &search_ctx)
+        .await
+        .expect("tool_search should succeed");
+    assert!(
+        !search_result.is_error,
+        "tool_search should not return error"
+    );
+    assert!(
+        search_result.content.contains("deferred_echo"),
+        "search should find deferred_echo"
+    );
+
+    // Step 3: Deferred tool should now be activated for this request
+    let activated_set = activated.snapshot(request_id).await;
+    assert!(
+        activated_set.contains("deferred_echo"),
+        "deferred_echo should be activated"
+    );
+
+    // Step 4: Definitions with activated set should include the deferred tool
+    let defs = registry.get_tool_definitions_with_activated(&activated_set);
+    let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+    assert!(
+        names.contains(&"deferred_echo"),
+        "activated deferred tool should appear in definitions"
+    );
+
+    // Step 5: Execute the deferred tool (should work even before activation)
+    let result = registry
+        .execute("deferred_echo", json!({"text": "hello"}), &default_ctx())
+        .await
+        .expect("execute deferred_echo");
+    assert!(!result.is_error);
+    assert!(result.content.contains("Deferred: hello"));
 }

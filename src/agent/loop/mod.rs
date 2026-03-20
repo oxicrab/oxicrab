@@ -116,8 +116,8 @@ pub struct AgentLoop {
     prompt_guard_config: crate::config::PromptGuardConfig,
     /// Inbound secret leak detector — scans user messages before they reach the LLM
     leak_detector: Arc<LeakDetector>,
-    /// MCP manager kept alive for graceful child process shutdown
-    _mcp_manager: Option<crate::agent::tools::mcp::McpManager>,
+    /// MCP manager — kept for graceful child process shutdown via `stop()`
+    mcp_manager: Arc<tokio::sync::Mutex<Option<crate::agent::tools::mcp::McpManager>>>,
     /// Pre-resolved model routing for task-specific provider selection
     routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
     /// Complexity scorer for per-message model routing (None when disabled)
@@ -184,7 +184,6 @@ impl AgentLoop {
         ));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
 
-        let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(&workspace)?);
         // Reuse a pre-opened MemoryDB when available (avoids duplicate connections)
         let memory = Arc::new(if let Some(db) = shared_db {
             if let Some(ref mem_cfg) = memory_config {
@@ -198,6 +197,9 @@ impl AgentLoop {
             MemoryStore::new(&workspace)?
         });
 
+        // Reuse the same MemoryDB for session management (avoids opening a third connection)
+        let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::with_db(memory.db()));
+
         // Share the (embedding-configured) memory store with context builder
         let mut context_builder = ContextBuilder::with_memory(&workspace, memory.clone())?;
         if !context_providers.is_empty() {
@@ -207,10 +209,10 @@ impl AgentLoop {
         }
         let context = Arc::new(Mutex::new(context_builder));
 
-        // Clean up expired sessions in background
+        // Clean up expired sessions in background (reuse shared DB)
         if session_ttl_days > 0 {
             let ttl = session_ttl_days;
-            let mgr_for_cleanup = SessionManager::new(&workspace)?;
+            let mgr_for_cleanup = SessionManager::with_db(memory.db());
             tokio::spawn(async move {
                 if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl).await {
                     warn!("Session cleanup failed: {}", e);
@@ -456,7 +458,7 @@ impl AgentLoop {
             },
             prompt_guard_config,
             leak_detector,
-            _mcp_manager: mcp_manager,
+            mcp_manager: Arc::new(tokio::sync::Mutex::new(mcp_manager)),
             routing,
             complexity_scorer,
             tool_search_activated,
@@ -636,6 +638,13 @@ impl AgentLoop {
         }
         self.shutdown_notify.notify_waiters();
         self.task_tracker.cancel_all().await;
+
+        // Gracefully shut down MCP child processes
+        if let Some(manager) = self.mcp_manager.lock().await.take() {
+            tokio::spawn(async move {
+                manager.shutdown().await;
+            });
+        }
     }
 
     /// Get or create a per-session lock, enabling concurrent processing of

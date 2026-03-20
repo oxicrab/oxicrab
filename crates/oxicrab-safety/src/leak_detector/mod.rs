@@ -105,6 +105,26 @@ static BASE_PATTERNS: LazyLock<BasePatterns> = LazyLock::new(|| {
             r"SG\.[0-9A-Za-z_\-]{22}\.[0-9A-Za-z_\-]{43}",
             "SG.",
         ),
+        // Slack incoming webhook URLs
+        (
+            "slack_webhook",
+            r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+",
+            "https://hooks.slack.com/services/",
+        ),
+        // Slack user tokens
+        (
+            "slack_user_token",
+            r"xoxp-[0-9]+-[0-9]+-[0-9]+-[a-f0-9]+",
+            "xoxp-",
+        ),
+        // GitLab personal access tokens
+        ("gitlab_pat", r"glpat-[A-Za-z0-9_\-]{20,}", "glpat-"),
+        // Stripe restricted API keys
+        (
+            "stripe_restricted",
+            r"rk_(live|test)_[A-Za-z0-9]{24,}",
+            "rk_",
+        ),
     ];
 
     let mut prefixes = Vec::with_capacity(pattern_defs.len());

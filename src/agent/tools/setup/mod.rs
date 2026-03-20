@@ -6,6 +6,7 @@ use crate::agent::tools::mcp::proxy::AttenuatedMcpTool;
 use crate::agent::tools::{Tool, ToolRegistry};
 use crate::bus::{MessageBus, OutboundMessage};
 use crate::config;
+use crate::config::McpTrust;
 use crate::cron::service::CronService;
 use anyhow::Result;
 use std::path::PathBuf;
@@ -90,11 +91,12 @@ pub async fn register_all_tools(
     let mcp_manager = if let Some((mcp_tools, manager)) = mcp_result {
         for tool in mcp_tools {
             let name = tool.name().to_string();
-            // Reject MCP tools that shadow built-in tools (capability-based)
-            if let Some(existing) = tools.get(&name)
-                && existing.capabilities().built_in
-            {
-                warn!("MCP tool '{}' rejected: shadows a built-in tool", name);
+            // Reject MCP tools that shadow ANY existing tool (not just built-in)
+            if tools.get(&name).is_some() {
+                warn!(
+                    "MCP tool '{}' conflicts with existing tool — skipping",
+                    name
+                );
                 continue;
             }
             // Defer MCP tool schemas to save tokens — they're discoverable via tool_search
@@ -432,14 +434,14 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
             let mut accepted: Vec<Arc<dyn Tool>> = Vec::new();
             for (trust, tool) in discovered {
                 let name = tool.name().to_string();
-                match trust.as_str() {
-                    "local" => {
+                match trust {
+                    McpTrust::Local => {
                         accepted.push(tool);
                     }
-                    "verified" => {
+                    McpTrust::Verified => {
                         accepted.push(Arc::new(AttenuatedMcpTool::new(tool)));
                     }
-                    "community" => {
+                    McpTrust::Community => {
                         if is_community_safe(&name) {
                             accepted.push(Arc::new(AttenuatedMcpTool::new(tool)));
                         } else {
@@ -448,12 +450,6 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
                                 name
                             );
                         }
-                    }
-                    other => {
-                        warn!(
-                            "MCP tool '{}' rejected: unknown trust level '{}'",
-                            name, other
-                        );
                     }
                 }
             }

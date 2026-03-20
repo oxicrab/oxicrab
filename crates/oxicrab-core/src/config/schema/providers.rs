@@ -116,6 +116,10 @@ impl std::fmt::Debug for ProviderConfig {
 
 /// Extended provider config for local inference servers (ollama, vllm)
 /// that may need prompt-guided tool calling.
+///
+/// NOTE: `#[serde(flatten)]` on `base` means serde cannot reject unknown keys
+/// for this struct. This is a known serde limitation — any unrecognized keys
+/// are silently absorbed by the flattened `ProviderConfig` map fields.
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct LocalProviderConfig {
     #[serde(flatten)]
