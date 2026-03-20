@@ -1,5 +1,6 @@
 use crate::agent::tools::ToolRegistry;
 use crate::agent::tools::base::{ExecutionContext, ToolResult};
+use crate::bus::OutboundMessage;
 use crate::providers::base::ImageData;
 use anyhow::Result;
 use jsonschema::error::ValidationErrorKind;
@@ -8,6 +9,17 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
+
+/// Context for the operator approval flow, passed into [`execute_tool_call`].
+/// When `None`, the approval gate is skipped (backward-compatible with tests).
+pub(super) struct ApprovalContext<'a> {
+    pub store: &'a crate::agent::approval::ApprovalStore,
+    pub config: &'a crate::config::ApprovalConfig,
+    pub outbound_tx: &'a tokio::sync::mpsc::Sender<OutboundMessage>,
+    pub channel: &'a str,
+    pub chat_id: &'a str,
+    pub sender_id: &'a str,
+}
 
 const SAVED_TO_PREFIX: &str = "saved to: ";
 const AUDIO_TAG_PREFIX: &str = "[audio: ";
@@ -114,6 +126,7 @@ pub(crate) fn validate_tool_params(
 /// validation) before delegating to the registry, which handles caching,
 /// timeout, panic isolation, truncation, and logging. Also handles the
 /// "tool not found" case and converts the result to `(String, bool)`.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_tool_call(
     registry: &ToolRegistry,
     tc_name: &str,
@@ -122,6 +135,7 @@ pub(super) async fn execute_tool_call(
     ctx: &ExecutionContext,
     exfil_allow: Option<&[String]>,
     workspace: Option<&std::path::Path>,
+    approval_ctx: Option<ApprovalContext<'_>>,
 ) -> ToolResult {
     // Exfiltration guard: block network-outbound tools the LLM shouldn't call
     if let Some(allow_tools) = exfil_allow {
@@ -146,8 +160,30 @@ pub(super) async fn execute_tool_call(
         ));
     };
 
-    // Approval gate: block untrusted MCP tools and per-action approval
+    // Interactive approval flow (when enabled)
     let action = tc_args.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    if let Some(ref approval) = approval_ctx {
+        let tool_caps = tool.capabilities();
+        if approval.config.enabled && approval.config.covers(tc_name, action, &tool_caps.actions) {
+            return await_approval(
+                tool.as_ref(),
+                tc_name,
+                action,
+                tc_args,
+                ctx,
+                approval.store,
+                approval.config,
+                approval.outbound_tx,
+                approval.channel,
+                approval.chat_id,
+                approval.sender_id,
+            )
+            .await;
+        }
+    }
+
+    // Legacy hard-block: per-action approval (only reached when interactive
+    // approval is disabled or the action is not covered)
     if tool.requires_approval_for_action(action) {
         warn!(
             "blocked tool requiring approval: {} (action={})",
@@ -179,6 +215,187 @@ pub(super) async fn execute_tool_call(
             ToolResult::error(msg)
         }
     }
+}
+
+/// Wait for operator approval before executing a tool.
+///
+/// Sends a feedback message to the user, an approval request with buttons to
+/// the operator channel, then blocks on a oneshot receiver until the operator
+/// responds or the timeout expires.
+#[allow(clippy::too_many_arguments)]
+async fn await_approval(
+    tool: &dyn crate::agent::tools::base::Tool,
+    tool_name: &str,
+    action: &str,
+    params: &Value,
+    ctx: &ExecutionContext,
+    store: &crate::agent::approval::ApprovalStore,
+    config: &crate::config::ApprovalConfig,
+    outbound_tx: &tokio::sync::mpsc::Sender<OutboundMessage>,
+    channel: &str,
+    chat_id: &str,
+    sender_id: &str,
+) -> ToolResult {
+    use crate::agent::approval::{ApprovalDecision, ApprovalEntry, ApprovalStore};
+
+    let approval_id = ApprovalStore::generate_id();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    let display_action = if action.is_empty() {
+        tool.capabilities()
+            .actions
+            .first()
+            .map_or("execute", |a| a.name)
+            .to_string()
+    } else {
+        action.to_string()
+    };
+
+    // Determine operator channel target
+    let operator_target = if config.channel.is_empty() {
+        (channel.to_string(), chat_id.to_string())
+    } else if let Some((ch, id)) = config.channel.split_once(':') {
+        (ch.to_string(), id.to_string())
+    } else {
+        warn!(
+            "invalid approval channel format '{}', falling back to same conversation",
+            config.channel
+        );
+        (channel.to_string(), chat_id.to_string())
+    };
+
+    let operator_channel_key = if config.channel.is_empty() {
+        String::new()
+    } else {
+        config.channel.clone()
+    };
+
+    // Register the pending approval
+    store.register(
+        &approval_id,
+        ApprovalEntry {
+            sender: tx,
+            tool_name: tool_name.to_string(),
+            action: display_action.clone(),
+            requested_by: sender_id.to_string(),
+            operator_channel: operator_channel_key,
+        },
+    );
+
+    // Send feedback to user
+    let feedback = OutboundMessage::builder(
+        channel,
+        chat_id,
+        format!(
+            "This action requires approval. Waiting for an operator to approve `{tool_name}.{display_action}`..."
+        ),
+    )
+    .build();
+    let _ = outbound_tx.send(feedback).await;
+
+    // Build and send approval request to operator
+    let request_text = format_approval_request(
+        tool_name,
+        &display_action,
+        sender_id,
+        channel,
+        chat_id,
+        params,
+    );
+    let approve_ctx = serde_json::json!({
+        "tool": "__approval",
+        "params": {"approval_id": approval_id, "decision": "approved"}
+    })
+    .to_string();
+    let deny_ctx = serde_json::json!({
+        "tool": "__approval",
+        "params": {"approval_id": approval_id, "decision": "denied"}
+    })
+    .to_string();
+
+    let buttons = vec![
+        serde_json::json!({"id": format!("approve_{approval_id}"), "label": "Approve", "style": "primary", "context": approve_ctx}),
+        serde_json::json!({"id": format!("deny_{approval_id}"), "label": "Deny", "style": "danger", "context": deny_ctx}),
+    ];
+
+    let request_msg =
+        OutboundMessage::builder(&operator_target.0, &operator_target.1, request_text)
+            .meta(
+                crate::bus::meta::BUTTONS.to_string(),
+                serde_json::Value::Array(buttons),
+            )
+            .build();
+    let _ = outbound_tx.send(request_msg).await;
+
+    // Wait for approval decision
+    match tokio::time::timeout(std::time::Duration::from_secs(config.timeout), rx).await {
+        Ok(Ok(ApprovalDecision::Approved)) => {
+            info!("approval granted for {tool_name}.{display_action} (requested by {sender_id})");
+            tool.execute(params.clone(), ctx).await.unwrap_or_else(|e| {
+                ToolResult::error(format!("tool execution failed after approval: {e}"))
+            })
+        }
+        Ok(Ok(ApprovalDecision::Denied { reason })) => {
+            let reason_str = reason.map(|r| format!(": {r}")).unwrap_or_default();
+            info!(
+                "approval denied for {tool_name}.{display_action} (requested by {sender_id}){reason_str}"
+            );
+            ToolResult::error(format!("action denied by operator{reason_str}"))
+        }
+        _ => {
+            warn!("approval timed out for {tool_name}.{display_action} (requested by {sender_id})");
+            ToolResult::error("approval timed out — action not executed")
+        }
+    }
+}
+
+fn format_approval_request(
+    tool_name: &str,
+    action: &str,
+    sender_id: &str,
+    channel: &str,
+    chat_id: &str,
+    params: &Value,
+) -> String {
+    let mut lines = vec![
+        "Approval Request".to_string(),
+        String::new(),
+        format!("Tool: {tool_name} -> {action}"),
+        format!("Requested by: {sender_id} ({channel} {chat_id})"),
+    ];
+
+    if let Some(obj) = params.as_object() {
+        lines.push(String::new());
+        let mut count = 0;
+        for (key, value) in obj {
+            if key == "action" {
+                continue;
+            }
+            if count >= 10 {
+                break;
+            }
+            let val_str = if let Some(s) = value.as_str() {
+                if s.len() > 500 {
+                    let boundary = s.floor_char_boundary(500);
+                    format!("{}...\n[{} chars total]", &s[..boundary], s.len())
+                } else {
+                    s.to_string()
+                }
+            } else {
+                let s = value.to_string();
+                if s.len() > 500 {
+                    let boundary = s.floor_char_boundary(500);
+                    format!("{}...\n[{} chars total]", &s[..boundary], s.len())
+                } else {
+                    s
+                }
+            };
+            lines.push(format!("{key}: {val_str}"));
+            count += 1;
+        }
+    }
+
+    lines.join("\n")
 }
 
 /// Action claim regex fragments. Each captures a distinct hallucination pattern.

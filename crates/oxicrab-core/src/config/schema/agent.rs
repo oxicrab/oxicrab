@@ -503,6 +503,69 @@ impl Default for ComplexityWeights {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub channel: String,
+    #[serde(default = "default_approval_timeout")]
+    pub timeout: u64,
+    #[serde(default)]
+    pub actions: Vec<String>,
+}
+
+fn default_approval_timeout() -> u64 {
+    300
+}
+
+impl Default for ApprovalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            channel: String::new(),
+            timeout: 300,
+            actions: vec![],
+        }
+    }
+}
+
+impl ApprovalConfig {
+    /// Check if a tool action is covered by this approval config.
+    /// `action_from_params` is the action from tool call params (empty for single-purpose tools).
+    /// `tool_actions` is the tool's declared ActionDescriptor list from capabilities().
+    pub fn covers(
+        &self,
+        tool_name: &str,
+        action_from_params: &str,
+        tool_actions: &[crate::tools::base::ActionDescriptor],
+    ) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        // Resolve effective action for single-purpose tools
+        let effective_action = if action_from_params.is_empty() && tool_actions.len() == 1 {
+            tool_actions[0].name
+        } else {
+            action_from_params
+        };
+
+        if self.actions.is_empty() {
+            // Default: cover all non-read-only actions
+            tool_actions
+                .iter()
+                .any(|a| a.name == effective_action && !a.read_only)
+        } else {
+            // Explicit list
+            let full_key = format!("{tool_name}.{effective_action}");
+            self.actions
+                .iter()
+                .any(|a| *a == full_key || *a == tool_name)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
     pub workspace: String,
@@ -535,6 +598,8 @@ pub struct AgentDefaults {
     pub workspace_ttl: WorkspaceTtlConfig,
     #[serde(default, rename = "modelRouting")]
     pub model_routing: ModelRoutingConfig,
+    #[serde(default)]
+    pub approval: ApprovalConfig,
 }
 
 impl Default for AgentDefaults {
@@ -554,6 +619,7 @@ impl Default for AgentDefaults {
             context_providers: vec![],
             workspace_ttl: WorkspaceTtlConfig::default(),
             model_routing: ModelRoutingConfig::default(),
+            approval: ApprovalConfig::default(),
         }
     }
 }
@@ -588,4 +654,91 @@ fn default_context_provider_ttl() -> u64 {
 pub struct AgentsConfig {
     #[serde(default)]
     pub defaults: AgentDefaults,
+}
+
+#[cfg(test)]
+mod approval_tests {
+    use super::*;
+    use crate::tools::base::ActionDescriptor;
+
+    fn make_actions(names: &[(&'static str, bool)]) -> Vec<ActionDescriptor> {
+        names
+            .iter()
+            .map(|(n, ro)| ActionDescriptor {
+                name: n,
+                read_only: *ro,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_covers_explicit_tool_dot_action() {
+        let config = ApprovalConfig {
+            enabled: true,
+            actions: vec!["google_mail.send".to_string()],
+            ..Default::default()
+        };
+        let actions = make_actions(&[("send", false), ("search", true)]);
+        assert!(config.covers("google_mail", "send", &actions));
+        assert!(!config.covers("google_mail", "search", &actions));
+    }
+
+    #[test]
+    fn test_covers_bare_tool_name_matches_all() {
+        let config = ApprovalConfig {
+            enabled: true,
+            actions: vec!["google_mail".to_string()],
+            ..Default::default()
+        };
+        let actions = make_actions(&[("send", false), ("search", true)]);
+        assert!(config.covers("google_mail", "send", &actions));
+        assert!(config.covers("google_mail", "search", &actions));
+    }
+
+    #[test]
+    fn test_covers_empty_list_uses_mutating_actions() {
+        let config = ApprovalConfig {
+            enabled: true,
+            actions: vec![],
+            ..Default::default()
+        };
+        let actions = make_actions(&[("send", false), ("search", true)]);
+        // Empty list = all non-read-only actions
+        assert!(config.covers("google_mail", "send", &actions));
+        assert!(!config.covers("google_mail", "search", &actions));
+    }
+
+    #[test]
+    fn test_covers_single_purpose_tool_empty_action_param() {
+        let config = ApprovalConfig {
+            enabled: true,
+            actions: vec!["exec.execute".to_string()],
+            ..Default::default()
+        };
+        let actions = make_actions(&[("execute", false)]);
+        // Single-purpose tool: action_from_params is "" -> falls back to declared action
+        assert!(config.covers("exec", "", &actions));
+    }
+
+    #[test]
+    fn test_covers_miss() {
+        let config = ApprovalConfig {
+            enabled: true,
+            actions: vec!["google_mail.send".to_string()],
+            ..Default::default()
+        };
+        let actions = make_actions(&[("list_issues", false)]);
+        assert!(!config.covers("github", "list_issues", &actions));
+    }
+
+    #[test]
+    fn test_covers_disabled_always_false() {
+        let config = ApprovalConfig {
+            enabled: false,
+            actions: vec!["google_mail.send".to_string()],
+            ..Default::default()
+        };
+        let actions = make_actions(&[("send", false)]);
+        assert!(!config.covers("google_mail", "send", &actions));
+    }
 }

@@ -1,5 +1,6 @@
 #[path = "loop/mod.rs"]
 pub mod agent_loop;
+pub mod approval;
 pub mod cognitive;
 pub mod compaction;
 pub mod context;

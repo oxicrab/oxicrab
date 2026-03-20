@@ -44,6 +44,12 @@ temp = 7
 downloads = 30
 images = 90
 
+[agents.defaults.approval]
+enabled = false
+channel = ""
+timeout = 300
+actions = []
+
 [agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"
 fallbacks = []

@@ -136,6 +136,12 @@ pub struct AgentLoop {
     semantic_threshold: f32,
     /// Cached semantic index rebuilt when visible tool definitions change.
     semantic_index_cache: Arc<tokio::sync::Mutex<Option<CachedSemanticIndex>>>,
+    /// Shared approval store for pending operator approval requests.
+    approval_store: Arc<crate::agent::approval::ApprovalStore>,
+    /// Operator approval workflow configuration.
+    approval_config: crate::config::ApprovalConfig,
+    /// Sender for outbound messages (approval requests, user feedback).
+    outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
 }
 
 impl AgentLoop {
@@ -174,6 +180,7 @@ impl AgentLoop {
             memory_db: shared_db,
             leak_detector: shared_leak_detector,
             router_config,
+            approval_config,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -312,6 +319,42 @@ impl AgentLoop {
             crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
         let tools = Arc::new(tools);
         subagents.set_main_tools(tools.clone());
+
+        // Warn about built-in tools with mutating actions that have no approval gate.
+        // Only runs when the interactive approval workflow is disabled.
+        if !approval_config.enabled {
+            for tool_name in tools.tool_names() {
+                if let Some(tool) = tools.get(&tool_name) {
+                    let caps = tool.capabilities();
+                    // Skip MCP tools (separately gated by trust level)
+                    if !caps.built_in {
+                        continue;
+                    }
+                    // Skip tools that have requires_approval_for_action overrides
+                    let has_legacy_gate = caps
+                        .actions
+                        .iter()
+                        .any(|a| !a.read_only && tool.requires_approval_for_action(a.name));
+                    if has_legacy_gate {
+                        continue;
+                    }
+                    // Warn about unprotected mutating actions
+                    let mutating: Vec<&str> = caps
+                        .actions
+                        .iter()
+                        .filter(|a| !a.read_only)
+                        .map(|a| a.name)
+                        .collect();
+                    if !mutating.is_empty() {
+                        warn!(
+                            "tool '{}' has mutating actions ({}) without approval gating",
+                            tool_name,
+                            mutating.join(", ")
+                        );
+                    }
+                }
+            }
+        }
 
         let transcriber = voice_config
             .as_ref()
@@ -468,6 +511,9 @@ impl AgentLoop {
             semantic_prefilter_k,
             semantic_threshold,
             semantic_index_cache: Arc::new(tokio::sync::Mutex::new(None)),
+            approval_store: Arc::new(crate::agent::approval::ApprovalStore::new()),
+            approval_config,
+            outbound_tx,
         })
     }
 
@@ -693,10 +739,67 @@ impl AgentLoop {
             self.evict_stale_session_locks();
         }
 
+        // Approval callbacks bypass the session lock to prevent deadlock
+        // in self-approval mode (same channel as user). The resolve_approval
+        // method only touches the ApprovalStore (its own mutex) — it doesn't
+        // need session state.
+        if let Some(ref action) = msg.action
+            && action.tool == "__approval"
+        {
+            return Ok(Some(self.resolve_approval(&msg, action)));
+        }
+
         let session_key = msg.session_key();
         let lock = self.session_lock(&session_key);
         let _guard = lock.lock().await;
         self.process_message_unlocked(msg).await
+    }
+
+    /// Resolve an operator approval callback without acquiring the session lock.
+    fn resolve_approval(
+        &self,
+        msg: &InboundMessage,
+        action: &crate::dispatch::ActionDispatch,
+    ) -> OutboundMessage {
+        use crate::agent::approval::ApprovalDecision;
+
+        let approval_id = action
+            .params
+            .get("approval_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let decision_str = action
+            .params
+            .get("decision")
+            .and_then(|v| v.as_str())
+            .unwrap_or("denied");
+
+        let decision = if decision_str == "approved" {
+            ApprovalDecision::Approved
+        } else {
+            ApprovalDecision::Denied { reason: None }
+        };
+
+        let source_channel = format!("{}:{}", msg.channel, msg.chat_id);
+
+        match self
+            .approval_store
+            .resolve(approval_id, &source_channel, decision)
+        {
+            Ok((tool_name, action_name, requested_by)) => {
+                let status = if decision_str == "approved" {
+                    "Approved"
+                } else {
+                    "Denied"
+                };
+                let response = format!(
+                    "{status} {tool_name}.{action_name} for {requested_by} (by {})",
+                    msg.sender_id
+                );
+                OutboundMessage::from_inbound(msg.clone(), response).build()
+            }
+            Err(err_msg) => OutboundMessage::from_inbound(msg.clone(), err_msg).build(),
+        }
     }
 }
 
