@@ -167,7 +167,7 @@ pub(super) async fn execute_tool_call(
         let tool_caps = tool.capabilities();
         if approval.config.enabled && approval.config.covers(tc_name, action, &tool_caps.actions) {
             return await_approval(
-                tool.as_ref(),
+                registry,
                 tc_name,
                 action,
                 tc_args,
@@ -226,7 +226,7 @@ pub(super) async fn execute_tool_call(
 /// responds or the timeout expires.
 #[allow(clippy::too_many_arguments)]
 async fn await_approval(
-    tool: &dyn crate::agent::tools::base::Tool,
+    registry: &crate::agent::tools::ToolRegistry,
     tool_name: &str,
     action: &str,
     params: &Value,
@@ -245,11 +245,11 @@ async fn await_approval(
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     let display_action = if action.is_empty() {
-        tool.capabilities()
-            .actions
-            .first()
-            .map_or("execute", |a| a.name)
-            .to_string()
+        registry
+            .get(tool_name)
+            .map(|t| t.capabilities())
+            .and_then(|c| c.actions.first().map(|a| a.name.to_string()))
+            .unwrap_or_else(|| "execute".to_string())
     } else {
         action.to_string()
     };
@@ -330,9 +330,11 @@ async fn await_approval(
     match tokio::time::timeout(std::time::Duration::from_secs(config.timeout), rx).await {
         Ok(Ok(ApprovalDecision::Approved)) => {
             info!("approval granted for {tool_name}.{display_action} (requested by {sender_id})");
-            tool.execute(params.clone(), ctx).await.unwrap_or_else(|e| {
-                ToolResult::error(format!("tool execution failed after approval: {e}"))
-            })
+            // Route through the registry to get timeout, panic isolation, truncation, and metrics
+            match registry.execute(tool_name, params.clone(), ctx).await {
+                Ok(result) => result,
+                Err(e) => ToolResult::error(format!("tool execution failed after approval: {e}")),
+            }
         }
         Ok(Ok(ApprovalDecision::Denied { reason })) => {
             let reason_str = reason.map(|r| format!(": {r}")).unwrap_or_default();
@@ -369,12 +371,14 @@ fn format_approval_request(
     if let Some(obj) = params.as_object() {
         lines.push(String::new());
         let mut count = 0;
+        let has_action_key = obj.contains_key("action");
+        let displayable_params = obj.len() - usize::from(has_action_key);
         for (key, value) in obj {
             if key == "action" {
                 continue;
             }
             if count >= 10 {
-                let remaining = obj.len() - count - obj.keys().filter(|k| *k == "action").count();
+                let remaining = displayable_params - count;
                 if remaining > 0 {
                     lines.push(format!("[{remaining} more parameter(s) not shown]"));
                 }

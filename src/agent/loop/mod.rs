@@ -749,6 +749,7 @@ impl AgentLoop {
         // need session state.
         if let Some(ref action) = msg.action
             && action.tool == "__approval"
+            && matches!(action.source, crate::dispatch::ActionSource::Button { .. })
         {
             return Ok(Some(self.resolve_approval(&msg, action)));
         }
