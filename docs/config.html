@@ -842,7 +842,7 @@ actions = ["google_mail.send", "google_mail.reply"]</code></pre>
         <p>The <code>actions</code> list accepts two formats:</p>
         <ul class="plain">
             <li><code>"tool_name.action"</code> &mdash; matches a specific action on a specific tool (e.g. <code>"google_mail.send"</code>)</li>
-            <li><code>"tool_name"</code> &mdash; matches all actions on that tool (e.g. <code>"github"</code> covers all 11 GitHub actions)</li>
+            <li><code>"tool_name"</code> &mdash; matches all <em>mutating</em> (non-read-only) actions on that tool (e.g. <code>"github"</code> covers <code>create_issue</code>, <code>create_pr_review</code>, <code>trigger_workflow</code> but not read-only actions like <code>list_issues</code>)</li>
         </ul>
         <p>When <code>actions</code> is empty, all non-read-only actions across all tools require approval. This is the strictest setting. Single-purpose tools (like <code>exec</code>, <code>write_file</code>) automatically resolve their declared action name &mdash; use <code>"exec.execute"</code> or <code>"write_file.write"</code> in the actions list.</p>
 
