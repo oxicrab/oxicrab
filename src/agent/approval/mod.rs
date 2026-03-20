@@ -78,6 +78,14 @@ impl ApprovalStore {
         Ok((tool_name, action, requested_by))
     }
 
+    /// Remove a pending approval entry (e.g., on timeout).
+    pub fn remove(&self, approval_id: &str) {
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(approval_id);
+    }
+
     pub fn generate_id() -> String {
         format!("appr-{}", uuid::Uuid::new_v4().simple())
     }

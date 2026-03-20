@@ -342,6 +342,8 @@ async fn await_approval(
             ToolResult::error(format!("action denied by operator{reason_str}"))
         }
         _ => {
+            // Clean up the timed-out entry to prevent unbounded growth
+            store.remove(&approval_id);
             warn!("approval timed out for {tool_name}.{display_action} (requested by {sender_id})");
             ToolResult::error("approval timed out — action not executed")
         }
@@ -372,6 +374,10 @@ fn format_approval_request(
                 continue;
             }
             if count >= 10 {
+                let remaining = obj.len() - count - obj.keys().filter(|k| *k == "action").count();
+                if remaining > 0 {
+                    lines.push(format!("[{remaining} more parameter(s) not shown]"));
+                }
                 break;
             }
             let val_str = if let Some(s) = value.as_str() {
