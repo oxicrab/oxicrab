@@ -556,11 +556,15 @@ impl ApprovalConfig {
                 .iter()
                 .any(|a| a.name == effective_action && !a.read_only)
         } else {
-            // Explicit list
+            // Explicit list: "tool.action" matches specific action,
+            // bare "tool" matches all non-read-only actions (consistent with empty-list mode)
             let full_key = format!("{tool_name}.{effective_action}");
+            let is_mutating = tool_actions
+                .iter()
+                .any(|a| a.name == effective_action && !a.read_only);
             self.actions
                 .iter()
-                .any(|a| *a == full_key || *a == tool_name)
+                .any(|a| *a == full_key || (*a == tool_name && is_mutating))
         }
     }
 }
@@ -684,15 +688,16 @@ mod approval_tests {
     }
 
     #[test]
-    fn test_covers_bare_tool_name_matches_all() {
+    fn test_covers_bare_tool_name_matches_mutating_only() {
         let config = ApprovalConfig {
             enabled: true,
             actions: vec!["google_mail".to_string()],
             ..Default::default()
         };
         let actions = make_actions(&[("send", false), ("search", true)]);
+        // Bare tool name covers mutating actions only (consistent with empty-list mode)
         assert!(config.covers("google_mail", "send", &actions));
-        assert!(config.covers("google_mail", "search", &actions));
+        assert!(!config.covers("google_mail", "search", &actions));
     }
 
     #[test]

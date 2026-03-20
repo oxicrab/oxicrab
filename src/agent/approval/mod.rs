@@ -70,12 +70,16 @@ impl ApprovalStore {
         let tool_name = entry.tool_name.clone();
         let action = entry.action.clone();
         let requested_by = entry.requested_by.clone();
-        let _ = entry.sender.send(decision);
+        // If the receiver was dropped (timeout), send() returns Err — surface it
+        entry
+            .sender
+            .send(decision)
+            .map_err(|_| "approval request has already timed out or been cancelled".to_string())?;
         Ok((tool_name, action, requested_by))
     }
 
     pub fn generate_id() -> String {
-        format!("appr-{}", &uuid::Uuid::new_v4().to_string()[..12])
+        format!("appr-{}", uuid::Uuid::new_v4().simple())
     }
 
     /// Return the IDs of all currently pending approvals.
@@ -138,7 +142,7 @@ mod tests {
     #[test]
     fn test_double_resolve() {
         let store = ApprovalStore::new();
-        let (tx, _rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
         let entry = ApprovalEntry {
             sender: tx,
             tool_name: "gmail".into(),
@@ -152,6 +156,7 @@ mod tests {
                 .resolve("appr-abc123", "slack:C123", ApprovalDecision::Approved)
                 .is_ok()
         );
+        assert!(rx.try_recv().is_ok());
         // Second resolve should fail — entry consumed
         assert!(
             store
@@ -176,5 +181,25 @@ mod tests {
         let result = store.resolve("appr-abc123", "slack:U12345", ApprovalDecision::Approved);
         assert!(result.is_ok());
         assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn test_resolve_after_receiver_dropped_returns_error() {
+        let store = ApprovalStore::new();
+        let (tx, rx) = oneshot::channel();
+        let entry = ApprovalEntry {
+            sender: tx,
+            tool_name: "gmail".into(),
+            action: "send".into(),
+            requested_by: "user1".into(),
+            operator_channel: "slack:C123".into(),
+        };
+        store.register("appr-abc123", entry);
+        // Simulate timeout — drop the receiver
+        drop(rx);
+        // Resolve should fail because the receiver is gone
+        let result = store.resolve("appr-abc123", "slack:C123", ApprovalDecision::Approved);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("timed out"));
     }
 }
