@@ -62,6 +62,14 @@ docker pull ghcr.io/oxicrab/oxicrab:latest
 docker run -v ~/.oxicrab:/home/oxicrab/.oxicrab ghcr.io/oxicrab/oxicrab
 ```
 
+### From source
+
+```bash
+cargo install --git https://github.com/oxicrab/oxicrab
+```
+
+Requires Rust stable (1.85+) and `cmake`.
+
 ### Verifying downloads
 
 All release artifacts are signed with [Sigstore cosign](https://docs.sigstore.dev/). Each artifact has a corresponding `.bundle` file containing the signature, certificate, and Rekor transparency log entry.
