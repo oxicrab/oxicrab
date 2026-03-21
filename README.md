@@ -120,16 +120,12 @@ Configuration lives at `~/.oxicrab/config.toml`. Optional overlays are loaded fr
 Minimal example:
 
 ```toml
-[agents]
-[agents.defaults]
 [agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"
 
-[providers]
 [providers.anthropic]
 apiKey = "sk-ant-..."
 
-[channels]
 [channels.telegram]
 enabled = true
 token = "your-bot-token"
