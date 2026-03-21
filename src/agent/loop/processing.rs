@@ -1041,6 +1041,20 @@ impl AgentLoop {
             msg.channel
         );
 
+        // Approval callbacks: normally handled in process_message() before
+        // the session lock, but handle here as a safety fallback for webhook
+        // dispatch or other code paths that call handle_direct_dispatch directly.
+        if tool == "__approval" {
+            let dispatch = crate::dispatch::ActionDispatch {
+                tool: tool.clone(),
+                params,
+                source: crate::dispatch::ActionSource::Button {
+                    action_id: "__approval".to_string(),
+                },
+            };
+            return Ok(Some(self.resolve_approval(msg, &dispatch)));
+        }
+
         // Inbound secret scanning: redact secrets before they reach tools or
         // get persisted in session history / memory.
         let msg_content = {
@@ -1148,6 +1162,7 @@ impl AgentLoop {
             &ctx,
             None,
             Some(self.workspace.as_path()),
+            None, // direct dispatch: skip interactive approval
         )
         .await;
 
@@ -1539,6 +1554,7 @@ impl AgentLoop {
                 &ctx,
                 None,
                 Some(self.workspace.as_path()),
+                None, // process_direct_with_overrides: skip interactive approval
             )
             .await;
             // Secret-scan tool result output

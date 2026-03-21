@@ -2,9 +2,10 @@ use crate::utils::path_sanitize::{sanitize_error_message, sanitize_path};
 use crate::utils::regex_utils::compile_security_patterns;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use oxicrab_core::actions;
 use oxicrab_core::config::schema::SandboxConfig;
 use oxicrab_core::require_param;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use regex::Regex;
 use serde_json::Value;
@@ -309,6 +310,8 @@ impl Tool for ExecTool {
         ToolCapabilities {
             built_in: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![execute],
+            category: ToolCategory::System,
             ..Default::default()
         }
     }

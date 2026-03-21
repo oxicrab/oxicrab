@@ -4,6 +4,7 @@ use crate::utils::regex::{RegexPatterns, compile_regex};
 use anyhow::Context;
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::actions;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
@@ -140,8 +141,8 @@ impl Tool for WebSearchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![search: ro],
             category: ToolCategory::Web,
-            ..Default::default()
         }
     }
 
@@ -388,8 +389,8 @@ impl Tool for WebFetchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![fetch: ro],
             category: ToolCategory::Web,
-            ..Default::default()
         }
     }
 

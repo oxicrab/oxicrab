@@ -161,5 +161,7 @@ fn test_exec_capabilities() {
     assert!(caps.built_in);
     assert!(!caps.network_outbound);
     assert_eq!(caps.subagent_access, SubagentAccess::Full);
-    assert!(caps.actions.is_empty());
+    assert_eq!(caps.actions.len(), 1);
+    assert_eq!(caps.actions[0].name, "execute");
+    assert!(!caps.actions[0].read_only);
 }

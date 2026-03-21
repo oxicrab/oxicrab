@@ -2,8 +2,9 @@ use crate::shell::lexical_normalize;
 use crate::utils::path_sanitize::sanitize_error_message;
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::actions;
 use oxicrab_core::require_param;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -183,6 +184,8 @@ impl Tool for ReadFileTool {
         ToolCapabilities {
             built_in: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![read: ro],
+            category: ToolCategory::System,
             ..Default::default()
         }
     }
@@ -345,6 +348,8 @@ impl Tool for WriteFileTool {
         ToolCapabilities {
             built_in: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![write],
+            category: ToolCategory::System,
             ..Default::default()
         }
     }
@@ -483,6 +488,8 @@ impl Tool for EditFileTool {
         ToolCapabilities {
             built_in: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![edit],
+            category: ToolCategory::System,
             ..Default::default()
         }
     }
@@ -673,6 +680,8 @@ impl Tool for ListDirTool {
         ToolCapabilities {
             built_in: true,
             subagent_access: SubagentAccess::Full,
+            actions: actions![list: ro],
+            category: ToolCategory::System,
             ..Default::default()
         }
     }

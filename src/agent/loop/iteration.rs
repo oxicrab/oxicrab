@@ -8,7 +8,9 @@ use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
 use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
 
-use super::helpers::{execute_tool_call, extract_media_paths, start_typing, strip_think_tags};
+use super::helpers::{
+    ApprovalContext, execute_tool_call, extract_media_paths, start_typing, strip_think_tags,
+};
 use super::metadata::{extract_display_text, merge_suggested_buttons, prepend_display_text};
 use crate::agent::tools::base::{ExecutionContext, ToolResult};
 use anyhow::Result;
@@ -467,6 +469,18 @@ impl AgentLoop {
                     .as_ref()
                     .is_some_and(|allow| !allow.contains(name))
         };
+        // Clone approval fields for spawned tasks (cheap Arc clones)
+        let approval_store = self.approval_store.clone();
+        let approval_config = self.approval_config.clone();
+        let approval_tx = self.outbound_tx.clone();
+        let exec_channel = exec_ctx.channel.clone();
+        let exec_chat_id = exec_ctx.chat_id.clone();
+        let exec_sender_id = exec_ctx
+            .metadata
+            .get("user_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&exec_ctx.channel)
+            .to_string();
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
             if blocked_by_router(&tc.name) {
@@ -485,6 +499,15 @@ impl AgentLoop {
                     exec_ctx,
                     allow_tools.as_deref(),
                     Some(&self.workspace),
+                    Some(ApprovalContext {
+                        store: &approval_store,
+                        config: &approval_config,
+                        outbound_tx: &approval_tx,
+                        leak_detector: &self.leak_detector,
+                        channel: &exec_channel,
+                        chat_id: &exec_chat_id,
+                        sender_id: &exec_sender_id,
+                    }),
                 )
                 .await,
             ]
@@ -501,6 +524,13 @@ impl AgentLoop {
                     let allow = allow_tools.clone();
                     let ws = self.workspace.clone();
                     let blocked = blocked_by_router(&tc_name);
+                    let a_store = approval_store.clone();
+                    let a_config = approval_config.clone();
+                    let a_tx = approval_tx.clone();
+                    let a_channel = exec_channel.clone();
+                    let a_chat_id = exec_chat_id.clone();
+                    let a_sender_id = exec_sender_id.clone();
+                    let a_leak = self.leak_detector.clone();
                     tokio::task::spawn(async move {
                         if blocked {
                             crate::router::metrics::record_blocked_tool_attempt();
@@ -516,6 +546,15 @@ impl AgentLoop {
                             &ctx,
                             allow.as_deref(),
                             Some(&ws),
+                            Some(ApprovalContext {
+                                store: &a_store,
+                                config: &a_config,
+                                outbound_tx: &a_tx,
+                                leak_detector: &a_leak,
+                                channel: &a_channel,
+                                chat_id: &a_chat_id,
+                                sender_id: &a_sender_id,
+                            }),
                         )
                         .await
                     })

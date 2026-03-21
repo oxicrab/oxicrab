@@ -15,6 +15,7 @@ fuzz/Cargo.lock
 *~
 .claude
 docs/plans
+docs/superpowers
 
 # OS
 .DS_Store

@@ -2,7 +2,12 @@
 yanked = "warn"
 unmaintained = "workspace"
 unsound = "workspace"
-ignore = []
+ignore = [
+    # rustls-webpki 0.102.8 via serenity → rustls 0.22. No 0.102.x patch exists;
+    # fix requires >=0.103.10. Blocked on serenity upgrading to rustls 0.23.
+    # Low impact: requires compromised CA + CRL with multiple distribution points.
+    { id = "RUSTSEC-2026-0049", reason = "no patch for 0.102.x; blocked on serenity upstream" },
+]
 
 [sources]
 unknown-registry = "warn"

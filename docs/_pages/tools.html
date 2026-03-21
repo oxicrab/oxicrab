@@ -86,6 +86,37 @@ max_width: 820px
     </div>
   </div>
 
+  <!-- ============ ACTION TYPES & APPROVAL ============ -->
+  <div id="action-types" class="tool-section" style="border-left: 3px solid var(--accent); margin-bottom: 2.5rem;">
+    <h2>Mutating vs Read-Only Actions</h2>
+    <p class="desc">Every tool declares one or more actions, each classified as either <strong>mutating</strong> or <strong>read-only</strong>. This classification drives the <a href="config.html#operator-approval">operator approval</a> workflow and the <a href="config.html#agent-defaults">read-only subagent wrapper</a>.</p>
+
+    <p><strong>Read-only</strong> actions have no external side effects (searches, reads, listing). <strong>Mutating</strong> actions create, modify, or delete resources (sending email, writing files, executing commands).</p>
+
+    <h3>Tools with mutating actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Tool</th><th>Mutating actions</th></tr></thead>
+      <tbody>
+        <tr><td>exec</td><td>execute</td></tr>
+        <tr><td>write_file</td><td>write</td></tr>
+        <tr><td>edit_file</td><td>edit</td></tr>
+        <tr><td>http</td><td>request</td></tr>
+        <tr><td>spawn</td><td>spawn</td></tr>
+        <tr><td>image_gen</td><td>generate</td></tr>
+        <tr><td>google_mail</td><td>send, reply, modify_labels</td></tr>
+        <tr><td>google_calendar</td><td>create_event, update_event, delete_event</td></tr>
+        <tr><td>google_tasks</td><td>create_task, update_task, delete_task, create_list, delete_list</td></tr>
+        <tr><td>github</td><td>create_issue, create_pr_review, trigger_workflow</td></tr>
+        <tr><td>todoist</td><td>create_task, update_task, close_task, delete_task, create_project</td></tr>
+        <tr><td>cron</td><td>add, remove, toggle, update</td></tr>
+        <tr><td>browser</td><td>navigate, click, type_text, fill, eval, screenshot</td></tr>
+        <tr><td>obsidian</td><td>create, append</td></tr>
+      </tbody>
+    </table>
+
+    <p>When <a href="config.html#operator-approval">operator approval</a> is enabled, mutating actions pause for an Approve/Deny button click before executing. Read-only actions always execute immediately.</p>
+  </div>
+
   <!-- ============ CORE TOOLS ============ -->
   <div class="cat-header">Filesystem &amp; Shell</div>
 

@@ -1,3 +1,4 @@
+use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
@@ -93,6 +94,7 @@ impl Tool for ToolSearchTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            actions: actions![search: ro],
             category: ToolCategory::System,
             subagent_access: SubagentAccess::Denied,
             ..Default::default()

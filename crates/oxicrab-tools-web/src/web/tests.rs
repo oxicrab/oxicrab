@@ -433,7 +433,9 @@ fn test_web_search_capabilities() {
     assert!(caps.built_in);
     assert!(caps.network_outbound);
     assert_eq!(caps.subagent_access, SubagentAccess::Full);
-    assert!(caps.actions.is_empty());
+    assert_eq!(caps.actions.len(), 1);
+    assert_eq!(caps.actions[0].name, "search");
+    assert!(caps.actions[0].read_only);
 }
 
 #[test]
@@ -444,5 +446,7 @@ fn test_web_fetch_capabilities() {
     assert!(caps.built_in);
     assert!(caps.network_outbound);
     assert_eq!(caps.subagent_access, SubagentAccess::Full);
-    assert!(caps.actions.is_empty());
+    assert_eq!(caps.actions.len(), 1);
+    assert_eq!(caps.actions[0].name, "fetch");
+    assert!(caps.actions[0].read_only);
 }

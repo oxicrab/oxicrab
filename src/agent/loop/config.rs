@@ -181,6 +181,8 @@ pub struct AgentLoopConfig {
     pub leak_detector: Option<Arc<LeakDetector>>,
     /// Router configuration (prefix commands, user-defined rules).
     pub router_config: crate::config::RouterConfig,
+    /// Operator approval workflow configuration.
+    pub approval_config: crate::config::ApprovalConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -289,6 +291,7 @@ impl AgentLoopConfig {
             memory_db: params.memory_db,
             leak_detector: params.leak_detector,
             router_config: config.router.clone(),
+            approval_config: config.agents.defaults.approval.clone(),
         }
     }
 
@@ -363,6 +366,7 @@ impl AgentLoopConfig {
             memory_db: None,
             leak_detector: None,
             router_config: crate::config::RouterConfig::default(),
+            approval_config: crate::config::ApprovalConfig::default(),
         }
     }
 }
