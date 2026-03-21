@@ -748,10 +748,7 @@ defaultProvider = "openai"</code></pre>
     <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support. MCP tools cannot shadow built-in tools (rejected if they share a name with a <code>built_in</code> tool) and are not available to subagents. Null parameters are automatically stripped from tool calls before forwarding to MCP servers. Environment variable values containing CRLF characters are rejected at startup.</p>
 
     <h3>Configuration</h3>
-    <pre><code>[tools]
-[tools.mcp]
-[tools.mcp.servers]
-[tools.mcp.servers.filesystem]
+    <pre><code>[tools.mcp.servers.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"]
 enabled = true

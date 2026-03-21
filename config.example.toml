@@ -249,8 +249,6 @@ timeout = 30
 enabled = false
 defaultProvider = "openai"
 
-[tools.mcp]
-[tools.mcp.servers]
 [tools.mcp.servers.example-server]
 command = "npx"
 args = ["-y", "@example/mcp-server"]
