@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.3] - 2026-03-21
+
+### Added
+- **approval:** add integration tests and documentation ([424a625](https://github.com/oxicrab/oxicrab/commit/424a62570c801d9ecb5a922bf937cb8755896b47))
+- **approval:** implement operator approval workflow ([9eebbb2](https://github.com/oxicrab/oxicrab/commit/9eebbb264b1f853a392bf44813699a0662fe43d2))
+
+
+### Changed
+- **tools:** standardize action declarations on all single-purpose tools ([f4ed7ff](https://github.com/oxicrab/oxicrab/commit/f4ed7ffbd1316d72c2d6d332b3f961c3e1b6af7c))
+
+
+### Documentation
+- remove all remaining redundant TOML parent headers from examples ([692ba77](https://github.com/oxicrab/oxicrab/commit/692ba77bd7c2a0a8bb8b2be7f7b1c2272409fc85))
+- remove remaining redundant TOML headers (tools.mcp, tools.mcp.servers) ([fb8fe60](https://github.com/oxicrab/oxicrab/commit/fb8fe602514c72c4878c6bf2ac7b3cd494d6d3d2))
+- remove redundant empty TOML table headers from examples ([14550cf](https://github.com/oxicrab/oxicrab/commit/14550cf29e064ae9a903875f43e5cd3e82fa61c5))
+- clarify chat complexity routing is optional and off by default ([9531c75](https://github.com/oxicrab/oxicrab/commit/9531c752a5829ae4be5ada2ef69ef8504732240f))
+- add operator approval implementation plan ([c45a4fe](https://github.com/oxicrab/oxicrab/commit/c45a4febf2a5b16e7cf88e84f37a97865779827a))
+- update operator approval spec with review fixes (13 issues addressed) ([bc7d0dc](https://github.com/oxicrab/oxicrab/commit/bc7d0dc89147e47f409807e452ceea5a4a392dc1))
+- add operator approval workflow design spec ([4d9d2db](https://github.com/oxicrab/oxicrab/commit/4d9d2db823fa00ae4f7361d0974c6ee24b5d6916))
+
+
+### Fixed
+- **approval:** update stale ID format in docs, fail-safe on missing action ([8c5248b](https://github.com/oxicrab/oxicrab/commit/8c5248b14610bcdeb82a940927356e0cdd4de076))
+- **approval:** route approved execution through registry, narrow dispatch guard ([c040159](https://github.com/oxicrab/oxicrab/commit/c0401598c38825ece4517294897b98c5469779e8))
+- **docs:** bare tool_name matches mutating actions only, not all actions ([fdc03b5](https://github.com/oxicrab/oxicrab/commit/fdc03b5ffb4ee68123311aa3d8517320beccda69))
+- **approval:** clean up timed-out entries, show truncation indicator, add cargo deny exception ([7e9c438](https://github.com/oxicrab/oxicrab/commit/7e9c4382bc1f1cad6dcbdbde9996a0e2825d9121))
+- **deps:** update rustls-webpki 0.103.9 → 0.103.10 (RUSTSEC-2026-0049) ([a6e38cf](https://github.com/oxicrab/oxicrab/commit/a6e38cf9a9dbc887e2eef2724a0a95227ba67699))
+- **approval:** address second round of PR feedback (2x P1, 1x P2) ([4534292](https://github.com/oxicrab/oxicrab/commit/4534292c87e3088a35bb1ec3b0053fd321fe4c04))
+- **deps:** update aws-lc-sys 0.38.0 → 0.39.0 (RUSTSEC-2026-0044, RUSTSEC-2026-0048) ([3174483](https://github.com/oxicrab/oxicrab/commit/3174483df480b0fb67f0fa410d573f1cd9d0c2cb))
+- **approval:** address PR review feedback (P1 + 2x P2) ([16c0256](https://github.com/oxicrab/oxicrab/commit/16c02564c543df30da615123f86875fa15c8f6b3))
+
 ## [0.16.2] - 2026-03-20
 
 ### Documentation
