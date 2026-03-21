@@ -141,7 +141,7 @@ pub enum ApprovalDecision {
 
 ### Approval ID format
 
-UUID v4, formatted as `appr-{12 hex chars}` (e.g., `appr-a1b2c3d4e5f6`). 48 bits of entropy — sufficient to prevent guessing within the 5-minute timeout window.
+UUID v4, formatted as `appr-{32 hex chars}` (e.g., `appr-550e8400e29b41d4a716446655440000`). Full 128 bits of entropy.
 
 ### Authorization on resolve
 
@@ -192,7 +192,7 @@ With `[Approve]` and `[Deny]` buttons.
 Both buttons use `ActionDispatchPayload`:
 
 ```json
-{"tool": "__approval", "params": {"approval_id": "appr-a1b2c3d4e5f6", "decision": "approved"}}
+{"tool": "__approval", "params": {"approval_id": "appr-550e8400e29b41d4a716446655440000", "decision": "approved"}}
 ```
 
 `__approval` is a synthetic dispatch target handled in `handle_direct_dispatch()`.

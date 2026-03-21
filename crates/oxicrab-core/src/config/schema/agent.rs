@@ -546,6 +546,10 @@ impl ApprovalConfig {
         // Resolve effective action for single-purpose tools
         let effective_action = if action_from_params.is_empty() && tool_actions.len() == 1 {
             tool_actions[0].name
+        } else if action_from_params.is_empty() && tool_actions.len() > 1 {
+            // Multi-action tool with no action param — can't determine intent.
+            // Fail safe: require approval when enabled to prevent silent bypass.
+            return true;
         } else {
             action_from_params
         };
@@ -745,5 +749,18 @@ mod approval_tests {
         };
         let actions = make_actions(&[("send", false)]);
         assert!(!config.covers("google_mail", "send", &actions));
+    }
+
+    #[test]
+    fn test_covers_multi_action_tool_empty_action_fails_safe() {
+        let config = ApprovalConfig {
+            enabled: true,
+            actions: vec!["google_mail.send".to_string()],
+            ..Default::default()
+        };
+        // Multi-action tool with no action param — can't determine intent
+        let actions = make_actions(&[("send", false), ("search", true)]);
+        // Should return true (fail safe) rather than silently bypassing
+        assert!(config.covers("google_mail", "", &actions));
     }
 }
