@@ -113,9 +113,7 @@ host = "10.0.0.25"</code></pre>
 
         <h3 id="api-key-models">API Key Models</h3>
         <p>Set the model and provide the corresponding API key. The provider is auto-detected from the model name:</p>
-        <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.modelRouting]
+        <pre><code>[agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"
 
 [providers.anthropic]
@@ -134,9 +132,7 @@ apiKey = "sk-ant-api03-..."</code></pre>
 
         <h3 id="supported-providers">Supported Providers</h3>
         <p>The following providers are supported. Use prefix notation (e.g. <code>groq/llama-3.1-70b</code>) to route to them:</p>
-        <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.modelRouting]
+        <pre><code>[agents.defaults.modelRouting]
 default = "deepseek/deepseek-chat"
 
 [providers.deepseek]
@@ -162,8 +158,7 @@ apiKey = "sk-..."</code></pre>
 
         <h3 id="prompt-guided-tools">Prompt-Guided Tool Calling</h3>
         <p>Local models often ignore native JSON tool schemas, responding with plain text instead of structured tool calls. Enable <code>promptGuidedTools</code> on the provider to work around this:</p>
-        <pre><code>[providers]
-[providers.ollama]
+        <pre><code>[providers.ollama]
 promptGuidedTools = true</code></pre>
 
         <p>When enabled, the <code>PromptGuidedToolsProvider</code> wrapper:</p>
@@ -177,15 +172,13 @@ promptGuidedTools = true</code></pre>
         <p>This works with both direct local models and <code>modelRouting.fallbacks</code> for fallback chains. Currently supported for Ollama and vLLM providers.</p>
 
         <p>To override the default endpoint, set <code>apiBase</code> on the provider:</p>
-        <pre><code>[providers]
-[providers.vllm]
+        <pre><code>[providers.vllm]
 apiKey = "token-abc123"
 apiBase = "http://my-server:8080/v1/chat/completions"</code></pre>
 
         <h3 id="custom-headers">Custom Headers</h3>
         <p>Inject custom HTTP headers into every request for an OpenAI-compatible provider. Useful for authentication proxies, routing, or API gateways:</p>
-        <pre><code>[providers]
-[providers.openrouter]
+        <pre><code>[providers.openrouter]
 apiKey = "sk-..."
 
 [providers.openrouter.headers]
@@ -195,8 +188,7 @@ HTTP-Referer = "https://myapp.example.com"</code></pre>
 
         <h3 id="per-provider-temperature">Per-Provider Temperature</h3>
         <p>Override the global <code>agents.defaults.temperature</code> for a specific provider. Useful for providers like Moonshot/Kimi that enforce their own temperature constraints:</p>
-        <pre><code>[providers]
-[providers.moonshot]
+        <pre><code>[providers.moonshot]
 apiKey = "sk-..."
 temperature = 0.6</code></pre>
         <p>Resolution order: <strong>per-provider</strong> &rarr; <strong>global</strong> &rarr; <strong>omit</strong> (API default). In TOML, leave the field unset to omit it from the API payload and let the provider use its own default.</p>
@@ -209,8 +201,7 @@ temperature = 0.6</code></pre>
         </ul>
 
         <p>For OAuth models, either install <a href="https://github.com/anthropics/claude-cli">Claude CLI</a> (auto-detected) or configure credentials manually:</p>
-        <pre><code>[providers]
-[providers.anthropicOAuth]
+        <pre><code>[providers.anthropicOAuth]
 enabled = true
 autoDetect = true
 credentialsPath = "~/.anthropic/credentials.json"</code></pre>
@@ -400,9 +391,7 @@ format = "json"</code></pre>
 
         <h4>Basic Configuration</h4>
         <p>Route background tasks to a cheap model while keeping the default for conversations:</p>
-        <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.modelRouting]
+        <pre><code>[agents.defaults.modelRouting]
 default = "moonshot/kimi-k2.5"
 fallbacks = ["anthropic/claude-sonnet-4-5-20250929"]
 
@@ -432,7 +421,6 @@ default = "openrouter/google/gemini-3-flash"
 daemon = "openrouter/google/gemini-3-flash"
 cron = "openrouter/google/gemini-3-flash"
 
-[modelRouting.tasks.chat]
 [modelRouting.tasks.chat.thresholds]
 standard = 0.3
 heavy = 0.65
@@ -479,8 +467,7 @@ heavy = "anthropic/claude-opus-4-6"</code></pre>
         <p>Wraps the LLM provider with a three-state circuit breaker that trips only on transient errors, preventing cascading failures during outages.</p>
 
         <p>Config path: <code>providers.circuitBreaker</code></p>
-        <pre><code>[providers]
-[providers.circuitBreaker]
+        <pre><code>[providers.circuitBreaker]
 enabled = true
 failureThreshold = 5
 recoveryTimeoutSecs = 60
@@ -512,9 +499,7 @@ halfOpenProbes = 2</code></pre>
         <p>Escalating pressure signals that nudge the LLM to self-checkpoint its progress during long tool-heavy agent loop runs. Prevents loss of context when compaction discards older messages.</p>
 
         <p>Config path: <code>agents.defaults.cognitive</code></p>
-        <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.cognitive]
+        <pre><code>[agents.defaults.cognitive]
 enabled = true
 gentleThreshold = 12
 firmThreshold = 20
@@ -545,8 +530,7 @@ recentToolsWindow = 10</code></pre>
         <p>Hides network-outbound tools from the LLM when enabled, preventing prompt-injected data exfiltration. Tools that declare <code>network_outbound: true</code> in their capabilities are automatically filtered from tool definitions and blocked at dispatch time. Use <code>allowTools</code> to selectively re-enable specific network tools.</p>
 
         <p>Config path: <code>tools.exfiltrationGuard</code></p>
-        <pre><code>[tools]
-[tools.exfiltrationGuard]
+        <pre><code>[tools.exfiltrationGuard]
 enabled = true
 allowTools = ["web_search"]</code></pre>
 
@@ -563,9 +547,7 @@ allowTools = ["web_search"]</code></pre>
         <p>Regex-based prompt injection detection. Scans user messages before LLM processing and tool output after execution. Four pattern categories: role switching, instruction override, secret extraction, and jailbreak patterns.</p>
 
         <p>Config path: <code>agents.defaults.promptGuard</code></p>
-        <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.promptGuard]
+        <pre><code>[agents.defaults.promptGuard]
 enabled = true
 action = "block"</code></pre>
 
@@ -591,9 +573,7 @@ action = "block"</code></pre>
         <p>Interactive approval workflow for mutating tool actions. When enabled, the bot pauses before executing a covered action, sends an approval request with Approve/Deny buttons, and waits for an operator response. If denied or timed out, the action is not executed and the LLM receives an error result.</p>
 
         <p>Config path: <code>agents.defaults.approval</code></p>
-        <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.approval]
+        <pre><code>[agents.defaults.approval]
 enabled = true
 channel = "slack:C0ABC123"
 timeout = 300
@@ -638,9 +618,7 @@ actions = ["google_mail.send", "google_mail.reply"]</code></pre>
         <p>External shell commands that inject dynamic content into the system prompt each turn. Each provider runs its command, caches the output with a TTL, and appends it under a <code># Dynamic Context</code> header.</p>
 
         <p>Config path: <code>agents.defaults.contextProviders</code></p>
-        <pre><code>[agents]
-[agents.defaults]
-[[agents.defaults.contextProviders]]
+        <pre><code>[[agents.defaults.contextProviders]]
 name = "Git Status"
 command = "git"
 args = ["status", "--short"]
@@ -676,7 +654,6 @@ host = "127.0.0.1"
 port = 18790
 apiKey = "your-secret-api-key"
 
-[gateway.webhooks]
 [gateway.webhooks.github]
 enabled = true
 secret = "your-hmac-secret"
@@ -713,8 +690,7 @@ chatId = "C12345"</code></pre>
 
         <h3>Agent-to-Agent (A2A) Protocol</h3>
         <p>Google's A2A protocol for agent discovery and interoperability. When enabled, exposes an <code>AgentCard</code> at <code>/.well-known/agent.json</code> and a task lifecycle at <code>/a2a/tasks</code>.</p>
-        <pre><code>[gateway]
-[gateway.a2a]
+        <pre><code>[gateway.a2a]
 enabled = true
 agentName = "My Agent"
 agentDescription = "A helpful AI assistant"</code></pre>
@@ -729,8 +705,7 @@ agentDescription = "A helpful AI assistant"</code></pre>
         <h3>Rate Limiting</h3>
         <p>Config path: <code>gateway.rateLimit</code></p>
         <p>Per-IP rate limiting for all gateway endpoints. Uses a token bucket algorithm with configurable sustained rate and burst capacity.</p>
-        <pre><code>[gateway]
-[gateway.rateLimit]
+        <pre><code>[gateway.rateLimit]
 enabled = true
 requestsPerSecond = 10
 burst = 20
@@ -775,8 +750,7 @@ trustedProxies = ["10.0.0.0/8", "192.168.0.0/16"]</code></pre>
         <h2>Observability</h2>
         <p>Controls runtime telemetry exporters. Config path: <code>observability</code></p>
 
-        <pre><code>[observability]
-[observability.metrics]
+        <pre><code>[observability.metrics]
 enabled = true
 bind = "127.0.0.1:9901"</code></pre>
 
@@ -832,9 +806,7 @@ message = "$*"</code></pre>
         <h2>Sandbox</h2>
         <p>Kernel-enforced filesystem and network restrictions applied to both shell commands (<code>tools.exec.sandbox</code>) and MCP server child processes (<code>tools.mcp.servers.*.sandbox</code>). On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Graceful no-op on unsupported platforms or older Linux kernels.</p>
 
-        <pre><code>[tools]
-[tools.exec]
-[tools.exec.sandbox]
+        <pre><code>[tools.exec.sandbox]
 enabled = true
 additionalReadPaths = ["/opt/data"]
 additionalWritePaths = ["/home/user/output"]

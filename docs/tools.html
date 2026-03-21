@@ -410,8 +410,7 @@ blockNetwork = true</code></pre>
       <li>Get an API key from <a href="https://api.search.brave.com/">api.search.brave.com</a></li>
       <li>Set in config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.webSearch]
+    <pre><code>[tools.webSearch]
 provider = "brave"
 apiKey = "your-brave-search-api-key"
 maxResults = 5</code></pre>
@@ -573,9 +572,7 @@ maxResults = 5</code></pre>
     </table>
 
     <h3>Memory configuration</h3>
-    <pre><code>[agents]
-[agents.defaults]
-[agents.defaults.memory]
+    <pre><code>[agents.defaults.memory]
 embeddingsEnabled = true
 embeddingsModel = "BAAI/bge-small-en-v1.5"
 hybridWeight = 0.5</code></pre>
@@ -690,8 +687,7 @@ hybridWeight = 0.5</code></pre>
       <li>Copy Client ID and Client Secret to config</li>
       <li>Run <code>./oxicrab auth google</code> to complete the OAuth flow</li>
     </ol>
-    <pre><code>[tools]
-[tools.google]
+    <pre><code>[tools.google]
 clientId = "your-google-client-id"
 clientSecret = "your-google-client-secret"
 gmail = true
@@ -783,8 +779,7 @@ tasks = true</code></pre>
       <li>Select scopes: <code>repo</code>, <code>read:user</code></li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.github]
+    <pre><code>[tools.github]
 enabled = true
 token = "ghp_your-github-token"</code></pre>
   </div>
@@ -799,8 +794,7 @@ token = "ghp_your-github-token"</code></pre>
       <li>Copy your API key</li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.weather]
+    <pre><code>[tools.weather]
 enabled = true
 apiKey = "your-openweathermap-api-key"</code></pre>
   </div>
@@ -830,8 +824,7 @@ apiKey = "your-openweathermap-api-key"</code></pre>
       <li>Get your API token from <a href="https://todoist.com/app/settings/account">todoist.com/app/settings/account</a></li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.todoist]
+    <pre><code>[tools.todoist]
 enabled = true
 token = "your-todoist-api-token"</code></pre>
   </div>
@@ -861,8 +854,7 @@ token = "your-todoist-api-token"</code></pre>
       <li>Get API keys: Settings &gt; General &gt; API Key (in each app)</li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.media]
+    <pre><code>[tools.media]
 enabled = true
 
 [tools.media.radarr]
@@ -900,8 +892,7 @@ apiKey = "your-sonarr-api-key"</code></pre>
       <li>Copy the API key from the plugin settings</li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.obsidian]
+    <pre><code>[tools.obsidian]
 enabled = true
 apiUrl = "https://127.0.0.1:27124"
 apiKey = "your-obsidian-local-rest-api-key"
@@ -939,8 +930,7 @@ timeout = 15</code></pre>
       <li>Install Chrome or Chromium: <code>sudo apt install chromium-browser</code></li>
       <li>Enable in config:</li>
     </ol>
-    <pre><code>[tools]
-[tools.browser]
+    <pre><code>[tools.browser]
 enabled = true
 headless = true
 timeout = 30</code></pre>
@@ -957,8 +947,7 @@ timeout = 30</code></pre>
       <li><strong>OpenAI:</strong> Set <code>providers.openai.apiKey</code></li>
       <li><strong>Google:</strong> Set <code>providers.gemini.apiKey</code></li>
     </ul>
-    <pre><code>[tools]
-[tools.imageGen]
+    <pre><code>[tools.imageGen]
 enabled = true
 defaultProvider = "openai"</code></pre>
   </div>
@@ -1025,8 +1014,7 @@ wget -O ~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin \
     <p>Uses Groq, OpenAI, or any OpenAI-compatible transcription endpoint. Groq offers free inference and is recommended.</p>
 
     <h3>Configuration</h3>
-    <pre><code>[voice]
-[voice.transcription]
+    <pre><code>[voice.transcription]
 enabled = true
 localModelPath = "~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin"
 preferLocal = true
