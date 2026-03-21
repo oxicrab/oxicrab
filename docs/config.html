@@ -645,6 +645,7 @@ subagent = "anthropic/claude-sonnet-4-5-20250929"</code></pre>
         <p>Task providers are resolved once at startup. Each unique model gets its own provider instance with connection pooling.</p>
 
         <h4>Chat Complexity Routing</h4>
+        <p><em>Optional &mdash; off by default. When not configured, all messages use the default model.</em></p>
         <p>The <code>chat</code> task supports complexity-based model escalation. Each inbound message is scored across 7 dimensions (sub-millisecond, no API calls) and routed to a more capable model when the message is complex. Simple messages use the default model; complex ones escalate.</p>
 
         <pre><code>[modelRouting]
