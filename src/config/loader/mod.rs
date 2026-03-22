@@ -6,7 +6,7 @@ use serde::de::IntoDeserializer;
 use serde_json::Value as JsonValue;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::warn;
+use tracing::{info, warn};
 
 pub fn get_config_path() -> Result<PathBuf> {
     Ok(get_oxicrab_home()?.join("config.toml"))
@@ -19,6 +19,7 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
 
     let mut merged = toml::Value::Table(toml::map::Map::new());
     let mut loaded_any = false;
+    let mut layer_count = 0u32;
 
     for path in &layer_paths {
         if !path.exists() {
@@ -30,6 +31,7 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
             .with_context(|| format!("Failed to parse config TOML from {}", path.display()))?;
         merge_toml(&mut merged, data);
         loaded_any = true;
+        layer_count += 1;
     }
 
     if !loaded_any {
@@ -55,6 +57,8 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     config
         .validate()
         .with_context(|| "Configuration validation failed")?;
+
+    info!("config loaded from {} layer(s)", layer_count);
 
     Ok(config)
 }

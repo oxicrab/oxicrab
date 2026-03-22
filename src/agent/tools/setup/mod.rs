@@ -135,6 +135,12 @@ pub async fn register_all_tools(
         ));
     }
 
+    info!(
+        "tool registry ready: {} tools ({} deferred)",
+        tools.tool_names().len(),
+        tools.deferred_count()
+    );
+
     Ok((tools, subagents, mcp_manager, activated))
 }
 

@@ -124,6 +124,12 @@ impl ContextProviderRunner {
             }
         };
 
+        debug!(
+            "context provider '{}' executed: {} bytes",
+            provider.name,
+            output.len()
+        );
+
         // Update cache
         {
             let mut cache = self.cache.lock().unwrap_or_else(|poison| {

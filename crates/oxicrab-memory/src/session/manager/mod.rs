@@ -361,7 +361,6 @@ impl SessionManager {
 
     pub async fn save(&self, session: &Session) -> Result<()> {
         let session_key = session.key.clone();
-        let msg_count = session.messages.len();
 
         // Serialize + write inside spawn_blocking so neither JSON serialization
         // (can be expensive for large sessions) nor SQLite I/O blocks the
@@ -377,7 +376,8 @@ impl SessionManager {
         .await
         .map_err(|e| anyhow::anyhow!("session save task failed: {e}"))??;
 
-        debug!("session saved: {} ({} messages)", session_key, msg_count);
+        debug!("session saved: key={}", session_key);
+        metrics::counter!("oxicrab_sessions_saved_total").increment(1);
 
         // Update cache
         {

@@ -3,7 +3,7 @@ pub mod scanner;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::warn;
+use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 /// Maximum size for a single SKILL.md file (1 MB)
@@ -118,6 +118,7 @@ impl SkillsLoader {
         // Check workspace first
         let workspace_skill = self.workspace_skills.join(name).join("SKILL.md");
         if let Some(content) = Self::read_skill_file(&workspace_skill) {
+            debug!("loaded skill '{}'", name);
             return Some(content);
         }
 
@@ -125,6 +126,7 @@ impl SkillsLoader {
         if let Some(ref builtin) = self.builtin_skills {
             let builtin_skill = builtin.join(name).join("SKILL.md");
             if let Some(content) = Self::read_skill_file(&builtin_skill) {
+                debug!("loaded skill '{}'", name);
                 return Some(content);
             }
         }
@@ -187,6 +189,8 @@ impl SkillsLoader {
         if parts.is_empty() {
             String::new()
         } else {
+            info!("injected {} skill(s) into context", parts.len());
+            metrics::gauge!("oxicrab_skills_loaded").set(parts.len() as f64);
             parts.join("\n\n---\n\n")
         }
     }
@@ -320,7 +324,9 @@ impl SkillsLoader {
     }
 
     pub fn get_always_skills(&self) -> Vec<String> {
-        self.list_skills(true)
+        let available = self.list_skills(true);
+        let total = self.list_skills(false).len();
+        let always: Vec<String> = available
             .into_iter()
             .filter_map(|s| {
                 let name = s.get("name")?;
@@ -335,7 +341,15 @@ impl SkillsLoader {
                     None
                 }
             })
-            .collect()
+            .collect();
+        if total > 0 {
+            debug!(
+                "discovered {} skill(s) ({} always-enabled)",
+                total,
+                always.len()
+            );
+        }
+        always
     }
 }
 

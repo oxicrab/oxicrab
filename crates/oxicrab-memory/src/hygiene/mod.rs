@@ -70,6 +70,7 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
     if let Err(e) = db.optimize() {
         warn!("failed to optimize database: {e}");
     }
+    info!("startup hygiene complete");
 }
 
 #[cfg(test)]

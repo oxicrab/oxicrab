@@ -323,7 +323,8 @@ impl CronService {
 
                             // Collect job for firing outside the loop
                             if let Some(ref callback) = callback_opt {
-                                info!("Firing cron job '{}' ({})", job.name, job.id);
+                                info!("cron job fired: id={}, name={}", job.id, job.name);
+                                metrics::counter!("oxicrab_cron_executions_total").increment(1);
                                 jobs_to_fire.push((job.clone(), callback.clone()));
                             }
                         } else {

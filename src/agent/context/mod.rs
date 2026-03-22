@@ -7,7 +7,7 @@ use chrono::{Datelike, Local};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 const BOOTSTRAP_FILES: &[&str] = &["USER.md", "TOOLS.md", "AGENTS.md"];
 /// Maximum size for a single context file (500 KB)
@@ -54,6 +54,11 @@ impl ContextBuilder {
             });
 
         let skills = SkillsLoader::new(&workspace, builtin_skills);
+
+        debug!(
+            "context builder initialized: workspace={}",
+            workspace.display()
+        );
 
         Ok(Self {
             workspace,

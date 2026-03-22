@@ -319,6 +319,7 @@ impl MemoryStore {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let source_key = format!("daily:{today}");
         self.db.insert_memory(&source_key, content.trim())?;
+        debug!("daily notes appended: {} chars", content.len());
         self.backfill_embeddings();
         Ok(())
     }
@@ -329,6 +330,11 @@ impl MemoryStore {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let source_key = format!("daily:{today}:{section}");
         self.db.insert_memory(&source_key, content.trim())?;
+        debug!(
+            "daily notes appended: section={}, {} chars",
+            section,
+            content.len()
+        );
         self.backfill_embeddings();
         Ok(())
     }

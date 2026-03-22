@@ -171,7 +171,11 @@ impl SubagentManager {
         tasks.insert(task_id.clone(), bg_task);
         drop(tasks);
 
-        info!("Spawned subagent [{}]: {}", task_id, display_label);
+        info!(
+            "subagent spawned: id={}, origin={}:{}",
+            task_id, origin_channel, origin_chat_id
+        );
+        metrics::counter!("oxicrab_subagent_spawned_total").increment(1);
         Ok(format!(
             "Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
         ))

@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// Alphabet for human-friendly pairing codes (no 0/O/1/I to avoid confusion)
 const CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -94,6 +94,8 @@ impl PairingStore {
         self.db
             .add_pending_request(channel, sender_id, &code, Self::now_secs())?;
 
+        info!("pairing code issued: channel={}", channel);
+
         Ok(Some(code))
     }
 
@@ -154,6 +156,11 @@ impl PairingStore {
         // Remove the pending request and add to allowlist
         self.db.remove_pending(&matched_code)?;
         self.db.add_paired_sender(&channel, &sender_id)?;
+
+        info!(
+            "pairing approved: channel={}, sender={}",
+            channel, sender_id
+        );
 
         Ok(Some((channel, sender_id)))
     }

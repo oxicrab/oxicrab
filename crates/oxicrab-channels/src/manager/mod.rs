@@ -117,6 +117,8 @@ impl ChannelManager {
             );
         }
 
+        info!("channel manager: {} channel(s) enabled", enabled.len());
+
         Self {
             channels,
             enabled_channels: enabled,
