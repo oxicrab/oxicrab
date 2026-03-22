@@ -18,10 +18,30 @@ impl SkillsLoader {
     pub fn new(workspace: impl AsRef<Path>, builtin_skills_dir: Option<PathBuf>) -> Self {
         let workspace = workspace.as_ref().to_path_buf();
         let workspace_skills = workspace.join("skills");
-        Self {
+        let loader = Self {
             workspace_skills,
             builtin_skills: builtin_skills_dir,
+        };
+
+        // Log skill discovery at construction time
+        let all_skills = loader.list_skills(false);
+        let always_skills = loader.get_always_skills();
+        if all_skills.is_empty() {
+            debug!("no skills found");
+        } else {
+            let names: Vec<&str> = all_skills
+                .iter()
+                .filter_map(|s| s.get("name").map(String::as_str))
+                .collect();
+            info!(
+                "discovered {} skill(s): {} ({} always-enabled)",
+                all_skills.len(),
+                names.join(", "),
+                always_skills.len()
+            );
         }
+
+        loader
     }
 
     pub fn list_skills(&self, filter_unavailable: bool) -> Vec<HashMap<String, String>> {
