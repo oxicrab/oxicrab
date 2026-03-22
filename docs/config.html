@@ -1093,12 +1093,12 @@ blockNetwork = true</code></pre>
 RUST_LOG=debug ./target/release/oxicrab gateway
 
 <span class="hl-comment"># Custom filtering</span>
-RUST_LOG=info,wa_rs=warn,oxicrab::channels=debug ./target/release/oxicrab gateway</pre>
+RUST_LOG=info,whatsapp_rust=warn,oxicrab::channels=debug ./target/release/oxicrab gateway</pre>
 
         <p>Common filters:</p>
         <ul class="plain">
             <li><code>RUST_LOG=debug</code> &mdash; verbose, includes all oxicrab internals</li>
-            <li><code>RUST_LOG=info,wa_rs=warn</code> &mdash; suppress noisy WhatsApp crate logs</li>
+            <li><code>RUST_LOG=info,whatsapp_rust=warn</code> &mdash; suppress noisy WhatsApp crate logs</li>
             <li><code>RUST_LOG=oxicrab::agent=debug</code> &mdash; debug only the agent loop</li>
         </ul>
     </div>

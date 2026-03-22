@@ -63,7 +63,7 @@ embeddings = ["oxicrab-memory/embeddings"]
 channel-telegram = ["oxicrab-channels/channel-telegram"]
 channel-discord = ["oxicrab-channels/channel-discord"]
 channel-slack = ["oxicrab-channels/channel-slack"]
-channel-whatsapp = ["oxicrab-channels/channel-whatsapp", "dep:wa-rs", "dep:wa-rs-tokio-transport", "dep:wa-rs-ureq-http", "dep:qrcode"]
+channel-whatsapp = ["oxicrab-channels/channel-whatsapp", "dep:whatsapp-rust", "dep:qrcode"]
 channel-twilio = ["oxicrab-channels/channel-twilio"]
 tool-rss = ["dep:oxicrab-tools-rss", "oxicrab-memory/rss"]
 
@@ -121,9 +121,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { workspace = true }
 uuid = { workspace = true }
 walkdir = "2.5"
-wa-rs = { version = "0.2", optional = true, default-features = false, features = ["sqlite-storage"] }
-wa-rs-tokio-transport = { version = "0.2", optional = true }
-wa-rs-ureq-http = { version = "0.2", optional = true }
+whatsapp-rust = { version = "0.4", optional = true, default-features = false, features = ["sqlite-storage", "tokio-transport", "ureq-client", "tokio-runtime", "tokio-native"] }
 qrcode = { version = "0.14", optional = true }
 which = "8.0"
 
