@@ -304,7 +304,7 @@ fn test_is_managed_path_reserved_dirs() {
 
     assert!(!ws.is_managed_path(Path::new("/tmp/workspace/memory/notes.md")));
     assert!(!ws.is_managed_path(Path::new("/tmp/workspace/knowledge/faq.md")));
-    assert!(!ws.is_managed_path(Path::new("/tmp/workspace/skills/my_skill/SKILL.md")));
+    assert!(!ws.is_managed_path(Path::new("/tmp/workspace/skills/my_skill/my_skill.md")));
     assert!(!ws.is_managed_path(Path::new("/tmp/workspace/sessions/abc.json")));
 }
 

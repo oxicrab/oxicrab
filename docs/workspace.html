@@ -292,7 +292,7 @@
 <span class="file">      memory.sqlite3</span>       <span class="desc"># memory database (FTS5 + optional embeddings)</span>
 <span class="dir">    skills/</span>
 <span class="dir">      my-skill/</span>
-<span class="file">        SKILL.md</span>           <span class="desc"># custom skill definition</span>
+<span class="file">        {skill-name}.md</span>    <span class="desc"># custom skill definition</span>
 <span class="dir">    sessions/</span>              <span class="desc"># conversation history</span>
 <span class="dir">  media/</span>                   <span class="desc"># downloaded images/files (auto-cleaned)</span>
     </div>
@@ -457,15 +457,15 @@ additional configuration.
     <h2>Skills <span class="badge badge-manual">manual</span></h2>
 
     <div class="file-card">
-      <div class="file-card-name">SKILL.md</div>
-      <div class="file-card-path">~/.oxicrab/workspace/skills/{skill-name}/SKILL.md</div>
-      <p>Custom skills extend the agent's capabilities with domain-specific instructions. Each skill is a directory containing a <code>SKILL.md</code> file with YAML frontmatter and markdown documentation.</p>
+      <div class="file-card-name">{skill-name}.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/skills/{skill-name}/{skill-name}.md</div>
+      <p>Custom skills extend the agent's capabilities with domain-specific instructions. Each skill is a directory containing a <code>{skill-name}.md</code> file (matching the directory name) with YAML frontmatter and markdown documentation.</p>
     </div>
 
     <h3>How it's used</h3>
     <p>Skills marked <code>always: true</code> are included in every system prompt. Other skills appear as a summary, and the agent loads the full content on-demand using the <code>read_file</code> tool when relevant.</p>
 
-    <h3>SKILL.md format</h3>
+    <h3>Skill file format</h3>
     <pre><code>---
 name: my-skill
 description: What this skill does

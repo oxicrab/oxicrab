@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
-/// Maximum size for a single SKILL.md file (1 MB)
+/// Maximum size for a single skill file (1 MB)
 const MAX_SKILL_FILE_SIZE: u64 = 1024 * 1024;
 
 pub struct SkillsLoader {
@@ -36,9 +36,9 @@ impl SkillsLoader {
                 .flatten()
             {
                 if entry.file_type().is_dir() && entry.path() != self.workspace_skills {
-                    let skill_file = entry.path().join("SKILL.md");
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let skill_file = entry.path().join(format!("{name}.md"));
                     if skill_file.exists() {
-                        let name = entry.file_name().to_string_lossy().to_string();
                         skills.push({
                             let mut map = HashMap::new();
                             map.insert("name".to_string(), name.clone());
@@ -65,21 +65,19 @@ impl SkillsLoader {
                 .flatten()
             {
                 if entry.file_type().is_dir() && entry.path() != builtin {
-                    let skill_file = entry.path().join("SKILL.md");
-                    if skill_file.exists() {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if !skills.iter().any(|s| s.get("name") == Some(&name)) {
-                            skills.push({
-                                let mut map = HashMap::new();
-                                map.insert("name".to_string(), name);
-                                map.insert(
-                                    "path".to_string(),
-                                    skill_file.to_string_lossy().to_string(),
-                                );
-                                map.insert("source".to_string(), "builtin".to_string());
-                                map
-                            });
-                        }
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let skill_file = entry.path().join(format!("{name}.md"));
+                    if skill_file.exists() && !skills.iter().any(|s| s.get("name") == Some(&name)) {
+                        skills.push({
+                            let mut map = HashMap::new();
+                            map.insert("name".to_string(), name);
+                            map.insert(
+                                "path".to_string(),
+                                skill_file.to_string_lossy().to_string(),
+                            );
+                            map.insert("source".to_string(), "builtin".to_string());
+                            map
+                        });
                     }
                 }
             }
@@ -116,7 +114,7 @@ impl SkillsLoader {
         }
 
         // Check workspace first
-        let workspace_skill = self.workspace_skills.join(name).join("SKILL.md");
+        let workspace_skill = self.workspace_skills.join(name).join(format!("{name}.md"));
         if let Some(content) = Self::read_skill_file(&workspace_skill) {
             debug!("loaded skill '{}'", name);
             return Some(content);
@@ -124,7 +122,7 @@ impl SkillsLoader {
 
         // Check built-in
         if let Some(ref builtin) = self.builtin_skills {
-            let builtin_skill = builtin.join(name).join("SKILL.md");
+            let builtin_skill = builtin.join(name).join(format!("{name}.md"));
             if let Some(content) = Self::read_skill_file(&builtin_skill) {
                 debug!("loaded skill '{}'", name);
                 return Some(content);

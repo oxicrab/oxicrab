@@ -191,7 +191,7 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 │   ├── TOOLS.md             # Tool usage guide
 │   ├── memory/
 │   │   └── memory.sqlite3   # Memory database (FTS5, cron, pairing, tokens, logs)
-│   └── skills/              # Custom skills (SKILL.md per skill)
+│   └── skills/              # Custom skills ({skill-name}.md per skill)
 ├── models/                  # Whisper model files
 └── media/                   # Downloaded media files (auto-cleaned)
 ```

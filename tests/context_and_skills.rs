@@ -9,7 +9,7 @@ fn test_skills_loading_from_disk() {
     let skill_dir = skills_dir.join("my-skill");
     std::fs::create_dir_all(&skill_dir).expect("create test dir");
     std::fs::write(
-        skill_dir.join("SKILL.md"),
+        skill_dir.join("my-skill.md"),
         "---\nname: my-skill\ndescription: A test skill\n---\n\nSkill instructions here.",
     )
     .expect("write test file");
@@ -29,7 +29,7 @@ fn test_skills_frontmatter_parsing() {
     let skill_dir = skills_dir.join("parser-test");
     std::fs::create_dir_all(&skill_dir).expect("create test dir");
     std::fs::write(
-        skill_dir.join("SKILL.md"),
+        skill_dir.join("parser-test.md"),
         "---\nname: parser-test\ndescription: Test parsing\nalways: true\n---\n\nBody content.",
     )
     .expect("write test file");
@@ -51,7 +51,7 @@ fn test_skills_workspace_overrides_builtin() {
     let builtin_skill_dir = builtin_dir.join("shared-skill");
     std::fs::create_dir_all(&builtin_skill_dir).expect("create test dir");
     std::fs::write(
-        builtin_skill_dir.join("SKILL.md"),
+        builtin_skill_dir.join("shared-skill.md"),
         "---\nname: shared-skill\ndescription: Builtin version\n---\n\nBuiltin body.",
     )
     .expect("write test file");
@@ -61,7 +61,7 @@ fn test_skills_workspace_overrides_builtin() {
     let ws_skill_dir = ws_skills.join("shared-skill");
     std::fs::create_dir_all(&ws_skill_dir).expect("create test dir");
     std::fs::write(
-        ws_skill_dir.join("SKILL.md"),
+        ws_skill_dir.join("shared-skill.md"),
         "---\nname: shared-skill\ndescription: Workspace version\n---\n\nWorkspace body.",
     )
     .expect("write test file");
@@ -92,7 +92,7 @@ fn test_skills_always_include() {
     let always_dir = skills_dir.join("always-on");
     std::fs::create_dir_all(&always_dir).expect("create test dir");
     std::fs::write(
-        always_dir.join("SKILL.md"),
+        always_dir.join("always-on.md"),
         "---\nname: always-on\ndescription: Always included\nalways: true\n---\n\nAlways body.",
     )
     .expect("write test file");
@@ -101,7 +101,7 @@ fn test_skills_always_include() {
     let normal_dir = skills_dir.join("normal");
     std::fs::create_dir_all(&normal_dir).expect("create test dir");
     std::fs::write(
-        normal_dir.join("SKILL.md"),
+        normal_dir.join("normal.md"),
         "---\nname: normal\ndescription: Normal skill\n---\n\nNormal body.",
     )
     .expect("write test file");
@@ -128,7 +128,7 @@ fn test_skills_dependency_check_filters() {
     let dep_dir = skills_dir.join("needs-binary");
     std::fs::create_dir_all(&dep_dir).expect("create test dir");
     std::fs::write(
-        dep_dir.join("SKILL.md"),
+        dep_dir.join("needs-binary.md"),
         "---\nname: needs-binary\ndescription: Needs missing binary\nrequires:\n  bins:\n    - nonexistent_binary_xyz_123\n---\n\nBody.",
     )
     .expect("write test file");

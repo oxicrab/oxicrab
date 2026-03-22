@@ -72,7 +72,7 @@ fn test_list_skills_finds_workspace_skills() {
     let skill_dir = dir.path().join("skills").join("my-skill");
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
-        skill_dir.join("SKILL.md"),
+        skill_dir.join("my-skill.md"),
         "---\nname: my-skill\ndescription: test\n---\n\nContent",
     )
     .unwrap();
@@ -90,7 +90,7 @@ fn test_load_skill_from_workspace() {
     let skill_dir = dir.path().join("skills").join("my-skill");
     std::fs::create_dir_all(&skill_dir).unwrap();
     let content = "---\nname: my-skill\n---\n\nSkill content here.";
-    std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+    std::fs::write(skill_dir.join("my-skill.md"), content).unwrap();
 
     let loader = SkillsLoader::new(dir.path(), None);
     let result = loader.load_skill("my-skill");
@@ -113,11 +113,11 @@ fn test_workspace_skill_overrides_builtin() {
     // Create same skill in both
     let ws_skill = workspace.path().join("skills").join("shared-skill");
     std::fs::create_dir_all(&ws_skill).unwrap();
-    std::fs::write(ws_skill.join("SKILL.md"), "workspace version").unwrap();
+    std::fs::write(ws_skill.join("shared-skill.md"), "workspace version").unwrap();
 
     let bi_skill = builtin.path().join("shared-skill");
     std::fs::create_dir_all(&bi_skill).unwrap();
-    std::fs::write(bi_skill.join("SKILL.md"), "builtin version").unwrap();
+    std::fs::write(bi_skill.join("shared-skill.md"), "builtin version").unwrap();
 
     let loader = SkillsLoader::new(workspace.path(), Some(builtin.path().to_path_buf()));
     let skills = loader.list_skills(false);
@@ -144,7 +144,7 @@ fn test_load_skills_for_context_strips_frontmatter() {
     let skill_dir = dir.path().join("skills").join("my-skill");
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
-        skill_dir.join("SKILL.md"),
+        skill_dir.join("my-skill.md"),
         "---\nname: my-skill\n---\n\nSkill body only.",
     )
     .unwrap();
@@ -161,7 +161,7 @@ fn test_get_skill_metadata_parses_yaml() {
     let skill_dir = dir.path().join("skills").join("test-skill");
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
-        skill_dir.join("SKILL.md"),
+        skill_dir.join("test-skill.md"),
         "---\nname: test-skill\ndescription: a test\nalways: true\n---\n\nBody",
     )
     .unwrap();
@@ -188,7 +188,7 @@ fn test_get_always_skills() {
     let skill1 = dir.path().join("skills").join("always-skill");
     std::fs::create_dir_all(&skill1).unwrap();
     std::fs::write(
-        skill1.join("SKILL.md"),
+        skill1.join("always-skill.md"),
         "---\nname: always-skill\nalways: true\n---\n\nAlways on.",
     )
     .unwrap();
@@ -197,7 +197,7 @@ fn test_get_always_skills() {
     let skill2 = dir.path().join("skills").join("normal-skill");
     std::fs::create_dir_all(&skill2).unwrap();
     std::fs::write(
-        skill2.join("SKILL.md"),
+        skill2.join("normal-skill.md"),
         "---\nname: normal-skill\nalways: false\n---\n\nNot always.",
     )
     .unwrap();
