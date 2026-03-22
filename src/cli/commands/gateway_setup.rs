@@ -188,8 +188,8 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     )
     .await?;
 
-    // Register scheduled skills as cron jobs
-    register_scheduled_skill_crons(&config, &cron)?;
+    // Log skills with schedules that don't have active cron jobs yet
+    log_unscheduled_skills(&config, &cron);
 
     // Build status page state now that agent (and its tool registry) is ready
     let registry = agent.tool_registry();
@@ -597,12 +597,11 @@ async fn cron_job_execute(
     Ok(Some(result.content))
 }
 
-/// Register cron jobs for skills that have a `schedule` frontmatter field.
-/// Idempotent: skips skills whose `skill:{name}` cron job already exists.
-fn register_scheduled_skill_crons(config: &Config, cron: &Arc<CronService>) -> Result<()> {
+/// Log skills that have a `schedule` frontmatter field but no active cron job.
+/// Does NOT auto-create jobs — the user must explicitly enable schedules via chat
+/// (e.g., "enable the track-packages schedule") to prevent uncontrolled token burn.
+fn log_unscheduled_skills(config: &Config, cron: &Arc<CronService>) {
     use crate::agent::skills::SkillsLoader;
-    use crate::cron::service::detect_system_timezone;
-    use crate::cron::types::{CronJobState, CronPayload, CronSchedule};
 
     let workspace = config.workspace_path();
     let builtin_skills = std::env::current_exe()
@@ -613,75 +612,28 @@ fn register_scheduled_skill_crons(config: &Config, cron: &Arc<CronService>) -> R
     let scheduled = loader.get_scheduled_skills();
 
     if scheduled.is_empty() {
-        return Ok(());
+        return;
     }
 
-    let existing_jobs = cron.list_jobs(true)?;
-    let tz = detect_system_timezone();
-    let now = crate::utils::time::now_ms();
+    let existing_jobs = cron.list_jobs(true).unwrap_or_default();
 
     for (skill_name, cron_exprs) in &scheduled {
-        // Check for existing jobs — both skill-scheduler created ("skill:X")
-        // and LLM-created jobs whose message mentions the skill name
         let skill_message = format!("Run the {skill_name} skill");
         let has_existing = existing_jobs.iter().any(|j| {
             j.name.starts_with(&format!("skill:{skill_name}"))
                 || j.payload.message.contains(&skill_message)
         });
         if has_existing {
-            debug!(
-                "scheduled skill '{}' already has cron job, skipping",
-                skill_name
-            );
-            continue;
-        }
-
-        // Create one cron job per time expression, with distinguishable names
-        for expr in cron_exprs {
-            // Extract human-readable time from cron expr for the job name
-            let time_label = expr
-                .split_whitespace()
-                .take(2)
-                .collect::<Vec<_>>()
-                .join(":");
-            let job_name = if cron_exprs.len() > 1 {
-                format!("skill:{skill_name}@{time_label}")
-            } else {
-                format!("skill:{skill_name}")
-            };
-            let job_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
-            let job = CronJob {
-                id: job_id,
-                name: job_name,
-                enabled: true,
-                schedule: CronSchedule::Cron {
-                    expr: Some(expr.clone()),
-                    tz: tz.clone(),
-                },
-                payload: CronPayload {
-                    kind: "agent_turn".to_string(),
-                    message: format!("Run the {skill_name} skill"),
-                    agent_echo: true,
-                    targets: vec![],
-                },
-                state: CronJobState::default(),
-                created_at_ms: now,
-                updated_at_ms: now,
-                delete_after_run: false,
-                expires_at_ms: None,
-                max_runs: None,
-                cooldown_secs: None,
-                max_concurrent: None,
-            };
-            cron.add_job(job)?;
+            debug!("skill '{}' schedule already active", skill_name);
+        } else {
+            let times: Vec<&str> = cron_exprs.iter().map(String::as_str).collect();
             info!(
-                "registered scheduled skill '{}' with cron: {}",
-                skill_name, expr
+                "skill '{}' has schedule ({}) but no cron job — tell the bot to enable it",
+                skill_name,
+                times.join(", ")
             );
         }
     }
-
-    Ok(())
 }
 
 /// Set up channel handlers.
