@@ -469,6 +469,8 @@ additional configuration.
     <pre><code>---
 name: my-skill
 description: What this skill does
+emoji: "\U0001f527"
+schedule: "7am, 5pm"
 hints:
   - ffmpeg
   - transcode
@@ -495,6 +497,8 @@ Describe the situations where this skill applies.
     <ul>
       <li><strong>name</strong> &mdash; Skill identifier (matches directory name)</li>
       <li><strong>description</strong> &mdash; One-line summary shown in the skills list</li>
+      <li><strong>emoji</strong> &mdash; Display emoji for the skill in the system prompt summary and startup log. Defaults to &#x1F527; if omitted.</li>
+      <li><strong>schedule</strong> &mdash; Execution times in 12h or 24h format, comma-separated for multiple times (e.g. <code>"7am"</code>, <code>"9am, 1pm, 5pm"</code>, <code>"7:30am, 17:00"</code>). Creates cron jobs automatically at startup. The cron job's message triggers the hint matcher, loading and executing the full skill content.</li>
       <li><strong>hints</strong> &mdash; List of trigger keywords. When a message contains any of these words, the full skill content is loaded into the system prompt. If omitted, keywords are auto-extracted from the skill name and description.</li>
       <li><strong>requires.bins</strong> &mdash; CLI tools that must be installed (checked at runtime)</li>
       <li><strong>requires.env</strong> &mdash; Environment variables that must be set</li>

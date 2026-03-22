@@ -188,6 +188,9 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     )
     .await?;
 
+    // Register scheduled skills as cron jobs
+    register_scheduled_skill_crons(&config, &cron)?;
+
     // Build status page state now that agent (and its tool registry) is ready
     let registry = agent.tool_registry();
     let tool_snap = crate::gateway::status::ToolSnapshot::from_tools(
@@ -592,6 +595,78 @@ async fn cron_job_execute(
     }
 
     Ok(Some(result.content))
+}
+
+/// Register cron jobs for skills that have a `schedule` frontmatter field.
+/// Idempotent: skips skills whose `skill:{name}` cron job already exists.
+fn register_scheduled_skill_crons(config: &Config, cron: &Arc<CronService>) -> Result<()> {
+    use crate::agent::skills::SkillsLoader;
+    use crate::cron::service::detect_system_timezone;
+    use crate::cron::types::{CronJobState, CronPayload, CronSchedule};
+
+    let workspace = config.workspace_path();
+    let builtin_skills = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("skills")))
+        .filter(|p| p.exists());
+    let loader = SkillsLoader::new(&workspace, builtin_skills);
+    let scheduled = loader.get_scheduled_skills();
+
+    if scheduled.is_empty() {
+        return Ok(());
+    }
+
+    let existing_jobs = cron.list_jobs(true)?;
+    let tz = detect_system_timezone();
+    let now = crate::utils::time::now_ms();
+
+    for (skill_name, cron_exprs) in &scheduled {
+        let job_name = format!("skill:{skill_name}");
+
+        // Skip if a cron job for this skill already exists
+        if existing_jobs.iter().any(|j| j.name == job_name) {
+            debug!(
+                "scheduled skill '{}' already has cron job, skipping",
+                skill_name
+            );
+            continue;
+        }
+
+        // Create one cron job per time expression
+        for expr in cron_exprs {
+            let job_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
+            let job = CronJob {
+                id: job_id,
+                name: job_name.clone(),
+                enabled: true,
+                schedule: CronSchedule::Cron {
+                    expr: Some(expr.clone()),
+                    tz: tz.clone(),
+                },
+                payload: CronPayload {
+                    kind: "agent_turn".to_string(),
+                    message: format!("Run the {skill_name} skill"),
+                    agent_echo: true,
+                    targets: vec![],
+                },
+                state: CronJobState::default(),
+                created_at_ms: now,
+                updated_at_ms: now,
+                delete_after_run: false,
+                expires_at_ms: None,
+                max_runs: None,
+                cooldown_secs: None,
+                max_concurrent: None,
+            };
+            cron.add_job(job)?;
+            info!(
+                "registered scheduled skill '{}' with cron: {}",
+                skill_name, expr
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// Set up channel handlers.

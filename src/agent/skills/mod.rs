@@ -13,6 +13,52 @@ const MAX_SKILL_FILE_SIZE: u64 = 1024 * 1024;
 /// Maximum total chars of skill content injected into the system prompt
 const MAX_SKILL_CONTEXT_CHARS: usize = 20_000;
 
+/// Parse schedule strings like "7am", "9am, 1pm, 5pm" into cron expressions.
+/// Returns a list of cron expressions (one per time).
+pub fn parse_schedule(schedule: &str) -> Vec<String> {
+    schedule
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(parse_time_to_cron)
+        .collect()
+}
+
+fn parse_time_to_cron(time_str: &str) -> Option<String> {
+    let time_str = time_str.trim().to_lowercase();
+    let (hour, minute) = if time_str.ends_with("am") || time_str.ends_with("pm") {
+        let is_pm = time_str.ends_with("pm");
+        let num_part = time_str.trim_end_matches("am").trim_end_matches("pm");
+        let parts: Vec<&str> = num_part.split(':').collect();
+        let mut hour: u32 = parts[0].parse().ok()?;
+        let minute: u32 = if parts.len() > 1 {
+            parts[1].parse().ok()?
+        } else {
+            0
+        };
+        if is_pm && hour != 12 {
+            hour += 12;
+        }
+        if !is_pm && hour == 12 {
+            hour = 0;
+        }
+        (hour, minute)
+    } else if time_str.contains(':') {
+        let parts: Vec<&str> = time_str.split(':').collect();
+        let hour: u32 = parts[0].parse().ok()?;
+        let minute: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+        (hour, minute)
+    } else {
+        return None;
+    };
+
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    // Cron format: minute hour * * *
+    Some(format!("{minute} {hour} * * *"))
+}
+
 pub struct SkillsLoader {
     workspace_skills: PathBuf,
     builtin_skills: Option<PathBuf>,
@@ -34,7 +80,7 @@ impl SkillsLoader {
         } else {
             let mut total_hints = 0;
             let mut total_chars = 0;
-            let names: Vec<&str> = all_skills
+            let names: Vec<String> = all_skills
                 .iter()
                 .filter_map(|s| {
                     let name = s.get("name").map(String::as_str)?;
@@ -42,7 +88,11 @@ impl SkillsLoader {
                     if let Some(content) = loader.load_skill(name) {
                         total_chars += Self::strip_frontmatter(&content).len();
                     }
-                    Some(name)
+                    let emoji = loader
+                        .get_skill_metadata(name)
+                        .and_then(|m| m.get("emoji").and_then(|v| v.as_str().map(String::from)))
+                        .unwrap_or_else(|| "\u{1f527}".to_string());
+                    Some(format!("{emoji} {name}"))
                 })
                 .collect();
             info!(
@@ -253,11 +303,20 @@ impl SkillsLoader {
                     .get("description")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                let emoji = meta
+                    .get("emoji")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("\u{1f527}");
+                let schedule_note = meta
+                    .get("schedule")
+                    .and_then(|v| v.as_str())
+                    .map(|s| format!(" [scheduled: {s}]"))
+                    .unwrap_or_default();
                 if hints.is_empty() {
-                    lines.push(format!("- **{name}**: {desc}"));
+                    lines.push(format!("- {emoji} **{name}**: {desc}{schedule_note}"));
                 } else {
                     lines.push(format!(
-                        "- **{name}**: {desc} (triggers: {})",
+                        "- {emoji} **{name}**: {desc}{schedule_note} (triggers: {})",
                         hints.join(", ")
                     ));
                 }
@@ -302,7 +361,7 @@ impl SkillsLoader {
         true
     }
 
-    fn get_skill_metadata(&self, name: &str) -> Option<Value> {
+    pub fn get_skill_metadata(&self, name: &str) -> Option<Value> {
         let content = self.load_skill(name)?;
         let rest = content.strip_prefix("---")?;
         {
@@ -391,6 +450,24 @@ impl SkillsLoader {
                 .map(String::from)
                 .collect()
         }
+    }
+
+    /// Returns skills that have a `schedule` field, with their parsed cron expressions.
+    pub fn get_scheduled_skills(&self) -> Vec<(String, Vec<String>)> {
+        let skills = self.list_skills(true);
+        let mut scheduled = Vec::new();
+        for skill in &skills {
+            let name = skill.get("name").cloned().unwrap_or_default();
+            if let Some(meta) = self.get_skill_metadata(&name)
+                && let Some(sched) = meta.get("schedule").and_then(|v| v.as_str())
+            {
+                let crons = parse_schedule(sched);
+                if !crons.is_empty() {
+                    scheduled.push((name, crons));
+                }
+            }
+        }
+        scheduled
     }
 
     /// Match an inbound message against skill hints. Returns the names of

@@ -323,6 +323,36 @@ fn test_build_skill_summary_format() {
     assert!(summary.contains("triggers: weather, forecast"));
     assert!(summary.contains("**deploy**"));
     assert!(summary.contains("Deploy applications"));
+    // Default emoji should be present
+    assert!(
+        summary.contains("\u{1f527}"),
+        "default emoji should appear in summary"
+    );
+}
+
+#[test]
+fn test_build_skill_summary_with_emoji_and_schedule() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let skill1 = dir.path().join("skills").join("briefing");
+    std::fs::create_dir_all(&skill1).unwrap();
+    std::fs::write(
+        skill1.join("briefing.md"),
+        "---\nname: briefing\ndescription: Daily briefing\nemoji: \u{1f4cb}\nschedule: \"7am, 5pm\"\nhints:\n  - briefing\n---\n\nBody.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let summary = loader.build_skills_summary();
+
+    assert!(
+        summary.contains("\u{1f4cb}"),
+        "custom emoji should appear in summary"
+    );
+    assert!(
+        summary.contains("[scheduled: 7am, 5pm]"),
+        "schedule note should appear in summary"
+    );
 }
 
 #[test]
@@ -381,4 +411,70 @@ fn test_load_skills_budget_stops_at_limit() {
         !result.contains("skill-b"),
         "second skill should be skipped due to budget"
     );
+}
+
+// ── Schedule parsing tests ──────────────────────────
+
+#[test]
+fn test_parse_schedule_single_time() {
+    let crons = parse_schedule("7am");
+    assert_eq!(crons, vec!["0 7 * * *"]);
+}
+
+#[test]
+fn test_parse_schedule_multiple_times() {
+    let crons = parse_schedule("9am, 1pm, 5pm");
+    assert_eq!(crons, vec!["0 9 * * *", "0 13 * * *", "0 17 * * *"]);
+}
+
+#[test]
+fn test_parse_schedule_with_minutes() {
+    let crons = parse_schedule("7:30am, 5:45pm");
+    assert_eq!(crons, vec!["30 7 * * *", "45 17 * * *"]);
+}
+
+#[test]
+fn test_parse_schedule_24h_format() {
+    let crons = parse_schedule("13:00, 17:30");
+    assert_eq!(crons, vec!["0 13 * * *", "30 17 * * *"]);
+}
+
+#[test]
+fn test_parse_schedule_noon_midnight() {
+    let crons = parse_schedule("12am, 12pm");
+    assert_eq!(crons, vec!["0 0 * * *", "0 12 * * *"]);
+}
+
+#[test]
+fn test_parse_schedule_invalid() {
+    let crons = parse_schedule("invalid");
+    assert!(crons.is_empty());
+}
+
+#[test]
+fn test_get_scheduled_skills() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let skill1 = dir.path().join("skills").join("briefing");
+    std::fs::create_dir_all(&skill1).unwrap();
+    std::fs::write(
+        skill1.join("briefing.md"),
+        "---\nname: briefing\ndescription: Daily briefing\nschedule: \"7am, 5pm\"\nhints:\n  - briefing\n---\n\nBody.",
+    )
+    .unwrap();
+
+    let skill2 = dir.path().join("skills").join("weather");
+    std::fs::create_dir_all(&skill2).unwrap();
+    std::fs::write(
+        skill2.join("weather.md"),
+        "---\nname: weather\ndescription: Weather check\nhints:\n  - weather\n---\n\nBody.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let scheduled = loader.get_scheduled_skills();
+
+    assert_eq!(scheduled.len(), 1, "only one skill has a schedule");
+    assert_eq!(scheduled[0].0, "briefing");
+    assert_eq!(scheduled[0].1, vec!["0 7 * * *", "0 17 * * *"]);
 }
