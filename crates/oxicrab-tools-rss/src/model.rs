@@ -1,6 +1,5 @@
 use anyhow::Result;
 use nalgebra::{Cholesky, DMatrix, DVector};
-use rand::thread_rng;
 use rand_distr::{Distribution, StandardNormal};
 use std::collections::HashMap;
 use tracing::warn;
@@ -252,7 +251,7 @@ impl LinTSModel {
             .ok_or_else(|| anyhow::anyhow!("covariance matrix not positive definite"))?;
         let l = chol.l();
 
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
         let z: DVector<f64> = DVector::from_fn(dim, |_, _| StandardNormal.sample(&mut rng));
 
         Ok(&self.mu + &l * z)

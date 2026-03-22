@@ -14,9 +14,9 @@ async-trait = { workspace = true }
 feed-rs = "2"
 futures-util = { workspace = true }
 nalgebra = "0.34"
-rand = "0.8"
+rand = "0.10"
 regex = { workspace = true }
-rand_distr = "0.4"
+rand_distr = "0.6"
 reqwest = { workspace = true, features = ["json", "rustls", "charset", "http2"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
