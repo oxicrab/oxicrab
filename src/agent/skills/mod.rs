@@ -1,13 +1,17 @@
 pub mod scanner;
 
+use aho_corasick::AhoCorasick;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 /// Maximum size for a single skill file (1 MB)
 const MAX_SKILL_FILE_SIZE: u64 = 1024 * 1024;
+
+/// Maximum total chars of skill content injected into the system prompt
+const MAX_SKILL_CONTEXT_CHARS: usize = 20_000;
 
 pub struct SkillsLoader {
     workspace_skills: PathBuf,
@@ -25,19 +29,28 @@ impl SkillsLoader {
 
         // Log skill discovery at construction time
         let all_skills = loader.list_skills(false);
-        let always_skills = loader.get_always_skills();
         if all_skills.is_empty() {
             debug!("no skills found");
         } else {
+            let mut total_hints = 0;
+            let mut total_chars = 0;
             let names: Vec<&str> = all_skills
                 .iter()
-                .filter_map(|s| s.get("name").map(String::as_str))
+                .filter_map(|s| {
+                    let name = s.get("name").map(String::as_str)?;
+                    total_hints += loader.get_skill_hints(name).len();
+                    if let Some(content) = loader.load_skill(name) {
+                        total_chars += Self::strip_frontmatter(&content).len();
+                    }
+                    Some(name)
+                })
                 .collect();
             info!(
-                "discovered {} skill(s): {} ({} always-enabled)",
+                "discovered {} skill(s): {} (~{} tokens, {} hint keywords)",
                 all_skills.len(),
                 names.join(", "),
-                always_skills.len()
+                total_chars / 4,
+                total_hints
             );
         }
 
@@ -173,6 +186,7 @@ impl SkillsLoader {
 
     pub fn load_skills_for_context(&self, skill_names: &[String]) -> String {
         let mut parts = Vec::new();
+        let mut total_chars = 0;
         for name in skill_names {
             if let Some(content) = self.load_skill(name) {
                 // Security scan before injection into system prompt
@@ -201,6 +215,15 @@ impl SkillsLoader {
                     );
                 }
                 let stripped = Self::strip_frontmatter(&content);
+                // Budget check
+                if total_chars + stripped.len() > MAX_SKILL_CONTEXT_CHARS {
+                    warn!(
+                        "skill context budget exceeded ({} chars), skipping '{}'",
+                        total_chars, name
+                    );
+                    break;
+                }
+                total_chars += stripped.len();
                 parts.push(format!("### Skill: {name}\n\n{stripped}"));
             }
         }
@@ -213,77 +236,34 @@ impl SkillsLoader {
         }
     }
 
+    /// Generate a compact skill summary for the system prompt.
+    /// Each skill is one line: name, description, and hint keywords.
+    /// Full skill content is loaded on demand when hints match the user message.
     pub fn build_skills_summary(&self) -> String {
-        fn escape_xml(s: &str) -> String {
-            html_escape::encode_text(s).to_string()
-        }
-
-        let all_skills = self.list_skills(false);
-        if all_skills.is_empty() {
+        let skills = self.list_skills(true);
+        if skills.is_empty() {
             return String::new();
         }
-
-        let mut lines = vec!["<skills>".to_string()];
-        for s in all_skills {
-            let name = s.get("name").map_or("unknown", std::string::String::as_str);
-            let path = s.get("path").map_or("", std::string::String::as_str);
-            // Load metadata once — avoids duplicate file reads per skill
-            let meta = self.get_skill_metadata(name);
-            let desc_str = meta
-                .as_ref()
-                .and_then(|m| m.get("description")?.as_str().map(String::from))
-                .unwrap_or_else(|| name.to_string());
-            let desc = escape_xml(&desc_str);
-            let available = Self::check_requirements(meta.as_ref());
-
-            let name_escaped = escape_xml(name);
-            let path_escaped = escape_xml(path);
-            lines.push(format!(
-                "  <skill available=\"{}\">",
-                available.to_string().to_lowercase()
-            ));
-            lines.push(format!("    <name>{name_escaped}</name>"));
-            lines.push(format!("    <description>{desc}</description>"));
-            lines.push(format!("    <location>{path_escaped}</location>"));
-
-            if !available {
-                let missing = Self::get_missing_requirements(meta.as_ref());
-                if !missing.is_empty() {
-                    lines.push(format!("    <requires>{}</requires>", escape_xml(&missing)));
+        let mut lines = vec!["## Available Skills (loaded on demand)".to_string()];
+        for skill in &skills {
+            let name = skill.get("name").cloned().unwrap_or_default();
+            let hints = self.get_skill_hints(&name);
+            if let Some(meta) = self.get_skill_metadata(&name) {
+                let desc = meta
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if hints.is_empty() {
+                    lines.push(format!("- **{name}**: {desc}"));
+                } else {
+                    lines.push(format!(
+                        "- **{name}**: {desc} (triggers: {})",
+                        hints.join(", ")
+                    ));
                 }
             }
-
-            lines.push("  </skill>".to_string());
         }
-        lines.push("</skills>".to_string());
         lines.join("\n")
-    }
-
-    fn get_missing_requirements(meta: Option<&Value>) -> String {
-        let mut missing = Vec::new();
-        if let Some(meta) = meta
-            && let Some(requires) = meta.get("requires")
-        {
-            if let Some(bins) = requires.get("bins").and_then(|v| v.as_array()) {
-                for bin in bins {
-                    if let Some(bin_str) = bin.as_str()
-                        && which::which(bin_str).is_err()
-                    {
-                        missing.push(format!("CLI: {bin_str}"));
-                    }
-                }
-            }
-            if let Some(env) = requires.get("env").and_then(|v| v.as_array()) {
-                for env_var in env {
-                    if let Some(env_str) = env_var.as_str()
-                        && std::env::var(env_str).is_err()
-                    {
-                        missing.push(format!("ENV: {env_str}"));
-                    }
-                }
-            }
-        }
-        missing.join(", ")
     }
 
     fn strip_frontmatter(content: &str) -> String {
@@ -341,33 +321,95 @@ impl SkillsLoader {
         }
     }
 
-    pub fn get_always_skills(&self) -> Vec<String> {
-        let available = self.list_skills(true);
-        let total = self.list_skills(false).len();
-        let always: Vec<String> = available
-            .into_iter()
-            .filter_map(|s| {
-                let name = s.get("name")?;
-                let meta = self.get_skill_metadata(name)?;
-                if meta
-                    .get("always")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or_default()
-                {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        if total > 0 {
-            debug!(
-                "discovered {} skill(s) ({} always-enabled)",
-                total,
-                always.len()
-            );
+    /// Build an Aho-Corasick automaton from all skill hints for fast matching.
+    /// Returns (automaton, mapping from pattern index to skill name).
+    pub fn build_hint_matcher(&self) -> (AhoCorasick, Vec<String>) {
+        let skills = self.list_skills(true); // only available skills
+        let mut patterns = Vec::new();
+        let mut skill_names = Vec::new();
+
+        for skill in &skills {
+            let name = skill.get("name").cloned().unwrap_or_default();
+            let hints = self.get_skill_hints(&name);
+            for hint in hints {
+                patterns.push(hint.to_lowercase());
+                skill_names.push(name.clone());
+            }
         }
-        always
+
+        let empty: &[&str] = &[];
+        let ac = AhoCorasick::builder()
+            .ascii_case_insensitive(true)
+            .build(&patterns)
+            .unwrap_or_else(|_| AhoCorasick::builder().build(empty).unwrap());
+        (ac, skill_names)
+    }
+
+    /// Get hints for a skill. Uses `hints` from frontmatter, falls back to
+    /// extracting keywords from name and description.
+    fn get_skill_hints(&self, name: &str) -> Vec<String> {
+        if let Some(meta) = self.get_skill_metadata(name) {
+            // Try explicit hints first
+            if let Some(hints) = meta.get("hints").and_then(|v| v.as_array()) {
+                let explicit: Vec<String> = hints
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .map(ToString::to_string)
+                    .collect();
+                if !explicit.is_empty() {
+                    return explicit;
+                }
+            }
+            // Fall back to keywords from name and description
+            let mut keywords = Vec::new();
+            // Add name parts (split on hyphens)
+            for part in name.split('-') {
+                if part.len() >= 3 {
+                    keywords.push(part.to_string());
+                }
+            }
+            // Add description words (skip common stop words, keep 4+ char words)
+            if let Some(desc) = meta.get("description").and_then(|v| v.as_str()) {
+                let stop_words = [
+                    "the", "and", "for", "from", "with", "that", "this", "into", "via",
+                ];
+                for word in desc.split_whitespace() {
+                    let clean = word
+                        .trim_matches(|c: char| !c.is_alphanumeric())
+                        .to_lowercase();
+                    if clean.len() >= 4 && !stop_words.contains(&clean.as_str()) {
+                        keywords.push(clean);
+                    }
+                }
+            }
+            keywords.dedup();
+            keywords
+        } else {
+            // No metadata — use name parts
+            name.split('-')
+                .filter(|p| p.len() >= 3)
+                .map(String::from)
+                .collect()
+        }
+    }
+
+    /// Match an inbound message against skill hints. Returns the names of
+    /// skills whose hints match.
+    pub fn match_skills(
+        &self,
+        message: &str,
+        ac: &AhoCorasick,
+        skill_names: &[String],
+    ) -> Vec<String> {
+        let mut matched = Vec::new();
+        let mut seen = HashSet::new();
+        for mat in ac.find_iter(&message.to_lowercase()) {
+            let name = &skill_names[mat.pattern().as_usize()];
+            if seen.insert(name.clone()) {
+                matched.push(name.clone());
+            }
+        }
+        matched
     }
 }
 

@@ -46,19 +46,6 @@ fn test_check_requirements_missing_binary() {
 }
 
 #[test]
-fn test_get_missing_requirements_reports_missing_binary() {
-    let meta = serde_json::json!({"requires": {"bins": ["totally_nonexistent_binary_xyz_12345"]}});
-    let missing = SkillsLoader::get_missing_requirements(Some(&meta));
-    assert!(missing.contains("CLI: totally_nonexistent_binary_xyz_12345"));
-}
-
-#[test]
-fn test_get_missing_requirements_none() {
-    let missing = SkillsLoader::get_missing_requirements(None);
-    assert!(missing.is_empty());
-}
-
-#[test]
 fn test_list_skills_empty_directory() {
     let dir = tempfile::tempdir().unwrap();
     let loader = SkillsLoader::new(dir.path(), None);
@@ -162,7 +149,7 @@ fn test_get_skill_metadata_parses_yaml() {
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
         skill_dir.join("test-skill.md"),
-        "---\nname: test-skill\ndescription: a test\nalways: true\n---\n\nBody",
+        "---\nname: test-skill\ndescription: a test\nhints:\n  - testing\n  - check\n---\n\nBody",
     )
     .unwrap();
 
@@ -174,36 +161,224 @@ fn test_get_skill_metadata_parses_yaml() {
         meta.get("name").and_then(|v| v.as_str()),
         Some("test-skill")
     );
-    assert_eq!(
-        meta.get("always").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert!(meta.get("hints").and_then(|v| v.as_array()).is_some());
 }
 
+// ── Hint matching tests ──────────────────────────
+
 #[test]
-fn test_get_always_skills() {
+fn test_hint_matching_explicit_hints() {
     let dir = tempfile::tempdir().unwrap();
-
-    // Create an always-on skill
-    let skill1 = dir.path().join("skills").join("always-skill");
-    std::fs::create_dir_all(&skill1).unwrap();
+    let skill_dir = dir.path().join("skills").join("weather-skill");
+    std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
-        skill1.join("always-skill.md"),
-        "---\nname: always-skill\nalways: true\n---\n\nAlways on.",
-    )
-    .unwrap();
-
-    // Create a non-always skill
-    let skill2 = dir.path().join("skills").join("normal-skill");
-    std::fs::create_dir_all(&skill2).unwrap();
-    std::fs::write(
-        skill2.join("normal-skill.md"),
-        "---\nname: normal-skill\nalways: false\n---\n\nNot always.",
+        skill_dir.join("weather-skill.md"),
+        "---\nname: weather-skill\ndescription: Get weather forecasts\nhints:\n  - weather\n  - forecast\n  - temperature\n---\n\nWeather instructions.",
     )
     .unwrap();
 
     let loader = SkillsLoader::new(dir.path(), None);
-    let always = loader.get_always_skills();
-    assert!(always.contains(&"always-skill".to_string()));
-    assert!(!always.contains(&"normal-skill".to_string()));
+    let (ac, names) = loader.build_hint_matcher();
+
+    // Should match on hint keyword
+    let matched = loader.match_skills("What's the weather today?", &ac, &names);
+    assert!(
+        matched.contains(&"weather-skill".to_string()),
+        "should match on 'weather' hint"
+    );
+
+    // Should match on different hint
+    let matched = loader.match_skills("Show me the forecast", &ac, &names);
+    assert!(
+        matched.contains(&"weather-skill".to_string()),
+        "should match on 'forecast' hint"
+    );
+
+    // Should not match unrelated message
+    let matched = loader.match_skills("Tell me a joke", &ac, &names);
+    assert!(matched.is_empty(), "should not match on unrelated message");
+}
+
+#[test]
+fn test_hint_matching_auto_extracted_from_name_and_description() {
+    let dir = tempfile::tempdir().unwrap();
+    let skill_dir = dir.path().join("skills").join("code-review");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("code-review.md"),
+        "---\nname: code-review\ndescription: Review pull requests and suggest improvements\n---\n\nReview instructions.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let (ac, names) = loader.build_hint_matcher();
+
+    // Should match on auto-extracted name part "code"
+    let matched = loader.match_skills("Can you review this code?", &ac, &names);
+    assert!(
+        matched.contains(&"code-review".to_string()),
+        "should match on auto-extracted 'code' keyword"
+    );
+
+    // Should match on auto-extracted description word "review"
+    let matched = loader.match_skills("Please review my PR", &ac, &names);
+    assert!(
+        matched.contains(&"code-review".to_string()),
+        "should match on auto-extracted 'review' keyword"
+    );
+}
+
+#[test]
+fn test_hint_matching_no_hints_uses_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let skill_dir = dir.path().join("skills").join("deploy-helper");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    // No hints, no description — should extract from name
+    std::fs::write(
+        skill_dir.join("deploy-helper.md"),
+        "---\nname: deploy-helper\n---\n\nDeploy instructions.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let (ac, names) = loader.build_hint_matcher();
+
+    let matched = loader.match_skills("Help me deploy this app", &ac, &names);
+    assert!(
+        matched.contains(&"deploy-helper".to_string()),
+        "should match on name-extracted 'deploy' keyword"
+    );
+}
+
+#[test]
+fn test_hint_matching_case_insensitive() {
+    let dir = tempfile::tempdir().unwrap();
+    let skill_dir = dir.path().join("skills").join("test-skill");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("test-skill.md"),
+        "---\nname: test-skill\ndescription: Run tests\nhints:\n  - testing\n  - unittest\n---\n\nTest instructions.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let (ac, names) = loader.build_hint_matcher();
+
+    let matched = loader.match_skills("Can you run TESTING for me?", &ac, &names);
+    assert!(
+        matched.contains(&"test-skill".to_string()),
+        "should match case-insensitively"
+    );
+}
+
+#[test]
+fn test_hint_matching_deduplicates() {
+    let dir = tempfile::tempdir().unwrap();
+    let skill_dir = dir.path().join("skills").join("test-skill");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("test-skill.md"),
+        "---\nname: test-skill\ndescription: Test things\nhints:\n  - test\n  - testing\n---\n\nBody.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let (ac, names) = loader.build_hint_matcher();
+
+    // Both hints match but skill should appear only once
+    let matched = loader.match_skills("run test and testing suite", &ac, &names);
+    let count = matched.iter().filter(|n| *n == "test-skill").count();
+    assert_eq!(
+        count, 1,
+        "skill should appear only once even if multiple hints match"
+    );
+}
+
+#[test]
+fn test_build_skill_summary_format() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let skill1 = dir.path().join("skills").join("weather");
+    std::fs::create_dir_all(&skill1).unwrap();
+    std::fs::write(
+        skill1.join("weather.md"),
+        "---\nname: weather\ndescription: Get weather forecasts\nhints:\n  - weather\n  - forecast\n---\n\nBody.",
+    )
+    .unwrap();
+
+    let skill2 = dir.path().join("skills").join("deploy");
+    std::fs::create_dir_all(&skill2).unwrap();
+    std::fs::write(
+        skill2.join("deploy.md"),
+        "---\nname: deploy\ndescription: Deploy applications\n---\n\nBody.",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let summary = loader.build_skills_summary();
+
+    assert!(summary.contains("## Available Skills (loaded on demand)"));
+    assert!(summary.contains("**weather**"));
+    assert!(summary.contains("Get weather forecasts"));
+    assert!(summary.contains("triggers: weather, forecast"));
+    assert!(summary.contains("**deploy**"));
+    assert!(summary.contains("Deploy applications"));
+}
+
+#[test]
+fn test_load_skills_budget_enforcement() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Create a skill with content that is exactly at budget
+    let big_content = "x".repeat(MAX_SKILL_CONTEXT_CHARS + 1);
+    let skill1 = dir.path().join("skills").join("big-skill");
+    std::fs::create_dir_all(&skill1).unwrap();
+    std::fs::write(
+        skill1.join("big-skill.md"),
+        format!("---\nname: big-skill\n---\n\n{big_content}"),
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(dir.path(), None);
+    let context = loader.load_skills_for_context(&["big-skill".to_string()]);
+    // The single skill exceeds budget, so it should be skipped
+    assert!(
+        context.is_empty(),
+        "skill exceeding budget should be skipped"
+    );
+}
+
+#[test]
+fn test_load_skills_budget_stops_at_limit() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Create two skills, first one fits, second would exceed budget
+    let body_size = MAX_SKILL_CONTEXT_CHARS / 2 + 100;
+    let body = "y".repeat(body_size);
+
+    let skill1 = dir.path().join("skills").join("skill-a");
+    std::fs::create_dir_all(&skill1).unwrap();
+    std::fs::write(
+        skill1.join("skill-a.md"),
+        format!("---\nname: skill-a\n---\n\n{body}"),
+    )
+    .unwrap();
+
+    let skill2 = dir.path().join("skills").join("skill-b");
+    std::fs::create_dir_all(&skill2).unwrap();
+    std::fs::write(
+        skill2.join("skill-b.md"),
+        format!("---\nname: skill-b\n---\n\n{body}"),
+    )
+    .unwrap();
+
+    let skills_loader = SkillsLoader::new(dir.path(), None);
+    let result =
+        skills_loader.load_skills_for_context(&["skill-a".to_string(), "skill-b".to_string()]);
+    // First skill should be included, second should be skipped
+    assert!(result.contains("skill-a"), "first skill should be loaded");
+    assert!(
+        !result.contains("skill-b"),
+        "second skill should be skipped due to budget"
+    );
 }

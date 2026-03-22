@@ -241,13 +241,16 @@ additional configuration.
     </div>
 
     <h3>How it's used</h3>
-    <p>Skills marked <code>always: true</code> are included in every system prompt. Other skills appear as a summary, and the agent loads the full content on-demand using the <code>read_file</code> tool when relevant.</p>
+    <p>Every skill's name, description, and trigger keywords appear as a compact summary in the system prompt (always). Full skill content is only loaded when the inbound message matches a hint keyword, using fast Aho-Corasick multi-pattern matching. This keeps the base prompt small while ensuring relevant skills are available when needed.</p>
 
     <h3>Skill file format</h3>
     <pre><code>---
 name: my-skill
 description: What this skill does
-always: false
+hints:
+  - ffmpeg
+  - transcode
+  - video convert
 requires:
   bins: ["ffmpeg", "curl"]
   env: ["MY_API_KEY"]
@@ -270,12 +273,14 @@ Describe the situations where this skill applies.
     <ul>
       <li><strong>name</strong> &mdash; Skill identifier (matches directory name)</li>
       <li><strong>description</strong> &mdash; One-line summary shown in the skills list</li>
-      <li><strong>always</strong> &mdash; If <code>true</code>, full content is included in every prompt (default: <code>false</code>)</li>
+      <li><strong>hints</strong> &mdash; List of trigger keywords. When a message contains any of these words, the full skill content is loaded into the system prompt. If omitted, keywords are auto-extracted from the skill name and description.</li>
       <li><strong>requires.bins</strong> &mdash; CLI tools that must be installed (checked at runtime)</li>
       <li><strong>requires.env</strong> &mdash; Environment variables that must be set</li>
     </ul>
 
-    <div class="note"><strong>Availability:</strong> Skills with missing requirements are listed as <code>available="false"</code>. The agent can still see them but is told the dependencies need to be installed first.</div>
+    <div class="note"><strong>Budget:</strong> Total skill content loaded per message is capped at 20,000 characters (~5K tokens). If matching skills exceed this budget, later skills are skipped with a warning.</div>
+
+    <div class="note"><strong>Availability:</strong> Skills with missing requirements are excluded from the hint matcher and summary. Install the required dependencies to make them available.</div>
   </div>
 
   <!-- SESSIONS -->

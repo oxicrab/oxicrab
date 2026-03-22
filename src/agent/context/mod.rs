@@ -2,6 +2,7 @@ pub mod providers;
 
 use crate::agent::memory::MemoryStore;
 use crate::agent::skills::SkillsLoader;
+use aho_corasick::AhoCorasick;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local};
 use std::collections::HashMap;
@@ -17,6 +18,9 @@ pub struct ContextBuilder {
     workspace: PathBuf,
     memory: Arc<MemoryStore>,
     skills: SkillsLoader,
+    skill_hint_ac: AhoCorasick,
+    skill_hint_names: Vec<String>,
+    skill_summary: String,
     bootstrap_cache: Option<String>,
     bootstrap_mtimes: HashMap<String, u64>,
     providers: Option<Arc<providers::ContextProviderRunner>>,
@@ -54,6 +58,8 @@ impl ContextBuilder {
             });
 
         let skills = SkillsLoader::new(&workspace, builtin_skills);
+        let (skill_hint_ac, skill_hint_names) = skills.build_hint_matcher();
+        let skill_summary = skills.build_skills_summary();
 
         debug!(
             "context builder initialized: workspace={}",
@@ -64,6 +70,9 @@ impl ContextBuilder {
             workspace,
             memory,
             skills,
+            skill_hint_ac,
+            skill_hint_names,
+            skill_summary,
             bootstrap_cache: None,
             bootstrap_mtimes: HashMap::new(),
             providers: None,
@@ -139,22 +148,33 @@ impl ContextBuilder {
             parts.push(ctx.clone());
         }
 
-        // Skills - progressive loading
-        // 1. Always-loaded skills: include full content
-        let always_skills = self.skills.get_always_skills();
-        if !always_skills.is_empty() {
-            let always_content = self.skills.load_skills_for_context(&always_skills);
-            if !always_content.is_empty() {
-                parts.push(format!("# Active Skills\n\n{always_content}"));
-            }
+        // Skills - hint-based loading
+        // 1. Always include compact summary of all available skills
+        if !self.skill_summary.is_empty() {
+            parts.push(format!("# Skills\n\n{}", self.skill_summary));
         }
 
-        // 2. Available skills: only show summary (agent uses read_file to load)
-        let skills_summary = self.skills.build_skills_summary();
-        if !skills_summary.is_empty() {
-            parts.push(format!(
-                "# Skills\n\nThe following skills extend your capabilities. To use a skill, read its skill file using the read_file tool (each skill file is named after its directory, e.g. skills/my-skill/my-skill.md).\nSkills with available=\"false\" need dependencies installed first - you can try installing them with apt/brew.\n\n{skills_summary}"
-            ));
+        // 2. Load full content for skills whose hints match the current message
+        if let Some(user_message) = query {
+            let matched =
+                self.skills
+                    .match_skills(user_message, &self.skill_hint_ac, &self.skill_hint_names);
+            if !matched.is_empty() {
+                let skill_content = self.skills.load_skills_for_context(&matched);
+                if !skill_content.is_empty() {
+                    let skill_chars = skill_content.len();
+                    parts.push(format!("# Active Skills\n\n{skill_content}"));
+                    // Warn if skills consume a disproportionate amount of prompt
+                    let total_chars: usize = parts.iter().map(String::len).sum();
+                    if skill_chars > 0 && skill_chars * 4 > total_chars {
+                        warn!(
+                            "skills consume {}% of system prompt ({} chars)",
+                            skill_chars * 100 / total_chars,
+                            skill_chars
+                        );
+                    }
+                }
+            }
         }
 
         Ok(parts.join("\n\n---\n\n"))

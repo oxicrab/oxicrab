@@ -30,7 +30,7 @@ fn test_skills_frontmatter_parsing() {
     std::fs::create_dir_all(&skill_dir).expect("create test dir");
     std::fs::write(
         skill_dir.join("parser-test.md"),
-        "---\nname: parser-test\ndescription: Test parsing\nalways: true\n---\n\nBody content.",
+        "---\nname: parser-test\ndescription: Test parsing\nhints:\n  - parse\n  - test\n---\n\nBody content.",
     )
     .expect("write test file");
 
@@ -84,38 +84,47 @@ fn test_skills_workspace_overrides_builtin() {
 }
 
 #[test]
-fn test_skills_always_include() {
+fn test_skills_hint_matching() {
     let tmp = TempDir::new().expect("create temp dir");
     let skills_dir = tmp.path().join("skills");
 
-    // Create an always-include skill
-    let always_dir = skills_dir.join("always-on");
-    std::fs::create_dir_all(&always_dir).expect("create test dir");
+    // Create a skill with explicit hints
+    let hint_dir = skills_dir.join("weather-check");
+    std::fs::create_dir_all(&hint_dir).expect("create test dir");
     std::fs::write(
-        always_dir.join("always-on.md"),
-        "---\nname: always-on\ndescription: Always included\nalways: true\n---\n\nAlways body.",
+        hint_dir.join("weather-check.md"),
+        "---\nname: weather-check\ndescription: Check weather conditions\nhints:\n  - weather\n  - forecast\n  - rain\n---\n\nWeather body.",
     )
     .expect("write test file");
 
-    // Create a normal skill
-    let normal_dir = skills_dir.join("normal");
+    // Create a skill without explicit hints (auto-extract from name/description)
+    let normal_dir = skills_dir.join("code-review");
     std::fs::create_dir_all(&normal_dir).expect("create test dir");
     std::fs::write(
-        normal_dir.join("normal.md"),
-        "---\nname: normal\ndescription: Normal skill\n---\n\nNormal body.",
+        normal_dir.join("code-review.md"),
+        "---\nname: code-review\ndescription: Review pull requests\n---\n\nReview body.",
     )
     .expect("write test file");
 
     let loader = SkillsLoader::new(tmp.path(), None);
-    let always = loader.get_always_skills();
+    let (ac, names) = loader.build_hint_matcher();
 
+    // Explicit hint match
+    let matched = loader.match_skills("What's the weather like?", &ac, &names);
     assert!(
-        always.contains(&"always-on".to_string()),
-        "Should include always-on skill"
+        matched.contains(&"weather-check".to_string()),
+        "Should match weather-check on 'weather' hint"
     );
     assert!(
-        !always.contains(&"normal".to_string()),
-        "Should not include normal skill"
+        !matched.contains(&"code-review".to_string()),
+        "Should not match code-review on weather message"
+    );
+
+    // Auto-extracted hint match
+    let matched = loader.match_skills("Please review my code", &ac, &names);
+    assert!(
+        matched.contains(&"code-review".to_string()),
+        "Should match code-review on auto-extracted 'review' or 'code' keyword"
     );
 }
 
@@ -218,5 +227,55 @@ async fn test_context_bootstrap_file_refresh() {
     assert!(
         prompt2.contains("Version 2"),
         "Should pick up updated USER.md"
+    );
+}
+
+#[tokio::test]
+async fn test_context_includes_skill_summary() {
+    let tmp = TempDir::new().expect("create temp dir");
+    let skill_dir = tmp.path().join("skills").join("my-skill");
+    std::fs::create_dir_all(&skill_dir).expect("create test dir");
+    std::fs::write(
+        skill_dir.join("my-skill.md"),
+        "---\nname: my-skill\ndescription: A useful skill\nhints:\n  - useful\n  - skill\n---\n\nSkill body.",
+    )
+    .expect("write test file");
+
+    let mut builder = ContextBuilder::new(tmp.path()).expect("create context builder");
+    let prompt = builder
+        .build_system_prompt(None, None)
+        .expect("build system prompt");
+
+    assert!(
+        prompt.contains("Available Skills"),
+        "system prompt should include skill summary"
+    );
+    assert!(
+        prompt.contains("my-skill"),
+        "skill summary should contain skill name"
+    );
+}
+
+#[tokio::test]
+async fn test_context_loads_matching_skills() {
+    let tmp = TempDir::new().expect("create temp dir");
+    let skill_dir = tmp.path().join("skills").join("weather");
+    std::fs::create_dir_all(&skill_dir).expect("create test dir");
+    std::fs::write(
+        skill_dir.join("weather.md"),
+        "---\nname: weather\ndescription: Get weather data\nhints:\n  - weather\n  - forecast\n---\n\nWeather skill body content here.",
+    )
+    .expect("write test file");
+
+    let mut builder = ContextBuilder::new(tmp.path()).expect("create context builder");
+
+    // Query that matches hint should load full skill content
+    let prompt = builder
+        .build_system_prompt(None, Some("What's the weather today?"))
+        .expect("build system prompt");
+
+    assert!(
+        prompt.contains("Weather skill body content here"),
+        "system prompt should include full skill content when hint matches"
     );
 }
