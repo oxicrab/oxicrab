@@ -41,7 +41,8 @@ impl ProviderErrorHandler {
                 });
             }
 
-            let retryable = status == 429
+            let retryable = status == 402
+                || status == 429
                 || status == 500
                 || status == 502
                 || status == 503

@@ -631,15 +631,27 @@ impl AgentLoop {
                     }
                     Err(e) => {
                         error!("Error processing message: {}", e);
+                        // Surface actionable errors to the user instead of a generic message
+                        let err_str = e.to_string();
+                        let user_message = if err_str.contains("credits")
+                            || err_str.contains("quota")
+                            || err_str.contains("billing")
+                        {
+                            format!("Provider billing error: {err_str}")
+                        } else if err_str.contains("rate limit") {
+                            "Rate limited by the LLM provider — please try again in a moment."
+                                .to_string()
+                        } else if err_str.contains("model") && err_str.contains("not found") {
+                            format!("Model configuration error: {err_str}")
+                        } else {
+                            "Sorry, I encountered an error processing your message.".to_string()
+                        };
                         // Send an error outbound so channels can clean up
                         // (e.g. Slack removes the thinking emoji on any outbound)
-                        let error_outbound = OutboundMessage::builder(
-                            msg_channel,
-                            msg_chat_id,
-                            "Sorry, I encountered an error processing your message.",
-                        )
-                        .metadata(msg_metadata)
-                        .build();
+                        let error_outbound =
+                            OutboundMessage::builder(msg_channel, msg_chat_id, &user_message)
+                                .metadata(msg_metadata)
+                                .build();
                         if let Err(send_err) = self.bus.publish_outbound(error_outbound).await {
                             error!("Failed to send error outbound message: {}", send_err);
                         }
