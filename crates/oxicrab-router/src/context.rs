@@ -37,7 +37,7 @@ impl DirectiveMatcher {
             match &d.trigger {
                 DirectiveTrigger::Exact(s) => {
                     if m.literal_to_index.contains_key(s) {
-                        tracing::warn!(
+                        tracing::debug!(
                             "router: directive literal conflict for '{}' (keeping first)",
                             s
                         );

@@ -888,12 +888,19 @@ impl BaseChannel for SlackChannel {
 
             // Attach buttons (Block Kit) to the last chunk via JSON body
             if is_last && !buttons.is_empty() {
+                // Block Kit section.text has a 3000-char limit
+                let block_text = if chunk.len() > 3000 {
+                    let boundary = chunk.floor_char_boundary(2997);
+                    format!("{}...", &chunk[..boundary])
+                } else {
+                    chunk.clone()
+                };
                 let mut body = serde_json::json!({
                     "channel": msg.chat_id,
-                    "text": chunk,
+                    "text": chunk,  // fallback text (no limit)
                     "mrkdwn": true,
                     "blocks": [
-                        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": block_text}},
                     ],
                 });
                 // Append button action rows to blocks
