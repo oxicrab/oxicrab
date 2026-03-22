@@ -621,10 +621,14 @@ fn register_scheduled_skill_crons(config: &Config, cron: &Arc<CronService>) -> R
     let now = crate::utils::time::now_ms();
 
     for (skill_name, cron_exprs) in &scheduled {
-        let job_name = format!("skill:{skill_name}");
-
-        // Skip if a cron job for this skill already exists
-        if existing_jobs.iter().any(|j| j.name == job_name) {
+        // Check for existing jobs — both skill-scheduler created ("skill:X")
+        // and LLM-created jobs whose message mentions the skill name
+        let skill_message = format!("Run the {skill_name} skill");
+        let has_existing = existing_jobs.iter().any(|j| {
+            j.name.starts_with(&format!("skill:{skill_name}"))
+                || j.payload.message.contains(&skill_message)
+        });
+        if has_existing {
             debug!(
                 "scheduled skill '{}' already has cron job, skipping",
                 skill_name
@@ -632,12 +636,23 @@ fn register_scheduled_skill_crons(config: &Config, cron: &Arc<CronService>) -> R
             continue;
         }
 
-        // Create one cron job per time expression
+        // Create one cron job per time expression, with distinguishable names
         for expr in cron_exprs {
+            // Extract human-readable time from cron expr for the job name
+            let time_label = expr
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(":");
+            let job_name = if cron_exprs.len() > 1 {
+                format!("skill:{skill_name}@{time_label}")
+            } else {
+                format!("skill:{skill_name}")
+            };
             let job_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
             let job = CronJob {
                 id: job_id,
-                name: job_name.clone(),
+                name: job_name,
                 enabled: true,
                 schedule: CronSchedule::Cron {
                     expr: Some(expr.clone()),
