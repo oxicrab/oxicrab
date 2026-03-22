@@ -58,6 +58,7 @@ impl ContextBuilder {
             });
 
         let skills = SkillsLoader::new(&workspace, builtin_skills);
+        skills.log_discovery();
         let (skill_hint_ac, skill_hint_names) = skills.build_hint_matcher();
         let skill_summary = skills.build_skills_summary();
 

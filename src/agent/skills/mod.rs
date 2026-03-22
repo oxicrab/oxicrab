@@ -68,13 +68,15 @@ impl SkillsLoader {
     pub fn new(workspace: impl AsRef<Path>, builtin_skills_dir: Option<PathBuf>) -> Self {
         let workspace = workspace.as_ref().to_path_buf();
         let workspace_skills = workspace.join("skills");
-        let loader = Self {
+        Self {
             workspace_skills,
             builtin_skills: builtin_skills_dir,
-        };
+        }
+    }
 
-        // Log skill discovery at construction time
-        let all_skills = loader.list_skills(false);
+    /// Log discovered skills. Call once at startup, not on every construction.
+    pub fn log_discovery(&self) {
+        let all_skills = self.list_skills(false);
         if all_skills.is_empty() {
             debug!("no skills found");
         } else {
@@ -84,11 +86,11 @@ impl SkillsLoader {
                 .iter()
                 .filter_map(|s| {
                     let name = s.get("name").map(String::as_str)?;
-                    total_hints += loader.get_skill_hints(name).len();
-                    if let Some(content) = loader.load_skill(name) {
+                    total_hints += self.get_skill_hints(name).len();
+                    if let Some(content) = self.load_skill(name) {
                         total_chars += Self::strip_frontmatter(&content).len();
                     }
-                    let emoji = loader
+                    let emoji = self
                         .get_skill_metadata(name)
                         .and_then(|m| m.get("emoji").and_then(|v| v.as_str().map(String::from)))
                         .unwrap_or_else(|| "\u{1f527}".to_string());
@@ -103,8 +105,6 @@ impl SkillsLoader {
                 total_hints
             );
         }
-
-        loader
     }
 
     pub fn list_skills(&self, filter_unavailable: bool) -> Vec<HashMap<String, String>> {
