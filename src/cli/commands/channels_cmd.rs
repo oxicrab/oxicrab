@@ -164,6 +164,7 @@ pub(super) async fn channels_command(cmd: ChannelCommands) -> Result<()> {
 async fn whatsapp_login() -> Result<()> {
     use crate::utils::get_oxicrab_home;
     use std::sync::Arc;
+    use whatsapp_rust::TokioRuntime;
     use whatsapp_rust::bot::Bot;
     use whatsapp_rust::store::SqliteStore;
     use whatsapp_rust::transport::{TokioWebSocketTransportFactory, UreqHttpClient};
@@ -191,7 +192,7 @@ async fn whatsapp_login() -> Result<()> {
         .with_backend(backend)
         .with_transport_factory(transport_factory)
         .with_http_client(http_client)
-        .with_runtime(whatsapp_rust::TokioRuntime)
+        .with_runtime(TokioRuntime)
         .on_event(|event, _client| async move {
             match event {
                 Event::PairingQrCode { code, .. } => {

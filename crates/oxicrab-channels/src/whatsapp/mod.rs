@@ -16,6 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+use whatsapp_rust::TokioRuntime;
 use whatsapp_rust::proto_helpers::MessageExt;
 
 /// WhatsApp-specific metadata key for the original message timestamp (millis).
@@ -155,7 +156,7 @@ impl BaseChannel for WhatsAppChannel {
                     .with_backend(backend.clone())
                     .with_transport_factory(transport_factory)
                     .with_http_client(http_client)
-                    .with_runtime(whatsapp_rust::TokioRuntime)
+                    .with_runtime(TokioRuntime)
                     .on_event(move |event, client| {
                         let inbound_tx = inbound_tx_clone.clone();
                         let running = running_clone.clone();
