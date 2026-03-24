@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.4] - 2026-03-24
+
+### Added
+- **skills:** add schedule and emoji frontmatter support ([38ee066](https://github.com/oxicrab/oxicrab/commit/38ee066be61ce6e125daa265d2fce903f39ac5b0))
+- **skills:** hint-based on-demand loading, remove always flag ([49f4e95](https://github.com/oxicrab/oxicrab/commit/49f4e95ffa8be6f801ec4df5c90964866732f110))
+- **observability:** add happy-path logging and metrics across 12 subsystems ([d91aaac](https://github.com/oxicrab/oxicrab/commit/d91aaac610fd4502860ddbf80595b5a138979790))
+- **whatsapp:** migrate from wa-rs 0.2 to whatsapp-rust 0.4.2 ([444ef15](https://github.com/oxicrab/oxicrab/commit/444ef15cc0908c634a3d2bd6e51c3700f55b4438))
+- Added coveralls button ([2dadd32](https://github.com/oxicrab/oxicrab/commit/2dadd32bbdddbe788c571827228e3f351e6f5fd6))
+
+
+### CI/CD
+- bump trufflesecurity/trufflehog from 3.93.8 to 3.94.0 ([640ca6a](https://github.com/oxicrab/oxicrab/commit/640ca6ab21ae24b2c20ec4bfa4e3426048ccc8d0))
+
+
+### Changed
+- **skills:** rename SKILL.md to {skill-name}.md ([6ac8a67](https://github.com/oxicrab/oxicrab/commit/6ac8a673c9ccaa1ed9907695dcce976ec25f54b0))
+- use TokioRuntime import instead of fully qualified path ([42a1668](https://github.com/oxicrab/oxicrab/commit/42a16688b261d2acf222e666f801ec4f8d82f19a))
+
+
+### Dependencies
+- bump nalgebra from 0.33.2 to 0.34.1 ([b8a2e56](https://github.com/oxicrab/oxicrab/commit/b8a2e56f1645ce5152b9881496da787f19d3b3fa))
+- bump toml from 0.9.12+spec-1.1.0 to 1.0.7+spec-1.1.0 ([1a76622](https://github.com/oxicrab/oxicrab/commit/1a76622ab615299ba91eb06e80e0dac94f7a25be))
+- bump metrics-exporter-prometheus from 0.17.2 to 0.18.1 ([0d2cad6](https://github.com/oxicrab/oxicrab/commit/0d2cad616dc2fe325654e5bc9d017e081b130a9c))
+- bump scraper from 0.25.0 to 0.26.0 ([76bb4bc](https://github.com/oxicrab/oxicrab/commit/76bb4bc969f78166d8eda942ad140208b97cd9c1))
+- bump moka from 0.12.13 to 0.12.14 ([46be57a](https://github.com/oxicrab/oxicrab/commit/46be57ab21bea308bbd7d81bac8bc69a1a24456c))
+- bump ipnet from 2.11.0 to 2.12.0 ([b4d730c](https://github.com/oxicrab/oxicrab/commit/b4d730cb347e545874ee876f93b30684f977a362))
+
+
+### Documentation
+- add cargo install --git option to README ([0a8303d](https://github.com/oxicrab/oxicrab/commit/0a8303d67d6d62804173be1a3365d8e2bbe62190))
+
+
+### Fixed
+- **providers:** fallback on 402 (insufficient credits), surface billing errors to user ([bbe63ce](https://github.com/oxicrab/oxicrab/commit/bbe63cebe4bd001c6c76c4fd4e7f8158deae2485))
+- **skills:** don't auto-create cron jobs from schedule frontmatter ([7bb858b](https://github.com/oxicrab/oxicrab/commit/7bb858be1802c2c834cb7108613f5b67d33e7640))
+- **skills:** improve scheduled skill cron dedup and naming ([7eaf859](https://github.com/oxicrab/oxicrab/commit/7eaf8593946d7cdb766e263d83d2d340cada2913))
+- **slack:** cap Block Kit section.text at 3000 chars, downgrade directive conflict to debug ([7d8f6ec](https://github.com/oxicrab/oxicrab/commit/7d8f6ec23b4edd3a604e0707853d91b616b360a5))
+- **skills:** deduplicate discovery log (constructor → explicit log_discovery()) ([e09ab94](https://github.com/oxicrab/oxicrab/commit/e09ab9400cdc8724dd61ff6ce28c83c788d081b6))
+- **skills:** log skill discovery at startup, not lazily on first message ([a403d72](https://github.com/oxicrab/oxicrab/commit/a403d727e8751d31bbce15fefa5ba301e4ec3100))
+
+
+### Other
+- bump tokio-tungstenite 0.29, rand 0.10, rand_distr 0.6 ([3a86059](https://github.com/oxicrab/oxicrab/commit/3a860597ffa8dc44abeace9f6dcdb4e0915f6b28))
+
 ## [0.16.3] - 2026-03-21
 
 ### Added

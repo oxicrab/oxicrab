@@ -1,6 +1,6 @@
 [package]
 name = "oxicrab-transcription"
-version = "0.16.3"
+version = "0.16.4"
 edition = "2024"
 authors = ["James Turnbull <james@ltl.so>"]
 description = "Voice transcription (Whisper cloud + local whisper.cpp) for the oxicrab framework"
