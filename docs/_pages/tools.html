@@ -160,14 +160,15 @@ restrictToWorkspace = true
 
 [tools.exec]
 timeout = 60
-allowedCommands = ["ls", "grep", "git", "cargo", "node", "python3"]
+additionalAllowedCommands = ["python3", "node"]
+# allowedCommands = ["ls", "grep", "git", "cargo"]  # full override (replaces defaults)
 
 [tools.exec.sandbox]
 enabled = true
 additionalReadPaths = ["/opt/data"]
 additionalWritePaths = ["/home/user/output"]
 blockNetwork = true</code></pre>
-    <p>The default allowlist includes 80+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>, <code>python3</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Override with your own list in config.</p>
+    <p>The default allowlist includes 70+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Use <code>additionalAllowedCommands</code> to add commands without replacing defaults, or <code>allowedCommands</code> for a full override.</p>
     <p>Set <code>restrictToWorkspace: true</code> to restrict filesystem access to the workspace directory.</p>
     <p>The <code>sandbox</code> block controls kernel-level process sandboxing. On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code> (plus <code>/System</code>, <code>/Library</code>, <code>/opt/homebrew</code>, <code>/usr/local</code> on macOS). Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code> (plus <code>/private/tmp</code>, <code>/private/var/folders</code> on macOS). Use <code>additionalReadPaths</code>/<code>additionalWritePaths</code> to extend. Set <code>blockNetwork: false</code> to allow outbound connections from shell commands.</p>
   </div>

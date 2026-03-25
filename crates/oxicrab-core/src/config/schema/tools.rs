@@ -141,8 +141,28 @@ pub struct ExecToolConfig {
     pub timeout: u64,
     #[serde(default = "default_allowed_commands", rename = "allowedCommands")]
     pub allowed_commands: Vec<String>,
+    #[serde(
+        default,
+        rename = "additionalAllowedCommands",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub additional_allowed_commands: Vec<String>,
     #[serde(default)]
     pub sandbox: SandboxConfig,
+}
+
+impl ExecToolConfig {
+    /// Returns the effective allowed commands list: defaults (or overrides) merged
+    /// with any additional commands, deduplicated.
+    pub fn effective_allowed_commands(&self) -> Vec<String> {
+        let mut cmds = self.allowed_commands.clone();
+        for cmd in &self.additional_allowed_commands {
+            if !cmds.contains(cmd) {
+                cmds.push(cmd.clone());
+            }
+        }
+        cmds
+    }
 }
 
 impl Default for ExecToolConfig {
@@ -150,6 +170,7 @@ impl Default for ExecToolConfig {
         Self {
             timeout: default_timeout(),
             allowed_commands: default_allowed_commands(),
+            additional_allowed_commands: Vec::new(),
             sandbox: SandboxConfig::default(),
         }
     }

@@ -264,7 +264,7 @@ impl AgentLoopConfig {
                 web_search_config: Some(config.tools.web_search.clone()),
                 exec_timeout: config.tools.exec.timeout,
                 restrict_to_workspace: config.tools.restrict_to_workspace,
-                allowed_commands: config.tools.exec.allowed_commands.clone(),
+                allowed_commands: config.tools.exec.effective_allowed_commands(),
                 sandbox_config: config.tools.exec.sandbox.clone(),
                 channels_config: params.channels_config,
                 google_config: Some(config.tools.google.clone()),
