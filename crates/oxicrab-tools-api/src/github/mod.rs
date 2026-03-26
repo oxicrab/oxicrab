@@ -136,6 +136,15 @@ impl GitHubTool {
         }
     }
 
+    async fn api_patch(&self, path: &str, body: &Value) -> Result<Value> {
+        let req = self.github_headers(
+            self.client
+                .patch(format!("{}{}", self.base_url, path))
+                .json(body),
+        );
+        self.api_send(req).await
+    }
+
     async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
         let req = self.github_headers(
             self.client
@@ -241,6 +250,19 @@ impl GitHubTool {
         let number = result["number"].as_u64().unwrap_or(0);
         let url = result["html_url"].as_str().unwrap_or_default();
         Ok(format!("Created issue #{number}: {url}"))
+    }
+
+    async fn close_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+        let result = self
+            .api_patch(
+                &format!("/repos/{owner}/{repo}/issues/{number}"),
+                &serde_json::json!({"state": "closed"}),
+            )
+            .await?;
+
+        let title = result["title"].as_str().unwrap_or_default();
+        let url = result["html_url"].as_str().unwrap_or_default();
+        Ok(format!("Closed issue #{number} ({title}): {url}"))
     }
 
     async fn list_prs(
@@ -745,10 +767,29 @@ fn build_issue_buttons(issues: &[Value], owner: &str, repo: &str) -> Vec<Value> 
 }
 
 /// Build contextual buttons for a single issue detail view.
-/// Returns empty — the issue is already displayed, so "View" would be redundant.
-/// (A "Close" button would require a close_issue action that doesn't exist yet.)
-fn build_issue_detail_buttons(_issue: &Value, _owner: &str, _repo: &str) -> Vec<Value> {
-    vec![]
+/// Offers "Close" for open issues (you already viewed it, "View" would be redundant).
+fn build_issue_detail_buttons(issue: &Value, owner: &str, repo: &str) -> Vec<Value> {
+    let state = issue["state"].as_str().unwrap_or_default();
+    let number = issue["number"].as_u64().unwrap_or(0);
+    if number == 0 || state != "open" {
+        return vec![];
+    }
+    let title = issue["title"].as_str().unwrap_or("issue");
+    let label = truncate_label("Close: ", title, 22);
+    vec![serde_json::json!({
+        "id": format!("close-issue-{number}"),
+        "label": label,
+        "style": "danger",
+        "context": serde_json::json!({
+            "tool": "github",
+            "params": {
+                "action": "close_issue",
+                "owner": owner,
+                "repo": repo,
+                "number": number
+            }
+        }).to_string()
+    })]
 }
 
 /// Build suggested "Approve" buttons for open PRs (max 5).
@@ -833,10 +874,9 @@ impl Tool for GitHubTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with GitHub. Actions: list_issues, create_issue, get_issue, list_prs, get_pr, \
-         get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, \
-         notifications. Tip: after showing a PR, use add_buttons to offer Approve or Request Changes; \
-         after showing an issue, offer Close or Label."
+        "Interact with GitHub. Actions: list_issues, create_issue, get_issue, close_issue, \
+         list_prs, get_pr, get_pr_files, create_pr_review, get_file_content, trigger_workflow, \
+         get_workflow_runs, notifications."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -848,6 +888,7 @@ impl Tool for GitHubTool {
                 list_issues: ro,
                 create_issue,
                 get_issue: ro,
+                close_issue,
                 list_prs: ro,
                 get_pr: ro,
                 get_pr_files: ro,
@@ -864,7 +905,7 @@ impl Tool for GitHubTool {
     fn requires_approval_for_action(&self, action: &str) -> bool {
         matches!(
             action,
-            "create_issue" | "create_pr_review" | "trigger_workflow"
+            "create_issue" | "close_issue" | "create_pr_review" | "trigger_workflow"
         )
     }
 
@@ -892,7 +933,7 @@ impl Tool for GitHubTool {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "list_issues", "create_issue", "get_issue",
+                        "list_issues", "create_issue", "get_issue", "close_issue",
                         "list_prs", "get_pr", "get_pr_files", "create_pr_review",
                         "get_file_content", "trigger_workflow", "get_workflow_runs",
                         "notifications"
@@ -973,8 +1014,8 @@ impl Tool for GitHubTool {
 
         match action {
             "list_issues" | "list_prs" | "create_issue" | "get_pr" | "get_issue"
-            | "get_pr_files" | "create_pr_review" | "get_file_content" | "trigger_workflow"
-            | "get_workflow_runs" => {
+            | "close_issue" | "get_pr_files" | "create_pr_review" | "get_file_content"
+            | "trigger_workflow" | "get_workflow_runs" => {
                 let Some(owner) = params["owner"].as_str() else {
                     return Ok(ToolResult::error("missing 'owner' parameter".to_string()));
                 };
@@ -1056,6 +1097,12 @@ impl Tool for GitHubTool {
 
                 // Remaining actions without buttons
                 let result = match action {
+                    "close_issue" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        self.close_issue(owner, repo, number).await
+                    }
                     "create_issue" => {
                         let Some(title) = params["title"].as_str() else {
                             return Ok(ToolResult::error("missing 'title' parameter".to_string()));

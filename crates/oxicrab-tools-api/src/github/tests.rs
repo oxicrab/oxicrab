@@ -1320,8 +1320,12 @@ async fn test_get_issue_returns_suggested_buttons() {
         .unwrap();
 
     assert!(!result.is_error);
-    // get_issue returns no buttons (issue already displayed, "View" would be redundant)
-    assert!(result.metadata.is_none());
+    // get_issue returns "Close" button for open issues
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "close-issue-42");
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Close: "));
 }
 
 #[tokio::test]
