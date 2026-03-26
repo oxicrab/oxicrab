@@ -744,6 +744,13 @@ fn build_issue_buttons(issues: &[Value], owner: &str, repo: &str) -> Vec<Value> 
     buttons
 }
 
+/// Build contextual buttons for a single issue detail view.
+/// Returns empty — the issue is already displayed, so "View" would be redundant.
+/// (A "Close" button would require a close_issue action that doesn't exist yet.)
+fn build_issue_detail_buttons(_issue: &Value, _owner: &str, _repo: &str) -> Vec<Value> {
+    vec![]
+}
+
 /// Build suggested "Approve" buttons for open PRs (max 5).
 fn build_pr_list_buttons(prs: &[Value], owner: &str, repo: &str) -> Vec<Value> {
     let mut buttons = Vec::new();
@@ -1011,7 +1018,7 @@ impl Tool for GitHubTool {
                         };
                         return match self.get_issue(owner, repo, number).await {
                             Ok((text, issue)) => {
-                                let buttons = build_issue_buttons(&[issue], owner, repo);
+                                let buttons = build_issue_detail_buttons(&issue, owner, repo);
                                 Ok(ToolResult::new(text).with_buttons(buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),

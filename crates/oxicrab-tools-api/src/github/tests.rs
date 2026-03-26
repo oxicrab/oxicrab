@@ -1320,10 +1320,8 @@ async fn test_get_issue_returns_suggested_buttons() {
         .unwrap();
 
     assert!(!result.is_error);
-    let meta = result.metadata.expect("should have metadata");
-    let buttons = meta["suggested_buttons"].as_array().unwrap();
-    assert_eq!(buttons.len(), 1);
-    assert_eq!(buttons[0]["id"], "view-issue-42");
+    // get_issue returns no buttons (issue already displayed, "View" would be redundant)
+    assert!(result.metadata.is_none());
 }
 
 #[tokio::test]

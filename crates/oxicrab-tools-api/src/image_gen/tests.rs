@@ -11,7 +11,7 @@ fn make_png_bytes() -> Vec<u8> {
 
 #[tokio::test]
 async fn test_missing_prompt() {
-    let tool = ImageGenTool::new(Some("key".into()), None, "openai".into());
+    let tool = ImageGenTool::new(Some("key".into()), None, ImageGenProvider::Openai);
     let result = tool
         .execute(serde_json::json!({}), &ExecutionContext::default())
         .await
@@ -22,7 +22,7 @@ async fn test_missing_prompt() {
 
 #[tokio::test]
 async fn test_no_providers_configured() {
-    let tool = ImageGenTool::new(None, None, "openai".into());
+    let tool = ImageGenTool::new(None, None, ImageGenProvider::Openai);
     let result = tool
         .execute(
             serde_json::json!({"prompt": "a cat"}),
@@ -36,7 +36,7 @@ async fn test_no_providers_configured() {
 
 #[tokio::test]
 async fn test_unknown_provider() {
-    let tool = ImageGenTool::new(Some("key".into()), None, "openai".into());
+    let tool = ImageGenTool::new(Some("key".into()), None, ImageGenProvider::Openai);
     let result = tool
         .execute(
             serde_json::json!({"prompt": "a cat", "provider": "dalle"}),
@@ -50,7 +50,7 @@ async fn test_unknown_provider() {
 
 #[tokio::test]
 async fn test_requested_provider_no_key() {
-    let tool = ImageGenTool::new(Some("key".into()), None, "openai".into());
+    let tool = ImageGenTool::new(Some("key".into()), None, ImageGenProvider::Openai);
     let result = tool
         .execute(
             serde_json::json!({"prompt": "a cat", "provider": "google"}),
@@ -66,14 +66,18 @@ async fn test_requested_provider_no_key() {
 
 #[test]
 fn test_auto_select_prefers_default() {
-    let tool = ImageGenTool::new(Some("ok".into()), Some("gk".into()), "google".into());
+    let tool = ImageGenTool::new(
+        Some("ok".into()),
+        Some("gk".into()),
+        ImageGenProvider::Google,
+    );
     assert_eq!(tool.resolve_provider(None).unwrap(), "google");
 }
 
 #[test]
 fn test_auto_select_fallback() {
     // Default is openai but no openai key — should fall back to google
-    let tool = ImageGenTool::new(None, Some("gk".into()), "openai".into());
+    let tool = ImageGenTool::new(None, Some("gk".into()), ImageGenProvider::Openai);
     assert_eq!(tool.resolve_provider(None).unwrap(), "google");
 }
 
@@ -97,7 +101,7 @@ async fn test_openai_success() {
     let tool = ImageGenTool::with_base_urls(
         Some("test_key".into()),
         None,
-        "openai".into(),
+        ImageGenProvider::Openai,
         server.uri(),
         String::new(),
     );
@@ -138,7 +142,7 @@ async fn test_openai_api_error() {
     let tool = ImageGenTool::with_base_urls(
         Some("test_key".into()),
         None,
-        "openai".into(),
+        ImageGenProvider::Openai,
         server.uri(),
         String::new(),
     );
@@ -177,7 +181,7 @@ async fn test_google_success() {
     let tool = ImageGenTool::with_base_urls(
         None,
         Some("test_google_key".into()),
-        "google".into(),
+        ImageGenProvider::Google,
         String::new(),
         server.uri(),
     );
@@ -216,7 +220,7 @@ async fn test_google_api_error() {
     let tool = ImageGenTool::with_base_urls(
         None,
         Some("test_google_key".into()),
-        "google".into(),
+        ImageGenProvider::Google,
         String::new(),
         server.uri(),
     );
@@ -249,7 +253,7 @@ async fn test_openai_with_custom_params() {
     let tool = ImageGenTool::with_base_urls(
         Some("key".into()),
         None,
-        "openai".into(),
+        ImageGenProvider::Openai,
         server.uri(),
         String::new(),
     );
@@ -293,7 +297,7 @@ async fn test_google_with_aspect_ratio() {
     let tool = ImageGenTool::with_base_urls(
         None,
         Some("gk".into()),
-        "google".into(),
+        ImageGenProvider::Google,
         String::new(),
         server.uri(),
     );
@@ -319,7 +323,7 @@ async fn test_google_with_aspect_ratio() {
 #[test]
 fn test_image_gen_capabilities() {
     use oxicrab_core::tools::base::SubagentAccess;
-    let tool = ImageGenTool::new(None, None, "openai".into());
+    let tool = ImageGenTool::new(None, None, ImageGenProvider::Openai);
     let caps = tool.capabilities();
     assert!(caps.built_in);
     assert!(caps.network_outbound);
