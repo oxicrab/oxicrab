@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.7] - 2026-03-26
+
+### Added
+- **tools:** add missing actions across 5 tools ([786e714](https://github.com/oxicrab/oxicrab/commit/786e714b72aa82cf7cfa8bc8fb25633dc5c4e6f5))
+- **todoist,google-tasks:** add "View remaining tasks" button after completing ([3419ab7](https://github.com/oxicrab/oxicrab/commit/3419ab7e39bd650c82de4375fed7c2bc5452c2db))
+- **github:** add close_issue action, show Close button on issue detail ([ba20a0c](https://github.com/oxicrab/oxicrab/commit/ba20a0cd8d6b7b740b58ab6f3f78f696becee2ca))
+- **cron:** add "Run again" button to cron run action response ([8ed6756](https://github.com/oxicrab/oxicrab/commit/8ed6756d72394b1d8feed33e7f4d7b3fd9bca931))
+
+
+### Fixed
+- **github:** update tests for new PR merge + issue reopen buttons ([4fb7f0d](https://github.com/oxicrab/oxicrab/commit/4fb7f0d4b9cf83e39063cbadc45690a6a364312d))
+- **github:** remove redundant "View" button from get_issue response ([d113bac](https://github.com/oxicrab/oxicrab/commit/d113bacfe7b0264f89c93389012ee5e6dcf0649e))
+- **cron:** replace Remove button with Run in job list suggested buttons ([a571a17](https://github.com/oxicrab/oxicrab/commit/a571a17e797cc6c48a99fbea79c538cc92e00b04))
+- **channels:** wildcard check in allows_normalized() used un-normalized entry ([7afb0dd](https://github.com/oxicrab/oxicrab/commit/7afb0dd7b871a72b1795f4d6d16424f68d3a52a1))
+
 ## [0.16.6] - 2026-03-26
 
 ### Changed

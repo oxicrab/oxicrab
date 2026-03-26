@@ -1,6 +1,6 @@
 [package]
 name = "oxicrab-tools-api"
-version = "0.16.6"
+version = "0.16.7"
 edition = "2024"
 authors = ["James Turnbull <james@ltl.so>"]
 description = "API tools for the oxicrab framework (GitHub, Weather, Todoist, Media, ImageGen)"
