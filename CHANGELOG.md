@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.5] - 2026-03-26
+
+### Added
+- **shell:** add additionalAllowedCommands for additive command allowlisting ([6aaf9b4](https://github.com/oxicrab/oxicrab/commit/6aaf9b40d571b1723ba3447293eaf4ab82bc8ce5))
+
+
+### Fixed
+- **channels:** empty allowGroups now denies all groups, consistent with allowFrom ([fccce90](https://github.com/oxicrab/oxicrab/commit/fccce90d21426918ace6e3e1043a42a359c0639f))
+
 ## [0.16.4] - 2026-03-24
 
 ### Added
