@@ -1163,6 +1163,28 @@ fn test_build_pr_list_buttons_max_five() {
 }
 
 #[test]
+fn test_build_issue_detail_buttons_open_shows_close() {
+    let issue = serde_json::json!({"number": 5, "state": "open", "title": "Bug"});
+    let buttons = build_issue_detail_buttons(&issue, "o", "r");
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "close-issue-5");
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["params"]["action"], "close_issue");
+}
+
+#[test]
+fn test_build_issue_detail_buttons_closed_shows_reopen() {
+    let issue = serde_json::json!({"number": 5, "state": "closed", "title": "Bug"});
+    let buttons = build_issue_detail_buttons(&issue, "o", "r");
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "reopen-issue-5");
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["params"]["action"], "reopen_issue");
+}
+
+#[test]
 fn test_build_pr_detail_buttons_open_pr() {
     let pr = serde_json::json!({
         "number": 10,
@@ -1171,25 +1193,24 @@ fn test_build_pr_detail_buttons_open_pr() {
     });
     let buttons = build_pr_detail_buttons(&pr, "octo", "repo");
     assert_eq!(buttons.len(), 2);
-    assert_eq!(buttons[0]["id"], "approve-pr-10");
-    assert_eq!(buttons[0]["label"], "Approve");
-    assert_eq!(buttons[0]["style"], "primary");
-    assert_eq!(buttons[1]["id"], "request-changes-pr-10");
-    assert_eq!(buttons[1]["label"], "Request Changes");
-    assert_eq!(buttons[1]["style"], "danger");
-
+    // First button: Merge
+    assert_eq!(buttons[0]["id"], "merge-pr-10");
+    assert_eq!(buttons[0]["label"], "Merge");
+    assert_eq!(buttons[0]["style"], "success");
     let ctx0: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx0["params"]["action"], "create_pr_review");
+    assert_eq!(ctx0["params"]["action"], "merge_pr");
     assert_eq!(ctx0["params"]["owner"], "octo");
     assert_eq!(ctx0["params"]["repo"], "repo");
     assert_eq!(ctx0["params"]["number"], 10);
-    assert_eq!(ctx0["params"]["event"], "APPROVE");
-    // "Request Changes" uses a plain string context (routes through LLM for body input)
-    assert_eq!(
-        buttons[1]["context"].as_str().unwrap(),
-        "Request changes on PR #10 in octo/repo"
-    );
+    // Second button: Approve
+    assert_eq!(buttons[1]["id"], "approve-pr-10");
+    assert_eq!(buttons[1]["label"], "Approve");
+    assert_eq!(buttons[1]["style"], "primary");
+    let ctx1: serde_json::Value =
+        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx1["params"]["action"], "create_pr_review");
+    assert_eq!(ctx1["params"]["event"], "APPROVE");
 }
 
 #[test]
@@ -1362,7 +1383,17 @@ async fn test_get_issue_no_buttons_when_closed() {
         .unwrap();
 
     assert!(!result.is_error);
-    assert!(result.metadata.is_none());
+    // Closed issues get a "Reopen" button
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "reopen-issue-99");
+    assert!(
+        buttons[0]["label"]
+            .as_str()
+            .unwrap()
+            .starts_with("Reopen: ")
+    );
 }
 
 #[tokio::test]
@@ -1452,10 +1483,10 @@ async fn test_get_pr_returns_approve_and_request_changes() {
     let meta = result.metadata.expect("should have metadata");
     let buttons = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(buttons.len(), 2);
-    assert_eq!(buttons[0]["id"], "approve-pr-10");
-    assert_eq!(buttons[0]["label"], "Approve");
-    assert_eq!(buttons[1]["id"], "request-changes-pr-10");
-    assert_eq!(buttons[1]["label"], "Request Changes");
+    assert_eq!(buttons[0]["id"], "merge-pr-10");
+    assert_eq!(buttons[0]["label"], "Merge");
+    assert_eq!(buttons[1]["id"], "approve-pr-10");
+    assert_eq!(buttons[1]["label"], "Approve");
 }
 
 #[tokio::test]
