@@ -930,12 +930,12 @@ fn collect_underscored_keys(path: &str, value: &serde_json::Value, underscored: 
 #[test]
 fn test_workspace_ttl_defaults() {
     let ttl = WorkspaceTtlConfig::default();
-    assert_eq!(ttl.temp, Some(7));
-    assert_eq!(ttl.downloads, Some(30));
-    assert_eq!(ttl.images, Some(90));
-    assert_eq!(ttl.code, None);
-    assert_eq!(ttl.documents, None);
-    assert_eq!(ttl.data, None);
+    assert_eq!(ttl.temp_days, Some(7));
+    assert_eq!(ttl.downloads_days, Some(30));
+    assert_eq!(ttl.images_days, Some(90));
+    assert_eq!(ttl.code_days, None);
+    assert_eq!(ttl.documents_days, None);
+    assert_eq!(ttl.data_days, None);
 }
 
 #[test]

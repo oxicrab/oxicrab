@@ -145,6 +145,15 @@ impl Default for SandboxConfig {
 /// Shell command allowlist. Empty = no restrictions (all commands allowed).
 /// Non-empty = only listed commands may execute.
 /// Default is a comprehensive list of safe commands.
+///
+/// **Polarity note**: this is the opposite of [`DenyByDefaultList`] where
+/// empty means *deny all*. Here empty means *unrestricted* because the
+/// default is a populated list of ~70 safe commands — clearing it is an
+/// explicit operator choice to remove restrictions. Use [`is_restricted()`]
+/// to check whether the list is enforced, and [`is_allowed()`] to check
+/// individual commands.
+///
+/// [`DenyByDefaultList`]: super::channels::DenyByDefaultList
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AllowedCommands(Vec<String>);

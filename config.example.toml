@@ -39,9 +39,9 @@ urgentThreshold = 30
 recentToolsWindow = 10
 
 [agents.defaults.workspaceTtl]
-temp = 7
-downloads = 30
-images = 90
+tempDays = 7
+downloadsDays = 30
+imagesDays = 90
 
 [agents.defaults.approval]
 enabled = false

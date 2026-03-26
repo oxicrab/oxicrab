@@ -312,47 +312,56 @@ fn default_ttl_images() -> Option<u64> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkspaceTtlConfig {
     /// Days before temp files expire (default: 7). Null = never.
-    #[serde(default = "default_ttl_temp")]
-    pub temp: Option<u64>,
+    #[serde(default = "default_ttl_temp", rename = "tempDays", alias = "temp")]
+    pub temp_days: Option<u64>,
     /// Days before downloads expire (default: 30). Null = never.
-    #[serde(default = "default_ttl_downloads")]
-    pub downloads: Option<u64>,
+    #[serde(
+        default = "default_ttl_downloads",
+        rename = "downloadsDays",
+        alias = "downloads"
+    )]
+    pub downloads_days: Option<u64>,
     /// Days before images expire (default: 90). Null = never.
-    #[serde(default = "default_ttl_images")]
-    pub images: Option<u64>,
+    #[serde(
+        default = "default_ttl_images",
+        rename = "imagesDays",
+        alias = "images"
+    )]
+    pub images_days: Option<u64>,
     /// Days before code files expire. Null = never (default).
-    #[serde(default)]
-    pub code: Option<u64>,
+    #[serde(default, rename = "codeDays", alias = "code")]
+    pub code_days: Option<u64>,
     /// Days before document files expire. Null = never (default).
-    #[serde(default)]
-    pub documents: Option<u64>,
+    #[serde(default, rename = "documentsDays", alias = "documents")]
+    pub documents_days: Option<u64>,
     /// Days before data files expire. Null = never (default).
-    #[serde(default)]
-    pub data: Option<u64>,
+    #[serde(default, rename = "dataDays", alias = "data")]
+    pub data_days: Option<u64>,
 }
 
 impl Default for WorkspaceTtlConfig {
     fn default() -> Self {
         Self {
-            temp: default_ttl_temp(),
-            downloads: default_ttl_downloads(),
-            images: default_ttl_images(),
-            code: None,
-            documents: None,
-            data: None,
+            temp_days: default_ttl_temp(),
+            downloads_days: default_ttl_downloads(),
+            images_days: default_ttl_images(),
+            code_days: None,
+            documents_days: None,
+            data_days: None,
         }
     }
 }
 
 impl WorkspaceTtlConfig {
+    /// Returns a map from category name to optional TTL in **days**.
     pub fn to_map(&self) -> std::collections::HashMap<String, Option<u64>> {
         let mut map = std::collections::HashMap::new();
-        map.insert("temp".into(), self.temp);
-        map.insert("downloads".into(), self.downloads);
-        map.insert("images".into(), self.images);
-        map.insert("code".into(), self.code);
-        map.insert("documents".into(), self.documents);
-        map.insert("data".into(), self.data);
+        map.insert("temp".into(), self.temp_days);
+        map.insert("downloads".into(), self.downloads_days);
+        map.insert("images".into(), self.images_days);
+        map.insert("code".into(), self.code_days);
+        map.insert("documents".into(), self.documents_days);
+        map.insert("data".into(), self.data_days);
         map
     }
 }
