@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.6] - 2026-03-26
+
+### Changed
+- **config:** rename workspace TTL fields to include unit, document AllowedCommands polarity ([80e86ce](https://github.com/oxicrab/oxicrab/commit/80e86ce05533a5c388da31022cf7ec161332fc65))
+- **config:** replace free-form provider strings with enums, use HttpUrl for obsidian ([de9962b](https://github.com/oxicrab/oxicrab/commit/de9962bc3f3391bd6a1990a8b2e6728a01e6c851))
+- **config:** add ChannelTarget, HttpUrl newtypes and context provider validation ([f806c1c](https://github.com/oxicrab/oxicrab/commit/f806c1c14d682d33cc3c691f34f5e82e61ced751))
+- **safety:** introduce newtypes for security-critical config fields ([6d61a0b](https://github.com/oxicrab/oxicrab/commit/6d61a0ba8bdba35408b4134da128d21e4f5517ae))
+- **channels:** introduce DenyByDefaultList newtype for access control ([977673d](https://github.com/oxicrab/oxicrab/commit/977673d27dd1ba38a2cbd60a9274f790dc653b7a))
+
+
+### Fixed
+- **google:** share credentials across Gmail/Calendar/Tasks tools ([826f353](https://github.com/oxicrab/oxicrab/commit/826f353c96e55ee48f80d9ce53d05ab59795561e))
+
 ## [0.16.5] - 2026-03-26
 
 ### Added
