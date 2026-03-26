@@ -1,7 +1,8 @@
 use super::*;
 use crate::agent::tools::Tool;
 use crate::config::{
-    ChannelsConfig, DiscordConfig, SlackConfig, TelegramConfig, TwilioConfig, WhatsAppConfig,
+    ChannelsConfig, DenyByDefaultList, DiscordConfig, SlackConfig, TelegramConfig, TwilioConfig,
+    WhatsAppConfig,
 };
 use serde_json::json;
 
@@ -9,22 +10,22 @@ fn make_test_channels_config() -> ChannelsConfig {
     ChannelsConfig {
         slack: SlackConfig {
             enabled: true,
-            allow_from: vec!["U08G6HBC89X".to_string()],
+            allow_from: DenyByDefaultList::new(vec!["U08G6HBC89X".to_string()]),
             ..Default::default()
         },
         discord: DiscordConfig {
             enabled: true,
-            allow_from: vec!["123456789".to_string()],
+            allow_from: DenyByDefaultList::new(vec!["123456789".to_string()]),
             ..Default::default()
         },
         telegram: TelegramConfig {
             enabled: true,
-            allow_from: vec!["987654321".to_string()],
+            allow_from: DenyByDefaultList::new(vec!["987654321".to_string()]),
             ..Default::default()
         },
         whatsapp: WhatsAppConfig {
             enabled: true,
-            allow_from: vec!["+15551234567".to_string()],
+            allow_from: DenyByDefaultList::new(vec!["+15551234567".to_string()]),
             ..Default::default()
         },
         twilio: TwilioConfig::default(),
@@ -95,25 +96,25 @@ fn test_resolve_no_config() {
 
 #[test]
 fn test_first_concrete_target_skips_wildcard() {
-    let list = vec!["*".to_string(), "user123".to_string()];
+    let list = DenyByDefaultList::new(vec!["*".to_string(), "user123".to_string()]);
     assert_eq!(first_concrete_target(&list), "user123");
 }
 
 #[test]
 fn test_first_concrete_target_empty_list() {
-    let list: Vec<String> = vec![];
+    let list = DenyByDefaultList::default();
     assert_eq!(first_concrete_target(&list), "");
 }
 
 #[test]
 fn test_first_concrete_target_only_wildcard() {
-    let list = vec!["*".to_string()];
+    let list = DenyByDefaultList::new(vec!["*".to_string()]);
     assert_eq!(first_concrete_target(&list), "");
 }
 
 #[test]
 fn test_first_concrete_target_no_wildcard() {
-    let list = vec!["alice".to_string(), "bob".to_string()];
+    let list = DenyByDefaultList::new(vec!["alice".to_string(), "bob".to_string()]);
     assert_eq!(first_concrete_target(&list), "alice");
 }
 
@@ -128,7 +129,7 @@ fn test_format_whatsapp_target_with_plus() {
 #[test]
 fn test_resolve_empty_allow_from_excluded() {
     let mut cfg = make_test_channels_config();
-    cfg.slack.allow_from = vec![];
+    cfg.slack.allow_from = DenyByDefaultList::default();
     let targets = resolve_all_channel_targets_from_config(Some(&cfg));
     // Slack should be excluded (empty allow_from -> first_concrete_target returns "")
     assert!(!targets.iter().any(|t| t.channel == "slack"));
@@ -137,7 +138,7 @@ fn test_resolve_empty_allow_from_excluded() {
 #[test]
 fn test_resolve_wildcard_only_excluded() {
     let mut cfg = make_test_channels_config();
-    cfg.telegram.allow_from = vec!["*".to_string()];
+    cfg.telegram.allow_from = DenyByDefaultList::new(vec!["*".to_string()]);
     let targets = resolve_all_channel_targets_from_config(Some(&cfg));
     // Telegram wildcard has no concrete target -> excluded
     assert!(!targets.iter().any(|t| t.channel == "telegram"));

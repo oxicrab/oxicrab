@@ -33,8 +33,8 @@ mod payloads;
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
-    allow_list: Vec<String>,
-    allow_groups: Vec<String>,
+    allow_list: oxicrab_core::config::schema::DenyByDefaultList,
+    allow_groups: oxicrab_core::config::schema::DenyByDefaultList,
     dm_policy: oxicrab_core::config::schema::DmPolicy,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
@@ -785,6 +785,7 @@ impl BaseChannel for DiscordChannel {
         let is_user_id = self
             .config
             .allow_from
+            .entries()
             .iter()
             .any(|a| a.trim_start_matches('+') == msg.chat_id);
 
@@ -878,6 +879,7 @@ impl BaseChannel for DiscordChannel {
         let is_user_id = self
             .config
             .allow_from
+            .entries()
             .iter()
             .any(|a| a.trim_start_matches('+') == msg.chat_id);
         let target = if is_user_id {

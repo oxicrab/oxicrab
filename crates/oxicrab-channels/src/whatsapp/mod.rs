@@ -723,7 +723,10 @@ fn is_image_mime(mime: Option<&str>) -> bool {
 /// - `recipient` present and phone in `allow_from` -> self-chat, process it
 /// - `recipient` present and phone NOT in `allow_from` -> outgoing to
 ///   someone else (device-synced), skip it
-fn should_skip_own_message(recipient_jid: Option<&str>, allow_from: &[String]) -> bool {
+fn should_skip_own_message(
+    recipient_jid: Option<&str>,
+    allow_from: &oxicrab_core::config::schema::DenyByDefaultList,
+) -> bool {
     let Some(recip) = recipient_jid else {
         return false;
     };

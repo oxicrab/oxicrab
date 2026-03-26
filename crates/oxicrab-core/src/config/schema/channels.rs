@@ -1,14 +1,60 @@
 use serde::{Deserialize, Serialize};
 
+/// An access control list where empty means "deny all".
+/// Use `["*"]` for allow-all. Serializes/deserializes as a JSON/TOML array of strings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(transparent)]
+pub struct DenyByDefaultList(Vec<String>);
+
+impl DenyByDefaultList {
+    /// Create a new list from a vector of entries.
+    pub fn new(entries: Vec<String>) -> Self {
+        Self(entries)
+    }
+
+    /// Check if the given ID is allowed by this list.
+    /// Empty list = deny all. `["*"]` = allow all.
+    pub fn allows(&self, id: &str) -> bool {
+        !self.0.is_empty() && self.0.iter().any(|entry| entry == id || entry == "*")
+    }
+
+    /// Check if the given ID is allowed, normalizing by stripping leading '+' and control chars.
+    pub fn allows_normalized(&self, id: &str) -> bool {
+        if self.0.is_empty() {
+            return false;
+        }
+        let normalized = id.trim_start_matches('+');
+        let normalized: String = normalized.chars().filter(|c| !c.is_control()).collect();
+        self.0.iter().any(|entry| {
+            let entry_normalized = entry.trim_start_matches('+');
+            let entry_normalized: String = entry_normalized
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect();
+            entry_normalized == normalized || entry == "*"
+        })
+    }
+
+    /// Returns true if the list is empty (deny-all state).
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Get access to the inner entries (for iteration, logging, etc.)
+    pub fn entries(&self) -> &[String] {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhatsAppConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default, rename = "allowFrom")]
-    pub allow_from: Vec<String>,
-    /// Restrict which group chats the bot responds in. Empty = all groups allowed.
+    pub allow_from: DenyByDefaultList,
+    /// Restrict which group chats the bot responds in. Empty = deny all groups.
     #[serde(default, rename = "allowGroups")]
-    pub allow_groups: Vec<String>,
+    pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
 }
@@ -17,8 +63,8 @@ impl Default for WhatsAppConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            allow_from: Vec::new(),
-            allow_groups: Vec::new(),
+            allow_from: DenyByDefaultList::default(),
+            allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
         }
     }
@@ -31,10 +77,10 @@ pub struct TelegramConfig {
     #[serde(default)]
     pub token: String,
     #[serde(default, rename = "allowFrom")]
-    pub allow_from: Vec<String>,
-    /// Restrict which group chats the bot responds in. Empty = all groups allowed.
+    pub allow_from: DenyByDefaultList,
+    /// Restrict which group chats the bot responds in. Empty = deny all groups.
     #[serde(default, rename = "allowGroups")]
-    pub allow_groups: Vec<String>,
+    pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
     /// When true, only respond in groups when the bot is @mentioned or replied to.
@@ -47,8 +93,8 @@ impl Default for TelegramConfig {
         Self {
             enabled: false,
             token: String::new(),
-            allow_from: Vec::new(),
-            allow_groups: Vec::new(),
+            allow_from: DenyByDefaultList::default(),
+            allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
             mention_only: false,
         }
@@ -100,10 +146,10 @@ pub struct DiscordConfig {
     #[serde(default)]
     pub token: String,
     #[serde(default, rename = "allowFrom")]
-    pub allow_from: Vec<String>,
-    /// Restrict which guild/group chats the bot responds in. Empty = all groups allowed.
+    pub allow_from: DenyByDefaultList,
+    /// Restrict which guild/group chats the bot responds in. Empty = deny all groups.
     #[serde(default, rename = "allowGroups")]
-    pub allow_groups: Vec<String>,
+    pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_discord_commands")]
     pub commands: Vec<DiscordCommand>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
@@ -118,8 +164,8 @@ impl Default for DiscordConfig {
         Self {
             enabled: false,
             token: String::new(),
-            allow_from: Vec::new(),
-            allow_groups: Vec::new(),
+            allow_from: DenyByDefaultList::default(),
+            allow_groups: DenyByDefaultList::default(),
             commands: default_discord_commands(),
             dm_policy: default_dm_policy(),
             mention_only: false,
@@ -155,10 +201,10 @@ pub struct SlackConfig {
     #[serde(default, rename = "appToken")]
     pub app_token: String,
     #[serde(default, rename = "allowFrom")]
-    pub allow_from: Vec<String>,
-    /// Restrict which channels/groups the bot responds in. Empty = all allowed.
+    pub allow_from: DenyByDefaultList,
+    /// Restrict which channels/groups the bot responds in. Empty = deny all.
     #[serde(default, rename = "allowGroups")]
-    pub allow_groups: Vec<String>,
+    pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
     /// Emoji added when a message is received (default: "eyes")
@@ -175,8 +221,8 @@ impl Default for SlackConfig {
             enabled: false,
             bot_token: String::new(),
             app_token: String::new(),
-            allow_from: Vec::new(),
-            allow_groups: Vec::new(),
+            allow_from: DenyByDefaultList::default(),
+            allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
             thinking_emoji: default_thinking_emoji(),
             done_emoji: default_done_emoji(),
@@ -254,10 +300,10 @@ pub struct TwilioConfig {
     #[serde(default, rename = "webhookUrl")]
     pub webhook_url: String,
     #[serde(default, rename = "allowFrom")]
-    pub allow_from: Vec<String>,
-    /// Restrict which Conversations the bot responds in. Empty = all allowed.
+    pub allow_from: DenyByDefaultList,
+    /// Restrict which Conversations the bot responds in. Empty = deny all.
     #[serde(default, rename = "allowGroups")]
-    pub allow_groups: Vec<String>,
+    pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
 }
@@ -273,8 +319,8 @@ impl Default for TwilioConfig {
             webhook_path: default_webhook_path(),
             webhook_host: default_webhook_host(),
             webhook_url: String::new(),
-            allow_from: Vec::new(),
-            allow_groups: Vec::new(),
+            allow_from: DenyByDefaultList::default(),
+            allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
         }
     }

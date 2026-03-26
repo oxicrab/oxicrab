@@ -20,18 +20,13 @@ pub const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024;
     feature = "channel-whatsapp",
     feature = "channel-twilio",
 ))]
-pub fn check_allowed_sender(sender: &str, allow_list: &[String], channel: &str) -> bool {
-    // Explicit wildcard allows all senders
-    if allow_list.iter().any(|a| a == "*") {
-        return true;
-    }
-
-    // Check config allowlist
-    let normalized_sender = normalize_sender_id(sender);
-    if allow_list
-        .iter()
-        .any(|allowed| normalized_sender == normalize_sender_id(allowed))
-    {
+pub fn check_allowed_sender(
+    sender: &str,
+    allow_list: &oxicrab_core::config::schema::DenyByDefaultList,
+    channel: &str,
+) -> bool {
+    // Check the typed list first (handles empty=deny-all, wildcard, normalization)
+    if allow_list.allows_normalized(sender) {
         return true;
     }
 
@@ -103,8 +98,7 @@ pub fn normalize_sender_id(sender: &str) -> String {
 }
 
 /// Check if a group/channel ID is allowed based on the `allowGroups` config list.
-/// Empty list means all groups are allowed (backward compatible).
-/// Non-empty list restricts to only the listed group IDs.
+/// Empty list = deny all groups. `["*"]` = allow all groups.
 #[cfg(any(
     feature = "channel-telegram",
     feature = "channel-discord",
@@ -112,11 +106,11 @@ pub fn normalize_sender_id(sender: &str) -> String {
     feature = "channel-whatsapp",
     feature = "channel-twilio",
 ))]
-pub fn check_group_access(group_id: &str, allow_groups: &[String]) -> bool {
-    if allow_groups.is_empty() {
-        return false; // empty = deny all groups
-    }
-    allow_groups.iter().any(|g| g == group_id || g == "*")
+pub fn check_group_access(
+    group_id: &str,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
+) -> bool {
+    allow_groups.allows(group_id)
 }
 
 /// Result of a DM access check.
@@ -147,7 +141,7 @@ pub enum DmCheckResult {
 ))]
 pub fn check_dm_access(
     sender: &str,
-    allow_list: &[String],
+    allow_list: &oxicrab_core::config::schema::DenyByDefaultList,
     channel: &str,
     dm_policy: &oxicrab_core::config::schema::DmPolicy,
 ) -> DmCheckResult {

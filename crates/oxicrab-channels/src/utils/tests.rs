@@ -1,5 +1,5 @@
 use super::*;
-use oxicrab_core::config::schema::DmPolicy;
+use oxicrab_core::config::schema::{DenyByDefaultList, DmPolicy};
 
 /// Serialize tests that mutate the `OXICRAB_HOME` env var to prevent races.
 static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -14,51 +14,116 @@ impl Drop for EnvVarGuard {
     }
 }
 
+fn list(entries: &[&str]) -> DenyByDefaultList {
+    DenyByDefaultList::new(entries.iter().map(ToString::to_string).collect())
+}
+
+// --- DenyByDefaultList unit tests ---
+
+#[test]
+fn test_deny_by_default_empty_denies_all() {
+    let l = DenyByDefaultList::default();
+    assert!(!l.allows("anyone"));
+    assert!(!l.allows_normalized("anyone"));
+}
+
+#[test]
+fn test_deny_by_default_wildcard_allows_all() {
+    let l = list(&["*"]);
+    assert!(l.allows("anyone"));
+    assert!(l.allows("other_user"));
+}
+
+#[test]
+fn test_deny_by_default_exact_match() {
+    let l = list(&["alice", "bob"]);
+    assert!(l.allows("alice"));
+    assert!(l.allows("bob"));
+    assert!(!l.allows("eve"));
+}
+
+#[test]
+fn test_deny_by_default_normalized_plus_prefix() {
+    let l = list(&["1234567890"]);
+    assert!(l.allows_normalized("+1234567890"));
+}
+
+#[test]
+fn test_deny_by_default_normalized_allow_with_plus() {
+    let l = list(&["+1234567890"]);
+    assert!(l.allows_normalized("1234567890"));
+}
+
+#[test]
+fn test_deny_by_default_normalized_control_chars() {
+    let l = list(&["username"]);
+    assert!(l.allows_normalized("user\x00name"));
+    assert!(l.allows_normalized("user\nname"));
+}
+
+#[test]
+fn test_deny_by_default_is_empty() {
+    assert!(DenyByDefaultList::default().is_empty());
+    assert!(!list(&["x"]).is_empty());
+}
+
+#[test]
+fn test_deny_by_default_entries() {
+    let l = list(&["a", "b"]);
+    assert_eq!(l.entries(), &["a".to_string(), "b".to_string()]);
+}
+
+// --- check_allowed_sender tests (with pairing fallback) ---
+
 #[test]
 fn test_empty_allow_list_denies_all() {
     // No pairing DB exists in test env, so this is pure deny
-    assert!(!check_allowed_sender("anyone", &[], "test"));
+    assert!(!check_allowed_sender(
+        "anyone",
+        &DenyByDefaultList::default(),
+        "test"
+    ));
 }
 
 #[test]
 fn test_wildcard_allows_all() {
-    let list = vec!["*".to_string()];
-    assert!(check_allowed_sender("anyone", &list, "test"));
-    assert!(check_allowed_sender("other_user", &list, "test"));
+    let l = list(&["*"]);
+    assert!(check_allowed_sender("anyone", &l, "test"));
+    assert!(check_allowed_sender("other_user", &l, "test"));
 }
 
 #[test]
 fn test_exact_match_allowed() {
-    let list = vec!["alice".to_string(), "bob".to_string()];
-    assert!(check_allowed_sender("alice", &list, "test"));
-    assert!(check_allowed_sender("bob", &list, "test"));
+    let l = list(&["alice", "bob"]);
+    assert!(check_allowed_sender("alice", &l, "test"));
+    assert!(check_allowed_sender("bob", &l, "test"));
 }
 
 #[test]
 fn test_non_matching_sender_rejected() {
-    let list = vec!["alice".to_string()];
-    assert!(!check_allowed_sender("eve", &list, "test"));
+    let l = list(&["alice"]);
+    assert!(!check_allowed_sender("eve", &l, "test"));
 }
 
 #[test]
 fn test_phone_number_normalization() {
-    let list = vec!["1234567890".to_string()];
+    let l = list(&["1234567890"]);
     // With leading + should still match
-    assert!(check_allowed_sender("+1234567890", &list, "test"));
+    assert!(check_allowed_sender("+1234567890", &l, "test"));
 }
 
 #[test]
 fn test_allow_list_with_plus_prefix() {
-    let list = vec!["+1234567890".to_string()];
+    let l = list(&["+1234567890"]);
     // Without leading + should still match
-    assert!(check_allowed_sender("1234567890", &list, "test"));
+    assert!(check_allowed_sender("1234567890", &l, "test"));
 }
 
 #[test]
 fn test_no_substring_match() {
-    let list = vec!["alice".to_string()];
-    assert!(!check_allowed_sender("alice123", &list, "test"));
-    assert!(!check_allowed_sender("xalice", &list, "test"));
+    let l = list(&["alice"]);
+    assert!(!check_allowed_sender("alice123", &l, "test"));
+    assert!(!check_allowed_sender("xalice", &l, "test"));
 }
 
 #[test]
@@ -91,10 +156,18 @@ fn test_pairing_store_fallback() {
     .unwrap();
     drop(conn);
 
-    // Empty allowFrom but paired → allowed
-    assert!(check_allowed_sender("user789", &[], "telegram"));
-    // Not in allowFrom and not paired → denied
-    assert!(!check_allowed_sender("unknown", &[], "telegram"));
+    // Empty allowFrom but paired -> allowed
+    assert!(check_allowed_sender(
+        "user789",
+        &DenyByDefaultList::default(),
+        "telegram"
+    ));
+    // Not in allowFrom and not paired -> denied
+    assert!(!check_allowed_sender(
+        "unknown",
+        &DenyByDefaultList::default(),
+        "telegram"
+    ));
 }
 
 #[test]
@@ -107,7 +180,12 @@ fn test_normalize_strips_plus() {
 #[test]
 fn test_dm_access_open_allows_all() {
     assert!(matches!(
-        check_dm_access("anyone", &[], "test", &DmPolicy::Open),
+        check_dm_access(
+            "anyone",
+            &DenyByDefaultList::default(),
+            "test",
+            &DmPolicy::Open
+        ),
         DmCheckResult::Allowed
     ));
 }
@@ -115,25 +193,30 @@ fn test_dm_access_open_allows_all() {
 #[test]
 fn test_dm_access_allowlist_denies_unknown() {
     assert!(matches!(
-        check_dm_access("unknown", &[], "test", &DmPolicy::Allowlist),
+        check_dm_access(
+            "unknown",
+            &DenyByDefaultList::default(),
+            "test",
+            &DmPolicy::Allowlist
+        ),
         DmCheckResult::Denied
     ));
 }
 
 #[test]
 fn test_dm_access_allowlist_allows_known() {
-    let list = vec!["alice".to_string()];
+    let l = list(&["alice"]);
     assert!(matches!(
-        check_dm_access("alice", &list, "test", &DmPolicy::Allowlist),
+        check_dm_access("alice", &l, "test", &DmPolicy::Allowlist),
         DmCheckResult::Allowed
     ));
 }
 
 #[test]
 fn test_dm_access_pairing_allows_known() {
-    let list = vec!["bob".to_string()];
+    let l = list(&["bob"]);
     assert!(matches!(
-        check_dm_access("bob", &list, "test", &DmPolicy::Pairing),
+        check_dm_access("bob", &l, "test", &DmPolicy::Pairing),
         DmCheckResult::Allowed
     ));
 }
@@ -221,25 +304,28 @@ fn test_format_pairing_reply_contains_approve_command() {
 
 #[test]
 fn test_group_access_empty_denies_all() {
-    assert!(!check_group_access("any_group", &[]));
+    assert!(!check_group_access(
+        "any_group",
+        &DenyByDefaultList::default()
+    ));
 }
 
 #[test]
 fn test_group_access_wildcard_allows_all() {
-    let groups = vec!["*".to_string()];
+    let groups = list(&["*"]);
     assert!(check_group_access("anything", &groups));
 }
 
 #[test]
 fn test_group_access_explicit_match() {
-    let groups = vec!["group1".to_string(), "group2".to_string()];
+    let groups = list(&["group1", "group2"]);
     assert!(check_group_access("group1", &groups));
     assert!(check_group_access("group2", &groups));
 }
 
 #[test]
 fn test_group_access_no_match_denied() {
-    let groups = vec!["group1".to_string()];
+    let groups = list(&["group1"]);
     assert!(!check_group_access("group99", &groups));
 }
 
@@ -276,7 +362,12 @@ fn test_normalize_strips_control_chars() {
 fn test_dm_access_pairing_denies_without_requester() {
     // No pairing requester set globally, so pairing policy falls back to denied
     assert!(matches!(
-        check_dm_access("unknown", &[], "test", &DmPolicy::Pairing),
+        check_dm_access(
+            "unknown",
+            &DenyByDefaultList::default(),
+            "test",
+            &DmPolicy::Pairing
+        ),
         DmCheckResult::Denied
     ));
 }

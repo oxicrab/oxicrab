@@ -1,7 +1,8 @@
 use super::*;
+use oxicrab_core::config::schema::DenyByDefaultList;
 
-fn allow_list(nums: &[&str]) -> Vec<String> {
-    nums.iter().map(ToString::to_string).collect()
+fn allow_list(nums: &[&str]) -> DenyByDefaultList {
+    DenyByDefaultList::new(nums.iter().map(ToString::to_string).collect())
 }
 
 // --- normalize_jid tests ---
@@ -98,7 +99,7 @@ fn test_no_skip_when_no_recipient() {
 #[test]
 fn test_skip_when_allow_from_empty() {
     // Empty allowFrom now means deny-all (default-deny)
-    let allow: Vec<String> = vec![];
+    let allow = DenyByDefaultList::default();
     assert!(should_skip_own_message(
         Some("19876543210@s.whatsapp.net"),
         &allow,
@@ -108,7 +109,7 @@ fn test_skip_when_allow_from_empty() {
 #[test]
 fn test_no_skip_when_allow_from_wildcard() {
     // Wildcard "*" means allow everyone — process
-    let allow = vec!["*".to_string()];
+    let allow = allow_list(&["*"]);
     assert!(!should_skip_own_message(
         Some("19876543210@s.whatsapp.net"),
         &allow,

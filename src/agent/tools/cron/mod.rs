@@ -213,10 +213,11 @@ impl CronTool {
 }
 
 /// Return the first concrete (non-wildcard) target from an allowlist.
-fn first_concrete_target(allow_from: &[String]) -> String {
+fn first_concrete_target(allow_from: &oxicrab_core::config::schema::DenyByDefaultList) -> String {
     allow_from
+        .entries()
         .iter()
-        .find(|s| *s != "*")
+        .find(|s| s.as_str() != "*")
         .cloned()
         .unwrap_or_default()
 }

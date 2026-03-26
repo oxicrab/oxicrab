@@ -478,8 +478,8 @@ async fn handle_message(
     bot: Bot,
     msg: TgMessage,
     inbound_tx: &mpsc::Sender<InboundMessage>,
-    allow_list: &[String],
-    allow_groups: &[String],
+    allow_list: &oxicrab_core::config::schema::DenyByDefaultList,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
     dm_policy: &oxicrab_core::config::schema::DmPolicy,
     mention_only: bool,
     bot_username: &Arc<tokio::sync::Mutex<Option<String>>>,
@@ -793,8 +793,8 @@ async fn handle_callback_query(
     bot: Bot,
     q: CallbackQuery,
     inbound_tx: &mpsc::Sender<InboundMessage>,
-    allow_list: &[String],
-    allow_groups: &[String],
+    allow_list: &oxicrab_core::config::schema::DenyByDefaultList,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
     dm_policy: &oxicrab_core::config::schema::DmPolicy,
 ) -> Result<()> {
     let sender_id = q.from.id.to_string();
