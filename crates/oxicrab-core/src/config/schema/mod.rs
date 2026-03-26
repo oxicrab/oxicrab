@@ -349,6 +349,7 @@ impl Config {
         self.validate_model_routing()?;
         self.validate_provider_temperatures()?;
         self.validate_observability()?;
+        self.validate_context_providers()?;
         Ok(())
     }
 
@@ -833,6 +834,53 @@ impl Config {
                 return Err(OxicrabError::Config(format!(
                     "providers.{name}.temperature must be a finite number between 0.0 and 2.0"
                 )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_context_providers(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+
+        fn has_control_chars(s: &str) -> bool {
+            s.chars().any(|c| c.is_control())
+        }
+
+        for (i, cp) in self.agents.defaults.context_providers.iter().enumerate() {
+            for (j, bin) in cp.requires_bins.iter().enumerate() {
+                if bin.is_empty() {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].requiresBins[{j}] must not be empty"
+                    )));
+                }
+                if has_control_chars(bin) {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].requiresBins[{j}] contains control characters"
+                    )));
+                }
+                if bin.contains('/') || bin.contains('\\') {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].requiresBins[{j}] must be a binary name, not a path"
+                    )));
+                }
+            }
+            for (j, env_var) in cp.requires_env.iter().enumerate() {
+                if env_var.is_empty() {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].requiresEnv[{j}] must not be empty"
+                    )));
+                }
+                if has_control_chars(env_var) {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].requiresEnv[{j}] contains control characters"
+                    )));
+                }
+                if env_var.contains('=') {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].requiresEnv[{j}] must not contain '='"
+                    )));
+                }
             }
         }
 

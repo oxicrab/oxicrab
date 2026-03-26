@@ -1,4 +1,55 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// A channel target in `"channel_type:chat_id"` format.
+/// Validated on deserialization — both parts must be non-empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ChannelTarget {
+    channel_type: String,
+    chat_id: String,
+}
+
+impl ChannelTarget {
+    pub fn channel_type(&self) -> &str {
+        &self.channel_type
+    }
+
+    pub fn chat_id(&self) -> &str {
+        &self.chat_id
+    }
+}
+
+impl TryFrom<String> for ChannelTarget {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, String> {
+        let (ct, cid) = s.split_once(':').ok_or_else(|| {
+            format!("invalid channel target '{s}': expected 'channel_type:chat_id'")
+        })?;
+        if ct.is_empty() || cid.is_empty() {
+            return Err(format!(
+                "invalid channel target '{s}': channel_type and chat_id must be non-empty"
+            ));
+        }
+        Ok(Self {
+            channel_type: ct.to_string(),
+            chat_id: cid.to_string(),
+        })
+    }
+}
+
+impl From<ChannelTarget> for String {
+    fn from(ct: ChannelTarget) -> String {
+        format!("{}:{}", ct.channel_type, ct.chat_id)
+    }
+}
+
+impl fmt::Display for ChannelTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.channel_type, self.chat_id)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactionConfig {
@@ -566,8 +617,10 @@ impl ApprovalScope {
 pub struct ApprovalConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// Operator channel target in `"channel_type:chat_id"` format.
+    /// `None` means self-approval (approval request goes to same conversation).
     #[serde(default)]
-    pub channel: String,
+    pub channel: Option<ChannelTarget>,
     #[serde(default = "default_approval_timeout")]
     pub timeout: u64,
     #[serde(default)]
@@ -582,7 +635,7 @@ impl Default for ApprovalConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            channel: String::new(),
+            channel: None,
             timeout: 300,
             actions: ApprovalScope::default(),
         }

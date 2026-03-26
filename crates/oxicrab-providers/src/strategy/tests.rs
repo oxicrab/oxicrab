@@ -172,8 +172,12 @@ fn test_ollama_routing_no_api_key() {
 #[test]
 fn test_ollama_custom_api_base() {
     let mut config = ProvidersConfig::default();
-    config.ollama.base.api_base =
-        Some("http://192.168.1.100:11434/v1/chat/completions".to_string());
+    config.ollama.base.api_base = Some(
+        "http://192.168.1.100:11434/v1/chat/completions"
+            .to_string()
+            .try_into()
+            .unwrap(),
+    );
     let factory = factory_with_config(&config);
     let provider = factory.create_provider("ollama/qwen3-coder:30b").unwrap();
     assert_eq!(provider.default_model(), "qwen3-coder:30b");
@@ -260,7 +264,12 @@ fn test_get_provider_config_all_known() {
 fn test_anthropic_custom_api_base() {
     let mut config = ProvidersConfig::default();
     config.anthropic.api_key = "sk-ant-test".to_string();
-    config.anthropic.api_base = Some("https://my-proxy.example.com/v1/messages".to_string());
+    config.anthropic.api_base = Some(
+        "https://my-proxy.example.com/v1/messages"
+            .to_string()
+            .try_into()
+            .unwrap(),
+    );
     let factory = factory_with_config(&config);
     let provider = factory
         .create_provider("claude-sonnet-4-5-20250929")
@@ -272,7 +281,12 @@ fn test_anthropic_custom_api_base() {
 fn test_openai_custom_api_base() {
     let mut config = ProvidersConfig::default();
     config.openai.api_key = "sk-openai-test".to_string();
-    config.openai.api_base = Some("https://my-proxy.example.com/v1/chat/completions".to_string());
+    config.openai.api_base = Some(
+        "https://my-proxy.example.com/v1/chat/completions"
+            .to_string()
+            .try_into()
+            .unwrap(),
+    );
     let factory = factory_with_config(&config);
     let provider = factory.create_provider("gpt-4o").unwrap();
     assert_eq!(provider.default_model(), "gpt-4o");
@@ -282,7 +296,12 @@ fn test_openai_custom_api_base() {
 fn test_gemini_custom_api_base() {
     let mut config = ProvidersConfig::default();
     config.gemini.api_key = "gm-test".to_string();
-    config.gemini.api_base = Some("https://my-proxy.example.com/v1".to_string());
+    config.gemini.api_base = Some(
+        "https://my-proxy.example.com/v1"
+            .to_string()
+            .try_into()
+            .unwrap(),
+    );
     let factory = factory_with_config(&config);
     let provider = factory.create_provider("gemini-pro").unwrap();
     assert_eq!(provider.default_model(), "gemini-pro");

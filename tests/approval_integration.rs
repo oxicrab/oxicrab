@@ -164,7 +164,7 @@ async fn test_approval_enabled_timeout_auto_denies() {
         TestAgentOverrides {
             approval_config: Some(ApprovalConfig {
                 enabled: true,
-                channel: String::new(),              // self-approval mode
+                channel: None,                       // self-approval mode
                 timeout: 1,                          // 1 second timeout
                 actions: ApprovalScope::new(vec![]), // empty = all mutating actions
             }),
@@ -235,7 +235,7 @@ async fn test_approval_enabled_approve_flow() {
         TestAgentOverrides {
             approval_config: Some(ApprovalConfig {
                 enabled: true,
-                channel: String::new(),              // self-approval mode
+                channel: None,                       // self-approval mode
                 timeout: 10,                         // 10 seconds (plenty of time)
                 actions: ApprovalScope::new(vec![]), // empty = all mutating actions
             }),
@@ -309,7 +309,7 @@ async fn test_approval_enabled_deny_flow() {
         TestAgentOverrides {
             approval_config: Some(ApprovalConfig {
                 enabled: true,
-                channel: String::new(),              // self-approval mode
+                channel: None,                       // self-approval mode
                 timeout: 10,                         // 10 seconds
                 actions: ApprovalScope::new(vec![]), // empty = all mutating actions
             }),

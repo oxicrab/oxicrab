@@ -1,7 +1,71 @@
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::fmt;
 
 use super::default_true;
+
+// ---------------------------------------------------------------------------
+// HttpUrl — validated HTTP(S) URL
+// ---------------------------------------------------------------------------
+
+/// A validated HTTP or HTTPS URL.
+/// Rejects URLs missing a scheme or host at deserialization time.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct HttpUrl(String);
+
+impl HttpUrl {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for HttpUrl {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, String> {
+        let after_scheme = s
+            .strip_prefix("https://")
+            .or_else(|| s.strip_prefix("http://"))
+            .ok_or_else(|| format!("invalid URL '{s}': must start with http:// or https://"))?;
+        if after_scheme.is_empty() || after_scheme.starts_with('/') {
+            return Err(format!("invalid URL '{s}': missing host"));
+        }
+        Ok(Self(s))
+    }
+}
+
+impl From<HttpUrl> for String {
+    fn from(u: HttpUrl) -> String {
+        u.0
+    }
+}
+
+impl fmt::Debug for HttpUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HttpUrl({:?})", self.0)
+    }
+}
+
+impl fmt::Display for HttpUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for HttpUrl {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for HttpUrl {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Model reference parser — pure string parsing, no provider instantiation
@@ -84,7 +148,7 @@ pub struct ProviderConfig {
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     #[serde(default, rename = "apiBase")]
-    pub api_base: Option<String>,
+    pub api_base: Option<HttpUrl>,
     /// Custom HTTP headers injected into every request to this provider.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub headers: std::collections::HashMap<String, String>,
@@ -381,5 +445,107 @@ pub fn normalize_provider(provider: &str) -> Cow<'_, str> {
         "vllm" => Cow::Borrowed("vllm"),
         "ollama" => Cow::Borrowed("ollama"),
         _ => Cow::Owned(provider.to_lowercase()),
+    }
+}
+
+#[cfg(test)]
+mod http_url_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_https_url() {
+        let url: HttpUrl = "https://api.example.com/v1".to_string().try_into().unwrap();
+        assert_eq!(url.as_str(), "https://api.example.com/v1");
+    }
+
+    #[test]
+    fn test_valid_http_url() {
+        let url: HttpUrl = "http://localhost:8080/api".to_string().try_into().unwrap();
+        assert_eq!(url.as_str(), "http://localhost:8080/api");
+    }
+
+    #[test]
+    fn test_deref_returns_str() {
+        let url: HttpUrl = "https://example.com".to_string().try_into().unwrap();
+        let s: &str = &url;
+        assert_eq!(s, "https://example.com");
+    }
+
+    #[test]
+    fn test_option_as_deref() {
+        let url: Option<HttpUrl> = Some("https://example.com".to_string().try_into().unwrap());
+        assert_eq!(url.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_rejects_ftp_scheme() {
+        let result = HttpUrl::try_from("ftp://files.example.com".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must start with http://"));
+    }
+
+    #[test]
+    fn test_rejects_no_scheme() {
+        let result = HttpUrl::try_from("example.com/api".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rejects_scheme_only_no_host() {
+        let result = HttpUrl::try_from("https://".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("missing host"));
+    }
+
+    #[test]
+    fn test_rejects_scheme_with_slash_no_host() {
+        let result = HttpUrl::try_from("https:///path".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("missing host"));
+    }
+
+    #[test]
+    fn test_rejects_typo_htp() {
+        let result = HttpUrl::try_from("htp://example.com".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_display() {
+        let url: HttpUrl = "https://api.example.com".to_string().try_into().unwrap();
+        assert_eq!(format!("{url}"), "https://api.example.com");
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let url: HttpUrl = "https://api.example.com/v1".to_string().try_into().unwrap();
+        let json = serde_json::to_string(&url).unwrap();
+        assert_eq!(json, "\"https://api.example.com/v1\"");
+        let deserialized: HttpUrl = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.as_str(), url.as_str());
+    }
+
+    #[test]
+    fn test_provider_config_deserialize_with_api_base() {
+        let json = r#"{"apiKey": "test", "apiBase": "https://proxy.example.com/v1"}"#;
+        let config: ProviderConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.api_base.as_deref(),
+            Some("https://proxy.example.com/v1")
+        );
+    }
+
+    #[test]
+    fn test_provider_config_rejects_invalid_api_base() {
+        let json = r#"{"apiKey": "test", "apiBase": "ftp://bad.example.com"}"#;
+        let result = serde_json::from_str::<ProviderConfig>(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_provider_config_without_api_base() {
+        let json = r#"{"apiKey": "test"}"#;
+        let config: ProviderConfig = serde_json::from_str(json).unwrap();
+        assert!(config.api_base.is_none());
     }
 }

@@ -255,17 +255,18 @@ async fn await_approval(
     };
 
     // Determine operator channel target
-    let (operator_target, operator_channel_key) = if config.channel.is_empty() {
-        ((channel.to_string(), chat_id.to_string()), String::new())
-    } else if let Some((ch, id)) = config.channel.split_once(':') {
-        ((ch.to_string(), id.to_string()), config.channel.clone())
-    } else {
-        warn!(
-            "invalid approval channel format '{}', falling back to same conversation",
-            config.channel
-        );
-        // Use empty key so self-approval semantics apply (accept any source)
-        ((channel.to_string(), chat_id.to_string()), String::new())
+    let (operator_target, operator_channel_key) = match &config.channel {
+        Some(target) => (
+            (
+                target.channel_type().to_string(),
+                target.chat_id().to_string(),
+            ),
+            target.to_string(),
+        ),
+        None => {
+            // Self-approval: use same conversation, empty key accepts any source
+            ((channel.to_string(), chat_id.to_string()), String::new())
+        }
     };
 
     // Register the pending approval

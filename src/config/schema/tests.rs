@@ -1186,3 +1186,159 @@ fn test_rate_limit_invalid_zero_burst() {
     config.gateway.rate_limit.burst = 0;
     assert!(config.validate().is_err());
 }
+
+// -----------------------------------------------------------------------
+// ContextProvider validation (requiresBins, requiresEnv)
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_context_provider_valid_config_passes() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec!["git".into(), "node".into()],
+            requires_env: vec!["HOME".into(), "PATH".into()],
+        });
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_context_provider_empty_requires_bins_entry_rejected() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec![String::new()],
+            requires_env: vec![],
+        });
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("requiresBins[0] must not be empty")
+    );
+}
+
+#[test]
+fn test_context_provider_path_in_requires_bins_rejected() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec!["/usr/bin/git".into()],
+            requires_env: vec![],
+        });
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("must be a binary name, not a path")
+    );
+}
+
+#[test]
+fn test_context_provider_control_chars_in_requires_bins_rejected() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec!["git\n".into()],
+            requires_env: vec![],
+        });
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("control characters"));
+}
+
+#[test]
+fn test_context_provider_empty_requires_env_entry_rejected() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec![],
+            requires_env: vec![String::new()],
+        });
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("requiresEnv[0] must not be empty"));
+}
+
+#[test]
+fn test_context_provider_equals_in_requires_env_rejected() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec![],
+            requires_env: vec!["FOO=bar".into()],
+        });
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("must not contain '='"));
+}
+
+#[test]
+fn test_context_provider_control_chars_in_requires_env_rejected() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: "echo".into(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec![],
+            requires_env: vec!["HOME\x00".into()],
+        });
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("control characters"));
+}
