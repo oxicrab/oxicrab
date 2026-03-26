@@ -322,7 +322,11 @@ impl ToolRegistry {
         use std::fmt::Write as _;
 
         let desc = tool.description();
-        let desc_capped = if desc.len() > 500 { &desc[..500] } else { desc };
+        let desc_capped = if desc.len() > 500 {
+            &desc[..desc.floor_char_boundary(500)]
+        } else {
+            desc
+        };
         let schema = serde_json::to_string_pretty(&tool.parameters()).unwrap_or_default();
         let schema_capped = if schema.len() > 3000 {
             &schema[..schema.floor_char_boundary(3000)]
