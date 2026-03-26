@@ -747,9 +747,23 @@ impl Tool for CronTool {
                     }
                 });
 
-                Ok(ToolResult::new(format!(
-                    "Job {job_id} triggered (running in background)"
-                )))
+                let job_name = self
+                    .cron_service
+                    .get_job(&job_id)?
+                    .map_or_else(|| job_id.clone(), |j| j.name);
+                let run_again = serde_json::json!({
+                    "id": format!("run-job-{job_id}"),
+                    "label": truncate_label("Run again: ", &job_name, 20),
+                    "style": "primary",
+                    "context": serde_json::json!({
+                        "tool": "cron",
+                        "params": {"action": "run", "job_id": job_id}
+                    }).to_string()
+                });
+                Ok(
+                    ToolResult::new(format!("Job {job_id} triggered (running in background)"))
+                        .with_buttons(vec![run_again]),
+                )
             }
             "dlq_list" => {
                 let Some(ref db) = self.memory_db else {
