@@ -312,8 +312,8 @@ fn test_collapse_whitespace() {
     assert_eq!(collapse_whitespace("   "), "");
 }
 
-fn test_credentials() -> GoogleCredentials {
-    GoogleCredentials {
+fn test_credentials() -> std::sync::Arc<tokio::sync::Mutex<GoogleCredentials>> {
+    crate::google_common::GoogleApiClient::shared_credentials(GoogleCredentials {
         token: "fake".to_string(),
         refresh_token: None,
         token_uri: "https://oauth2.googleapis.com/token".to_string(),
@@ -321,7 +321,7 @@ fn test_credentials() -> GoogleCredentials {
         client_secret: "fake".to_string(),
         scopes: vec![],
         expiry: None,
-    }
+    })
 }
 
 #[test]

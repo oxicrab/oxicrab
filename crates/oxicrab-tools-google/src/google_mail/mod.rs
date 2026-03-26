@@ -10,14 +10,16 @@ use oxicrab_core::tools::base::{Tool, ToolResult};
 use oxicrab_core::utils::url_params::validate_url_segment;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::SystemTime;
+use tokio::sync::Mutex;
 
 pub struct GoogleMailTool {
     api: GoogleApiClient,
 }
 
 impl GoogleMailTool {
-    pub fn new(credentials: GoogleCredentials) -> Self {
+    pub fn new(credentials: Arc<Mutex<GoogleCredentials>>) -> Self {
         Self {
             api: GoogleApiClient::new(credentials, "https://www.googleapis.com/gmail/v1"),
         }

@@ -1,15 +1,17 @@
 use super::*;
 
-fn test_credentials() -> crate::credentials::GoogleCredentials {
-    crate::credentials::GoogleCredentials {
-        token: "fake".to_string(),
-        refresh_token: None,
-        token_uri: "https://oauth2.googleapis.com/token".to_string(),
-        client_id: "fake".to_string(),
-        client_secret: "fake".to_string(),
-        scopes: vec![],
-        expiry: None,
-    }
+fn test_credentials() -> std::sync::Arc<tokio::sync::Mutex<crate::credentials::GoogleCredentials>> {
+    crate::google_common::GoogleApiClient::shared_credentials(
+        crate::credentials::GoogleCredentials {
+            token: "fake".to_string(),
+            refresh_token: None,
+            token_uri: "https://oauth2.googleapis.com/token".to_string(),
+            client_id: "fake".to_string(),
+            client_secret: "fake".to_string(),
+            scopes: vec![],
+            expiry: None,
+        },
+    )
 }
 
 #[test]

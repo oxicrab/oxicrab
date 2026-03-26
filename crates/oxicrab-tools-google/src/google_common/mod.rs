@@ -8,6 +8,10 @@ use tracing::info;
 
 /// Shared Google API client that handles authentication and HTTP requests.
 /// Reuses a single `reqwest::Client` for connection pooling.
+///
+/// Multiple `GoogleApiClient` instances (e.g. Gmail, Calendar, Tasks) should
+/// share the same `Arc<Mutex<GoogleCredentials>>` so that a single token
+/// refresh serves all tools — avoiding redundant API calls.
 pub struct GoogleApiClient {
     credentials: Arc<Mutex<GoogleCredentials>>,
     client: Client,
@@ -15,9 +19,13 @@ pub struct GoogleApiClient {
 }
 
 impl GoogleApiClient {
-    pub fn new(credentials: GoogleCredentials, base_url: &str) -> Self {
+    /// Create a new client with shared credentials.
+    ///
+    /// Prefer this over constructing per-tool credentials — all Google tools
+    /// should share one `Arc<Mutex<GoogleCredentials>>`.
+    pub fn new(credentials: Arc<Mutex<GoogleCredentials>>, base_url: &str) -> Self {
         Self {
-            credentials: Arc::new(Mutex::new(credentials)),
+            credentials,
             client: crate::utils::default_http_client(),
             base_url: base_url.to_string(),
         }
@@ -26,7 +34,7 @@ impl GoogleApiClient {
     pub async fn get_access_token(&self) -> Result<String> {
         let mut creds = self.credentials.lock().await;
         if !creds.is_valid() {
-            creds.refresh().await?;
+            creds.refresh(&self.client).await?;
         }
         Ok(creds.get_access_token().to_string())
     }
@@ -52,7 +60,7 @@ impl GoogleApiClient {
             info!("Google API returned 401, forcing token refresh and retrying");
             let new_token = {
                 let mut creds = self.credentials.lock().await;
-                creds.refresh().await?;
+                creds.refresh(&self.client).await?;
                 creds.get_access_token().to_string()
             };
             let retry_response = self
@@ -112,6 +120,11 @@ impl GoogleApiClient {
             client: Client::new(),
             base_url: base_url.to_string(),
         }
+    }
+
+    /// Create shared credentials for use across multiple `GoogleApiClient` instances.
+    pub fn shared_credentials(credentials: GoogleCredentials) -> Arc<Mutex<GoogleCredentials>> {
+        Arc::new(Mutex::new(credentials))
     }
 
     async fn send_request(

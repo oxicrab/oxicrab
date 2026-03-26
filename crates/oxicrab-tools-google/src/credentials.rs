@@ -4,7 +4,7 @@ use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Maximum token lifetime (1 hour) — ignore longer `expires_in` to prevent stale tokens.
 const MAX_TOKEN_LIFETIME_SECS: u64 = 3600;
@@ -50,16 +50,11 @@ impl GoogleCredentials {
         }
     }
 
-    pub async fn refresh(&mut self) -> Result<()> {
+    pub async fn refresh(&mut self, client: &Client) -> Result<()> {
         let refresh_token = self
             .refresh_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?;
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| Client::new());
         let mut params = HashMap::new();
         params.insert("refresh_token", refresh_token.clone());
         params.insert("client_id", self.client_id.clone());

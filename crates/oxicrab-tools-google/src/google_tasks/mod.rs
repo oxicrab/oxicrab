@@ -8,13 +8,15 @@ use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabiliti
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use oxicrab_core::utils::url_params::validate_url_segment;
 use serde_json::Value;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct GoogleTasksTool {
     api: GoogleApiClient,
 }
 
 impl GoogleTasksTool {
-    pub fn new(credentials: GoogleCredentials) -> Self {
+    pub fn new(credentials: Arc<Mutex<GoogleCredentials>>) -> Self {
         Self {
             api: GoogleApiClient::new(credentials, "https://tasks.googleapis.com/tasks/v1"),
         }
