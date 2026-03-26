@@ -45,6 +45,7 @@ impl Tool for GoogleTasksTool {
                 create_task,
                 update_task,
                 delete_task,
+                create_task_list,
             ],
             category: ToolCategory::Productivity,
         }
@@ -56,7 +57,7 @@ impl Tool for GoogleTasksTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list_task_lists", "list_tasks", "get_task", "create_task", "update_task", "delete_task"],
+                    "enum": ["list_task_lists", "list_tasks", "get_task", "create_task", "update_task", "delete_task", "create_task_list"],
                     "description": "Action to perform. 'list_task_lists' shows available \
                      task lists and their IDs. 'list_tasks' shows tasks in a list (use \
                      show_completed to include done tasks)."
@@ -313,6 +314,16 @@ impl Tool for GoogleTasksTool {
                 );
                 self.api.call(&endpoint, "DELETE", None).await?;
                 Ok(ToolResult::new(format!("Task {task_id} deleted.")))
+            }
+            "create_task_list" => {
+                let title = require_param!(params, "title");
+                let body = serde_json::json!({"title": title});
+                let list = self.api.call("users/@me/lists", "POST", Some(body)).await?;
+                Ok(ToolResult::new(format!(
+                    "Task list created: {} (ID: {})",
+                    list["title"].as_str().unwrap_or("?"),
+                    list["id"].as_str().unwrap_or("?"),
+                )))
             }
             _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }

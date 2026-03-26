@@ -33,7 +33,7 @@ impl Tool for GoogleMailTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with Gmail. Actions: search, read, send, reply, list_labels, label. Tip: after reading an email, use add_buttons to offer Reply, Archive, or Label actions."
+        "Interact with Gmail. Actions: search, read, send, reply, list_labels, label, trash."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -48,13 +48,14 @@ impl Tool for GoogleMailTool {
                 reply,
                 list_labels: ro,
                 label,
+                trash,
             ],
             category: ToolCategory::Communication,
         }
     }
 
     fn requires_approval_for_action(&self, action: &str) -> bool {
-        matches!(action, "send" | "reply")
+        matches!(action, "send" | "reply" | "trash")
     }
 
     fn parameters(&self) -> Value {
@@ -63,7 +64,7 @@ impl Tool for GoogleMailTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["search", "read", "send", "reply", "list_labels", "label"],
+                    "enum": ["search", "read", "send", "reply", "list_labels", "label", "trash"],
                     "description": "Action to perform. 'search' finds emails by Gmail \
                      query (returns a list of matches). 'read' gets a specific email's full \
                      content by message_id. 'label' adds or removes labels from an email."
@@ -425,6 +426,20 @@ impl Tool for GoogleMailTool {
                 self.api.call(&endpoint, "POST", Some(body)).await?;
                 Ok(ToolResult::new(format!(
                     "Labels updated on message {message_id}"
+                )))
+            }
+            "trash" => {
+                let message_id = require_param!(params, "message_id");
+                if let Err(e) = validate_url_segment(message_id, "message_id") {
+                    return Ok(ToolResult::error(e));
+                }
+                let endpoint = format!(
+                    "users/me/messages/{}/trash",
+                    urlencoding::encode(message_id)
+                );
+                self.api.call(&endpoint, "POST", None).await?;
+                Ok(ToolResult::new(format!(
+                    "Message {message_id} moved to trash"
                 )))
             }
             _ => Ok(ToolResult::error(format!("unknown action: {action}"))),

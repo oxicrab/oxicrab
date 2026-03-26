@@ -199,4 +199,25 @@ impl ObsidianApiClient {
 
         Ok(())
     }
+
+    /// Delete a file from the vault.
+    pub async fn delete_file(&self, path: &str) -> Result<()> {
+        Self::validate_path(path)?;
+        let encoded = urlencoding::encode(path);
+        let url = format!("{}/vault/{}", self.base_url, encoded);
+        let resp = self
+            .client
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Obsidian API {status} deleting '{path}': {body}");
+        }
+
+        Ok(())
+    }
 }

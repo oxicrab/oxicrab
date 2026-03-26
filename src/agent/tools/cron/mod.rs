@@ -362,6 +362,7 @@ impl Tool for CronTool {
             actions: actions![
                 add,
                 list: ro,
+                update,
                 pause,
                 resume,
                 remove,
@@ -408,8 +409,9 @@ impl Tool for CronTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
+                    "enum": ["add", "list", "update", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
                     "description": "Action to perform. 'add' creates a new scheduled job. \
+                     'update' modifies an existing job (name, message, schedule). \
                      'run' triggers an existing job immediately by job_id. 'list' shows all \
                      jobs. 'pause' disables a job. 'resume' re-enables a paused job. \
                      'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
@@ -724,6 +726,29 @@ impl Tool for CronTool {
 
                 match self.cron_service.remove_job(job_id)? {
                     Some(_) => Ok(ToolResult::new(format!("Removed job {job_id}"))),
+                    None => Ok(ToolResult::error(format!("job {job_id} not found"))),
+                }
+            }
+            "update" => {
+                let job_id = require_param!(params, "job_id");
+
+                let upd = crate::cron::types::UpdateJobParams {
+                    name: params["name"].as_str().map(String::from),
+                    message: params["message"].as_str().map(String::from),
+                    ..Default::default()
+                };
+
+                if upd.name.is_none() && upd.message.is_none() {
+                    return Ok(ToolResult::error(
+                        "update requires at least one field: name or message".to_string(),
+                    ));
+                }
+
+                match self.cron_service.update_job(job_id, &upd)? {
+                    Some(job) => Ok(ToolResult::new(format!(
+                        "Updated job '{}' (id: {})",
+                        job.name, job.id
+                    ))),
                     None => Ok(ToolResult::error(format!("job {job_id} not found"))),
                 }
             }

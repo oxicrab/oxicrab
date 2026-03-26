@@ -306,6 +306,46 @@ impl ObsidianCache {
         }
     }
 
+    /// Delete a file from the vault and remove from cache.
+    pub async fn delete_file(&self, path: &str) -> Result<String> {
+        if self.client.is_reachable().await {
+            self.client.delete_file(path).await?;
+            self.remove_from_cache(path).await;
+            Ok(format!("Deleted note: {path}"))
+        } else {
+            Err(anyhow::anyhow!(
+                "obsidian API unreachable — cannot delete while offline"
+            ))
+        }
+    }
+
+    /// Rename/move a note: read content, write to new path, delete old path.
+    pub async fn rename_file(&self, old_path: &str, new_path: &str) -> Result<String> {
+        if !self.client.is_reachable().await {
+            return Err(anyhow::anyhow!(
+                "obsidian API unreachable — cannot rename while offline"
+            ));
+        }
+        let content = self.client.read_file(old_path).await?;
+        self.client.write_file(new_path, &content).await?;
+        self.client.delete_file(old_path).await?;
+        // Update cache
+        self.remove_from_cache(old_path).await;
+        self.write_to_cache(new_path, &content).await?;
+        self.update_state_entry(new_path, &content).await;
+        Ok(format!("Renamed '{old_path}' → '{new_path}'"))
+    }
+
+    /// Remove a path from the in-memory cache and local disk cache.
+    async fn remove_from_cache(&self, path: &str) {
+        let mut state = self.state.lock().await;
+        state.files.remove(path);
+        // Also remove from disk cache
+        if let Some(cache_path) = self.safe_cache_path(path) {
+            let _ = std::fs::remove_file(cache_path);
+        }
+    }
+
     /// Flush the write queue, pushing queued writes to the API.
     pub async fn flush_write_queue(&self) -> Result<()> {
         let mut queue = self.write_queue.lock().await;

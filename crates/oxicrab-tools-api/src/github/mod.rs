@@ -265,6 +265,78 @@ impl GitHubTool {
         Ok(format!("Closed issue #{number} ({title}): {url}"))
     }
 
+    async fn reopen_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+        let result = self
+            .api_patch(
+                &format!("/repos/{owner}/{repo}/issues/{number}"),
+                &serde_json::json!({"state": "open"}),
+            )
+            .await?;
+
+        let title = result["title"].as_str().unwrap_or_default();
+        let url = result["html_url"].as_str().unwrap_or_default();
+        Ok(format!("Reopened issue #{number} ({title}): {url}"))
+    }
+
+    async fn comment_on_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<String> {
+        let result = self
+            .api_post(
+                &format!("/repos/{owner}/{repo}/issues/{number}/comments"),
+                &serde_json::json!({"body": body}),
+            )
+            .await?;
+
+        let url = result["html_url"].as_str().unwrap_or_default();
+        Ok(format!("Comment added to #{number}: {url}"))
+    }
+
+    async fn close_pr(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+        let result = self
+            .api_patch(
+                &format!("/repos/{owner}/{repo}/pulls/{number}"),
+                &serde_json::json!({"state": "closed"}),
+            )
+            .await?;
+
+        let title = result["title"].as_str().unwrap_or_default();
+        Ok(format!("Closed PR #{number} ({title})"))
+    }
+
+    async fn merge_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        method: Option<&str>,
+    ) -> Result<String> {
+        let mut payload = serde_json::json!({});
+        if let Some(m) = method {
+            payload["merge_method"] = Value::String(m.to_string());
+        }
+
+        self.client
+            .put(format!(
+                "{}/repos/{owner}/{repo}/pulls/{number}/merge",
+                self.base_url
+            ))
+            .header("Authorization", format!("token {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "oxicrab")
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("GitHub API error: {e}"))?;
+
+        Ok(format!("Merged PR #{number}"))
+    }
+
     async fn list_prs(
         &self,
         owner: &str,
@@ -767,29 +839,37 @@ fn build_issue_buttons(issues: &[Value], owner: &str, repo: &str) -> Vec<Value> 
 }
 
 /// Build contextual buttons for a single issue detail view.
-/// Offers "Close" for open issues (you already viewed it, "View" would be redundant).
+/// Open issues get "Close", closed issues get "Reopen".
 fn build_issue_detail_buttons(issue: &Value, owner: &str, repo: &str) -> Vec<Value> {
     let state = issue["state"].as_str().unwrap_or_default();
     let number = issue["number"].as_u64().unwrap_or(0);
-    if number == 0 || state != "open" {
+    if number == 0 {
         return vec![];
     }
     let title = issue["title"].as_str().unwrap_or("issue");
-    let label = truncate_label("Close: ", title, 22);
-    vec![serde_json::json!({
-        "id": format!("close-issue-{number}"),
-        "label": label,
-        "style": "danger",
-        "context": serde_json::json!({
-            "tool": "github",
-            "params": {
-                "action": "close_issue",
-                "owner": owner,
-                "repo": repo,
-                "number": number
-            }
-        }).to_string()
-    })]
+    if state == "open" {
+        let label = truncate_label("Close: ", title, 22);
+        vec![serde_json::json!({
+            "id": format!("close-issue-{number}"),
+            "label": label,
+            "style": "danger",
+            "context": serde_json::json!({
+                "tool": "github",
+                "params": {"action": "close_issue", "owner": owner, "repo": repo, "number": number}
+            }).to_string()
+        })]
+    } else {
+        let label = truncate_label("Reopen: ", title, 22);
+        vec![serde_json::json!({
+            "id": format!("reopen-issue-{number}"),
+            "label": label,
+            "style": "success",
+            "context": serde_json::json!({
+                "tool": "github",
+                "params": {"action": "reopen_issue", "owner": owner, "repo": repo, "number": number}
+            }).to_string()
+        })]
+    }
 }
 
 /// Build suggested "Approve" buttons for open PRs (max 5).
@@ -842,6 +922,20 @@ fn build_pr_detail_buttons(pr: &Value, owner: &str, repo: &str) -> Vec<Value> {
     }
     vec![
         serde_json::json!({
+            "id": format!("merge-pr-{number}"),
+            "label": "Merge",
+            "style": "success",
+            "context": serde_json::json!({
+                "tool": "github",
+                "params": {
+                    "action": "merge_pr",
+                    "owner": owner,
+                    "repo": repo,
+                    "number": number
+                }
+            }).to_string()
+        }),
+        serde_json::json!({
             "id": format!("approve-pr-{number}"),
             "label": "Approve",
             "style": "primary",
@@ -857,13 +951,6 @@ fn build_pr_detail_buttons(pr: &Value, owner: &str, repo: &str) -> Vec<Value> {
                 }
             }).to_string()
         }),
-        serde_json::json!({
-            "id": format!("request-changes-pr-{number}"),
-            "label": "Request Changes",
-            "style": "danger",
-            // Plain string context routes through LLM for body input
-            "context": format!("Request changes on PR #{number} in {owner}/{repo}")
-        }),
     ]
 }
 
@@ -875,8 +962,8 @@ impl Tool for GitHubTool {
 
     fn description(&self) -> &'static str {
         "Interact with GitHub. Actions: list_issues, create_issue, get_issue, close_issue, \
-         list_prs, get_pr, get_pr_files, create_pr_review, get_file_content, trigger_workflow, \
-         get_workflow_runs, notifications."
+         reopen_issue, comment_on_issue, list_prs, get_pr, close_pr, merge_pr, get_pr_files, \
+         create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, notifications."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -889,8 +976,12 @@ impl Tool for GitHubTool {
                 create_issue,
                 get_issue: ro,
                 close_issue,
+                reopen_issue,
+                comment_on_issue,
                 list_prs: ro,
                 get_pr: ro,
+                close_pr,
+                merge_pr,
                 get_pr_files: ro,
                 create_pr_review,
                 get_file_content: ro,
@@ -905,7 +996,14 @@ impl Tool for GitHubTool {
     fn requires_approval_for_action(&self, action: &str) -> bool {
         matches!(
             action,
-            "create_issue" | "close_issue" | "create_pr_review" | "trigger_workflow"
+            "create_issue"
+                | "close_issue"
+                | "reopen_issue"
+                | "comment_on_issue"
+                | "close_pr"
+                | "merge_pr"
+                | "create_pr_review"
+                | "trigger_workflow"
         )
     }
 
@@ -934,7 +1032,9 @@ impl Tool for GitHubTool {
                     "type": "string",
                     "enum": [
                         "list_issues", "create_issue", "get_issue", "close_issue",
-                        "list_prs", "get_pr", "get_pr_files", "create_pr_review",
+                        "reopen_issue", "comment_on_issue",
+                        "list_prs", "get_pr", "close_pr", "merge_pr",
+                        "get_pr_files", "create_pr_review",
                         "get_file_content", "trigger_workflow", "get_workflow_runs",
                         "notifications"
                     ],
@@ -966,7 +1066,12 @@ impl Tool for GitHubTool {
                 },
                 "body": {
                     "type": "string",
-                    "description": "Issue/review body text"
+                    "description": "Body text (for create_issue, comment_on_issue, create_pr_review)"
+                },
+                "merge_method": {
+                    "type": "string",
+                    "enum": ["merge", "squash", "rebase"],
+                    "description": "Merge method for merge_pr (default: merge)"
                 },
                 "labels": {
                     "type": "array",
@@ -1014,8 +1119,9 @@ impl Tool for GitHubTool {
 
         match action {
             "list_issues" | "list_prs" | "create_issue" | "get_pr" | "get_issue"
-            | "close_issue" | "get_pr_files" | "create_pr_review" | "get_file_content"
-            | "trigger_workflow" | "get_workflow_runs" => {
+            | "close_issue" | "reopen_issue" | "comment_on_issue" | "close_pr" | "merge_pr"
+            | "get_pr_files" | "create_pr_review" | "get_file_content" | "trigger_workflow"
+            | "get_workflow_runs" => {
                 let Some(owner) = params["owner"].as_str() else {
                     return Ok(ToolResult::error("missing 'owner' parameter".to_string()));
                 };
@@ -1102,6 +1208,41 @@ impl Tool for GitHubTool {
                             return Ok(ToolResult::error("missing 'number' parameter".to_string()));
                         };
                         self.close_issue(owner, repo, number).await
+                    }
+                    "reopen_issue" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        self.reopen_issue(owner, repo, number).await
+                    }
+                    "comment_on_issue" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        let Some(body) = params["body"].as_str() else {
+                            return Ok(ToolResult::error("missing 'body' parameter".to_string()));
+                        };
+                        self.comment_on_issue(owner, repo, number, body).await
+                    }
+                    "close_pr" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        self.close_pr(owner, repo, number).await
+                    }
+                    "merge_pr" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        let method = params["merge_method"].as_str();
+                        if let Some(m) = method
+                            && !matches!(m, "merge" | "squash" | "rebase")
+                        {
+                            return Ok(ToolResult::error(format!(
+                                "invalid merge_method '{m}'. Must be merge, squash, or rebase"
+                            )));
+                        }
+                        self.merge_pr(owner, repo, number, method).await
                     }
                     "create_issue" => {
                         let Some(title) = params["title"].as_str() else {

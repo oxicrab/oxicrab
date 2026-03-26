@@ -106,7 +106,8 @@ impl Tool for ObsidianTool {
     }
 
     fn description(&self) -> &'static str {
-        "Read, write, search, and list notes in an Obsidian vault. Actions: read (read a note), write (create/overwrite a note, auto-generates YAML frontmatter for new notes), append (append to a note), search (full-text search), list (list notes, optionally in a folder)."
+        "Read, write, search, and list notes in an Obsidian vault. Actions: read, write, append, \
+         search, list, delete, rename."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -120,6 +121,8 @@ impl Tool for ObsidianTool {
                 append,
                 search: ro,
                 list: ro,
+                delete,
+                rename,
             ],
             category: ToolCategory::Productivity,
         }
@@ -133,12 +136,17 @@ impl Tool for ObsidianTool {
                     "type": "string",
                     "description": "The action to perform. 'search' finds notes by content \
                      (full-text). 'list' browses notes by folder. 'read' reads a specific note \
-                     by path. 'write' creates or overwrites. 'append' adds to end of a note.",
-                    "enum": ["read", "write", "append", "search", "list"]
+                     by path. 'write' creates or overwrites. 'append' adds to end of a note. \
+                     'delete' removes a note. 'rename' moves/renames a note (requires path and new_path).",
+                    "enum": ["read", "write", "append", "search", "list", "delete", "rename"]
                 },
                 "path": {
                     "type": "string",
-                    "description": "Path to the note (e.g. 'Daily/2025-01-15.md'). Required for read, write, append."
+                    "description": "Path to the note (e.g. 'Daily/2025-01-15.md'). Required for read, write, append, delete, rename."
+                },
+                "new_path": {
+                    "type": "string",
+                    "description": "New path for the note (for rename action)"
                 },
                 "content": {
                     "type": "string",
@@ -290,8 +298,38 @@ impl Tool for ObsidianTool {
                     )))
                 }
             }
+            "delete" => {
+                let path = match params["path"].as_str() {
+                    Some(p) if !p.is_empty() => p,
+                    _ => return Ok(ToolResult::error("'path' is required for delete")),
+                };
+                if path.contains("..") {
+                    return Ok(ToolResult::error("path must not contain '..'".to_string()));
+                }
+                match self.cache.delete_file(path).await {
+                    Ok(msg) => Ok(ToolResult::new(msg)),
+                    Err(e) => Ok(ToolResult::error(format!("delete failed: {e}"))),
+                }
+            }
+            "rename" => {
+                let path = match params["path"].as_str() {
+                    Some(p) if !p.is_empty() => p,
+                    _ => return Ok(ToolResult::error("'path' is required for rename")),
+                };
+                let new_path = match params["new_path"].as_str() {
+                    Some(p) if !p.is_empty() => p,
+                    _ => return Ok(ToolResult::error("'new_path' is required for rename")),
+                };
+                if path.contains("..") || new_path.contains("..") {
+                    return Ok(ToolResult::error("paths must not contain '..'".to_string()));
+                }
+                match self.cache.rename_file(path, new_path).await {
+                    Ok(msg) => Ok(ToolResult::new(msg)),
+                    Err(e) => Ok(ToolResult::error(format!("rename failed: {e}"))),
+                }
+            }
             _ => Ok(ToolResult::error(format!(
-                "unknown action '{action}'. Use: read, write, append, search, or list"
+                "unknown action '{action}'. Use: read, write, append, search, list, delete, or rename"
             ))),
         }
     }
