@@ -622,19 +622,19 @@ fn test_build_job_buttons_enabled_job() {
     let jobs = vec![make_test_job("abc123", "Daily report", true)];
     let buttons = build_job_buttons(&jobs);
     assert_eq!(buttons.len(), 2);
-    // First button: Pause
-    assert_eq!(buttons[0]["id"], "pause-job-abc123");
-    assert_eq!(buttons[0]["label"], "Pause: Daily report");
+    // First button: Run
+    assert_eq!(buttons[0]["id"], "run-job-abc123");
+    assert_eq!(buttons[0]["label"], "Run: Daily report");
     assert_eq!(buttons[0]["style"], "primary");
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "cron");
     assert_eq!(ctx["params"]["job_id"], "abc123");
-    assert_eq!(ctx["params"]["action"], "pause");
-    // Second button: Remove
-    assert_eq!(buttons[1]["id"], "remove-job-abc123");
-    assert_eq!(buttons[1]["label"], "Remove: Daily report");
-    assert_eq!(buttons[1]["style"], "danger");
+    assert_eq!(ctx["params"]["action"], "run");
+    // Second button: Pause
+    assert_eq!(buttons[1]["id"], "pause-job-abc123");
+    assert_eq!(buttons[1]["label"], "Pause: Daily report");
+    assert_eq!(buttons[1]["style"], "primary");
 }
 
 #[test]
@@ -642,12 +642,16 @@ fn test_build_job_buttons_disabled_job() {
     let jobs = vec![make_test_job("xyz789", "Nightly sync", false)];
     let buttons = build_job_buttons(&jobs);
     assert_eq!(buttons.len(), 2);
-    // First button: Resume (not Pause)
-    assert_eq!(buttons[0]["id"], "resume-job-xyz789");
-    assert_eq!(buttons[0]["label"], "Resume: Nightly sync");
-    assert_eq!(buttons[0]["style"], "success");
+    // First button: Run
+    assert_eq!(buttons[0]["id"], "run-job-xyz789");
+    assert_eq!(buttons[0]["label"], "Run: Nightly sync");
+    assert_eq!(buttons[0]["style"], "primary");
+    // Second button: Resume (not Pause, since job is disabled)
+    assert_eq!(buttons[1]["id"], "resume-job-xyz789");
+    assert_eq!(buttons[1]["label"], "Resume: Nightly sync");
+    assert_eq!(buttons[1]["style"], "success");
     let ctx: serde_json::Value =
-        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["params"]["action"], "resume");
 }
 
@@ -674,11 +678,11 @@ fn test_build_job_buttons_long_name_truncated() {
         true,
     )];
     let buttons = build_job_buttons(&jobs);
-    // "Pause: " prefix + 20 char max → truncated with "..."
+    // "Run: " prefix + 20 char max → truncated with "..."
     let label = buttons[0]["label"].as_str().unwrap();
-    assert!(label.starts_with("Pause: "));
+    assert!(label.starts_with("Run: "));
     assert!(label.ends_with("..."));
-    assert!(label.chars().count() <= 27); // "Pause: " (7) + 20 max
+    assert!(label.chars().count() <= 25); // "Run: " (5) + 20 max
 }
 
 #[test]
@@ -760,15 +764,10 @@ async fn test_list_returns_suggested_buttons() {
         .as_ref()
         .expect("list should return metadata with buttons");
     let buttons = meta["suggested_buttons"].as_array().unwrap();
-    // 1 job → 2 buttons (Pause + Remove)
+    // 1 job → 2 buttons (Run + Pause)
     assert_eq!(buttons.len(), 2);
-    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Pause: "));
-    assert!(
-        buttons[1]["label"]
-            .as_str()
-            .unwrap()
-            .starts_with("Remove: ")
-    );
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Run: "));
+    assert!(buttons[1]["label"].as_str().unwrap().starts_with("Pause: "));
 }
 
 #[tokio::test]

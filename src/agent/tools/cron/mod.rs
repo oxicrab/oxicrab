@@ -246,10 +246,28 @@ fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
     }
 }
 
-/// Build suggested Pause/Resume and Remove buttons for cron jobs (max 5 total).
+/// Build suggested Run and Pause/Resume buttons for cron jobs (max 5 total).
 fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
     let mut buttons = Vec::new();
     for job in jobs {
+        if buttons.len() >= 5 {
+            break;
+        }
+        // Run button
+        let run_label = truncate_label("Run: ", &job.name, 20);
+        buttons.push(serde_json::json!({
+            "id": format!("run-job-{}", job.id),
+            "label": run_label,
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "cron",
+                "params": {
+                    "action": "run",
+                    "job_id": job.id
+                }
+            }).to_string()
+        }));
+
         if buttons.len() >= 5 {
             break;
         }
@@ -268,24 +286,6 @@ fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
                 "tool": "cron",
                 "params": {
                     "action": action,
-                    "job_id": job.id
-                }
-            }).to_string()
-        }));
-
-        if buttons.len() >= 5 {
-            break;
-        }
-        // Remove button
-        let remove_label = truncate_label("Remove: ", &job.name, 20);
-        buttons.push(serde_json::json!({
-            "id": format!("remove-job-{}", job.id),
-            "label": remove_label,
-            "style": "danger",
-            "context": serde_json::json!({
-                "tool": "cron",
-                "params": {
-                    "action": "remove",
                     "job_id": job.id
                 }
             }).to_string()
