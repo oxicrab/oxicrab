@@ -80,11 +80,19 @@ impl GoogleConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchProvider {
+    #[default]
+    Brave,
+    #[serde(alias = "ddg")]
+    Duckduckgo,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
-    /// Search provider: "brave" (default) or "duckduckgo"
-    #[serde(default = "default_search_provider")]
-    pub provider: String,
+    #[serde(default)]
+    pub provider: SearchProvider,
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     #[serde(default = "default_max_results", rename = "maxResults")]
@@ -96,15 +104,11 @@ redact_debug!(WebSearchConfig, provider, redact(api_key), max_results,);
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
-            provider: default_search_provider(),
+            provider: SearchProvider::default(),
             api_key: String::new(),
             max_results: default_max_results(),
         }
     }
-}
-
-fn default_search_provider() -> String {
-    "brave".to_string()
 }
 
 fn default_max_results() -> usize {
@@ -390,7 +394,7 @@ pub struct ObsidianConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default, rename = "apiUrl")]
-    pub api_url: String,
+    pub api_url: Option<super::providers::HttpUrl>,
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     #[serde(default, rename = "vaultName")]
@@ -405,7 +409,7 @@ impl Default for ObsidianConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            api_url: String::new(),
+            api_url: None,
             api_key: String::new(),
             vault_name: String::new(),
             sync_interval: default_obsidian_sync_interval(),
@@ -451,16 +455,22 @@ impl Default for BrowserConfig {
     }
 }
 
-fn default_image_gen_provider() -> String {
-    "openai".to_string()
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageGenProvider {
+    #[default]
+    Openai,
+    Google,
+    #[serde(alias = "gemini")]
+    Gemini,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ImageGenConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default = "default_image_gen_provider", rename = "defaultProvider")]
-    pub default_provider: String,
+    #[serde(default, rename = "defaultProvider")]
+    pub default_provider: ImageGenProvider,
     /// Runtime-injected from providers.openai.apiKey
     #[serde(skip)]
     pub openai_api_key: Option<String>,
@@ -476,17 +486,6 @@ redact_debug!(
     redact_option(openai_api_key),
     redact_option(google_api_key),
 );
-
-impl Default for ImageGenConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            default_provider: default_image_gen_provider(),
-            openai_api_key: None,
-            google_api_key: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {

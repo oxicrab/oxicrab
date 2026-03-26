@@ -330,11 +330,11 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
 fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref obsidian_cfg) = ctx.obsidian_config
         && obsidian_cfg.enabled
-        && !obsidian_cfg.api_url.is_empty()
+        && let Some(ref api_url) = obsidian_cfg.api_url
         && !obsidian_cfg.api_key.is_empty()
     {
         match oxicrab_tools_obsidian::create_obsidian_tool(
-            &obsidian_cfg.api_url,
+            api_url,
             &obsidian_cfg.api_key,
             &obsidian_cfg.vault_name,
             obsidian_cfg.timeout,

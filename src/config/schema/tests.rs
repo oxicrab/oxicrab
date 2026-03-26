@@ -204,7 +204,7 @@ fn test_slack_enabled_without_tokens() {
 fn test_obsidian_enabled_zero_timeout() {
     let mut config = Config::default();
     config.tools.obsidian.enabled = true;
-    config.tools.obsidian.api_url = "http://localhost:27123".into();
+    config.tools.obsidian.api_url = Some("http://localhost:27123".to_string().try_into().unwrap());
     config.tools.obsidian.api_key = "test-key".into();
     config.tools.obsidian.vault_name = "test".into();
     config.tools.obsidian.timeout = 0;
@@ -541,7 +541,7 @@ fn test_invalid_browser_timeout_zero() {
 fn test_invalid_obsidian_enabled_missing_api_url() {
     let mut config = Config::default();
     config.tools.obsidian.enabled = true;
-    config.tools.obsidian.api_url = String::new();
+    config.tools.obsidian.api_url = None;
     config.tools.obsidian.api_key = "key".into();
     config.tools.obsidian.vault_name = "vault".into();
     let err = config.validate().unwrap_err();
@@ -552,7 +552,7 @@ fn test_invalid_obsidian_enabled_missing_api_url() {
 fn test_invalid_obsidian_enabled_missing_api_key() {
     let mut config = Config::default();
     config.tools.obsidian.enabled = true;
-    config.tools.obsidian.api_url = "http://localhost:27123".into();
+    config.tools.obsidian.api_url = Some("http://localhost:27123".to_string().try_into().unwrap());
     config.tools.obsidian.api_key = String::new();
     config.tools.obsidian.vault_name = "vault".into();
     let err = config.validate().unwrap_err();
@@ -563,7 +563,7 @@ fn test_invalid_obsidian_enabled_missing_api_key() {
 fn test_invalid_obsidian_enabled_missing_vault_name() {
     let mut config = Config::default();
     config.tools.obsidian.enabled = true;
-    config.tools.obsidian.api_url = "http://localhost:27123".into();
+    config.tools.obsidian.api_url = Some("http://localhost:27123".to_string().try_into().unwrap());
     config.tools.obsidian.api_key = "key".into();
     config.tools.obsidian.vault_name = String::new();
     let err = config.validate().unwrap_err();

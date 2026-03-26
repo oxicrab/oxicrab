@@ -13,10 +13,12 @@ const OPENAI_API: &str = "https://api.openai.com/v1/images/generations";
 const GOOGLE_API: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict";
 
+use oxicrab_core::config::schema::ImageGenProvider;
+
 pub struct ImageGenTool {
     openai_api_key: Option<String>,
     google_api_key: Option<String>,
-    default_provider: String,
+    default_provider: ImageGenProvider,
     openai_base_url: String,
     google_base_url: String,
     client: Client,
@@ -26,7 +28,7 @@ impl ImageGenTool {
     pub fn new(
         openai_api_key: Option<String>,
         google_api_key: Option<String>,
-        default_provider: String,
+        default_provider: ImageGenProvider,
     ) -> Self {
         Self {
             openai_api_key,
@@ -47,7 +49,7 @@ impl ImageGenTool {
     fn with_base_urls(
         openai_api_key: Option<String>,
         google_api_key: Option<String>,
-        default_provider: String,
+        default_provider: ImageGenProvider,
         openai_base_url: String,
         google_base_url: String,
     ) -> Self {
@@ -89,9 +91,13 @@ impl ImageGenTool {
             // Try default first, then fallback to whichever has a key
             let has_openai = self.openai_api_key.is_some();
             let has_google = self.google_api_key.is_some();
-            if self.default_provider == "openai" && has_openai {
+            if self.default_provider == ImageGenProvider::Openai && has_openai {
                 Ok("openai")
-            } else if self.default_provider == "google" && has_google {
+            } else if matches!(
+                self.default_provider,
+                ImageGenProvider::Google | ImageGenProvider::Gemini
+            ) && has_google
+            {
                 Ok("google")
             } else if has_openai {
                 Ok("openai")

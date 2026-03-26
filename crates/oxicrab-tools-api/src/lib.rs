@@ -38,7 +38,7 @@ pub fn create_media_tool(config: &MediaConfig) -> Arc<dyn Tool> {
 pub fn create_image_gen_tool(
     openai_api_key: Option<String>,
     google_api_key: Option<String>,
-    default_provider: String,
+    default_provider: oxicrab_core::config::schema::ImageGenProvider,
 ) -> Arc<dyn Tool> {
     Arc::new(image_gen::ImageGenTool::new(
         openai_api_key,

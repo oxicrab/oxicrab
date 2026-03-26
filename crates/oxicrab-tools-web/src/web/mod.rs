@@ -17,7 +17,7 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWe
 const MAX_REDIRECTS: u32 = 5;
 
 pub struct WebSearchTool {
-    provider: String,
+    provider: oxicrab_core::config::schema::SearchProvider,
     api_key: String,
     max_results: usize,
     client: Client,
@@ -26,7 +26,7 @@ pub struct WebSearchTool {
 impl WebSearchTool {
     pub fn new(api_key: Option<String>, max_results: usize) -> Self {
         Self {
-            provider: "brave".to_string(),
+            provider: oxicrab_core::config::schema::SearchProvider::Brave,
             api_key: api_key.unwrap_or_else(|| std::env::var("BRAVE_API_KEY").unwrap_or_default()),
             max_results,
             client: crate::utils::http::default_http_client(),
@@ -175,7 +175,9 @@ impl Tool for WebSearchTool {
             .map_or(self.max_results, |n| n.clamp(1, 10) as usize);
 
         // Use DuckDuckGo if explicitly configured or if no Brave API key
-        if self.provider == "duckduckgo" || self.api_key.is_empty() {
+        if self.provider == oxicrab_core::config::schema::SearchProvider::Duckduckgo
+            || self.api_key.is_empty()
+        {
             return self.search_duckduckgo(query, count).await;
         }
 

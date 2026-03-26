@@ -616,7 +616,7 @@ impl Config {
             ));
         }
         if self.tools.obsidian.enabled {
-            if self.tools.obsidian.api_url.is_empty() {
+            if self.tools.obsidian.api_url.is_none() {
                 return Err(OxicrabError::Config(
                     "tools.obsidian.apiUrl is required when obsidian is enabled".into(),
                 ));
