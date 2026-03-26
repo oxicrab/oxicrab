@@ -31,7 +31,7 @@ impl DenyByDefaultList {
                 .chars()
                 .filter(|c| !c.is_control())
                 .collect();
-            entry_normalized == normalized || entry == "*"
+            entry_normalized == normalized || entry_normalized == "*"
         })
     }
 

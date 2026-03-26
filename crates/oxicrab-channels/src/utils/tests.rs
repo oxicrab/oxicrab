@@ -55,6 +55,14 @@ fn test_deny_by_default_normalized_allow_with_plus() {
 }
 
 #[test]
+fn test_deny_by_default_normalized_wildcard_with_plus() {
+    // Regression: "+*" should match as wildcard after normalization
+    let l = list(&["+*"]);
+    assert!(l.allows_normalized("anyone"));
+    assert!(l.allows_normalized("+1234567890"));
+}
+
+#[test]
 fn test_deny_by_default_normalized_control_chars() {
     let l = list(&["username"]);
     assert!(l.allows_normalized("user\x00name"));
