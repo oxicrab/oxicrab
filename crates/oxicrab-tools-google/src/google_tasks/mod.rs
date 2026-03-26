@@ -279,11 +279,26 @@ impl Tool for GoogleTasksTool {
                     urlencoding::encode(task_id),
                 );
                 let task = self.api.call(&endpoint, "PATCH", Some(body)).await?;
-                Ok(ToolResult::new(format!(
+                let result = ToolResult::new(format!(
                     "Task updated: {} (ID: {})",
                     task["title"].as_str().unwrap_or("?"),
                     task["id"].as_str().unwrap_or("?"),
-                )))
+                ));
+                // After completing a task, offer to view remaining tasks
+                if params["status"].as_str() == Some("completed") {
+                    let view_remaining = serde_json::json!({
+                        "id": "view-remaining-tasks",
+                        "label": "View remaining tasks",
+                        "style": "primary",
+                        "context": serde_json::json!({
+                            "tool": "google_tasks",
+                            "params": {"action": "list_tasks", "task_list_id": list_id, "show_completed": false}
+                        }).to_string()
+                    });
+                    Ok(result.with_buttons(vec![view_remaining]))
+                } else {
+                    Ok(result)
+                }
             }
             "delete_task" => {
                 let task_id = require_param!(params, "task_id");

@@ -682,7 +682,16 @@ impl Tool for TodoistTool {
                     return Ok(ToolResult::error(e));
                 }
                 let result = self.complete_task(task_id).await;
-                Ok(ToolResult::from_result(result, "Todoist"))
+                let view_remaining = serde_json::json!({
+                    "id": "view-remaining-tasks",
+                    "label": "View remaining tasks",
+                    "style": "primary",
+                    "context": serde_json::json!({
+                        "tool": "todoist",
+                        "params": {"action": "list_tasks"}
+                    }).to_string()
+                });
+                Ok(ToolResult::from_result(result, "Todoist").with_buttons(vec![view_remaining]))
             }
             "delete_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
