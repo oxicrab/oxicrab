@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::channels::DenyByDefaultList;
 use super::default_true;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -12,8 +13,10 @@ pub struct ExfiltrationGuardConfig {
     #[serde(default)]
     pub enabled: bool,
     /// Force-allow specific network-outbound tools when guard is enabled.
+    /// Empty = deny all network-outbound tools (secure default).
+    /// Use `["*"]` to allow all, or list specific tool names.
     #[serde(default, rename = "allowTools")]
-    pub allow_tools: Vec<String>,
+    pub allow_tools: DenyByDefaultList,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -135,12 +138,63 @@ impl Default for SandboxConfig {
     }
 }
 
+/// Shell command allowlist. Empty = no restrictions (all commands allowed).
+/// Non-empty = only listed commands may execute.
+/// Default is a comprehensive list of safe commands.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AllowedCommands(Vec<String>);
+
+impl AllowedCommands {
+    pub fn new(commands: Vec<String>) -> Self {
+        Self(commands)
+    }
+
+    /// Check if a command is allowed. Empty list = unrestricted.
+    pub fn is_allowed(&self, command: &str) -> bool {
+        self.0.is_empty() || self.0.iter().any(|a| a == command)
+    }
+
+    /// Returns true if restrictions are in effect.
+    pub fn is_restricted(&self) -> bool {
+        !self.0.is_empty()
+    }
+
+    pub fn entries(&self) -> &[String] {
+        &self.0
+    }
+
+    /// Merge additional commands into this list, deduplicating.
+    pub fn merge(&self, additional: &[String]) -> Self {
+        let mut cmds = self.0.clone();
+        for cmd in additional {
+            if !cmds.contains(cmd) {
+                cmds.push(cmd.clone());
+            }
+        }
+        Self(cmds)
+    }
+}
+
+impl Default for AllowedCommands {
+    fn default() -> Self {
+        Self(default_allowed_commands())
+    }
+}
+
+fn default_allowed_commands_wrapped() -> AllowedCommands {
+    AllowedCommands::default()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecToolConfig {
     #[serde(default = "default_timeout")]
     pub timeout: u64,
-    #[serde(default = "default_allowed_commands", rename = "allowedCommands")]
-    pub allowed_commands: Vec<String>,
+    #[serde(
+        default = "default_allowed_commands_wrapped",
+        rename = "allowedCommands"
+    )]
+    pub allowed_commands: AllowedCommands,
     #[serde(
         default,
         rename = "additionalAllowedCommands",
@@ -154,14 +208,9 @@ pub struct ExecToolConfig {
 impl ExecToolConfig {
     /// Returns the effective allowed commands list: defaults (or overrides) merged
     /// with any additional commands, deduplicated.
-    pub fn effective_allowed_commands(&self) -> Vec<String> {
-        let mut cmds = self.allowed_commands.clone();
-        for cmd in &self.additional_allowed_commands {
-            if !cmds.contains(cmd) {
-                cmds.push(cmd.clone());
-            }
-        }
-        cmds
+    pub fn effective_allowed_commands(&self) -> AllowedCommands {
+        self.allowed_commands
+            .merge(&self.additional_allowed_commands)
     }
 }
 
@@ -169,7 +218,7 @@ impl Default for ExecToolConfig {
     fn default() -> Self {
         Self {
             timeout: default_timeout(),
-            allowed_commands: default_allowed_commands(),
+            allowed_commands: AllowedCommands::default(),
             additional_allowed_commands: Vec::new(),
             sandbox: SandboxConfig::default(),
         }

@@ -3,7 +3,7 @@ use crate::utils::regex_utils::compile_security_patterns;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use oxicrab_core::actions;
-use oxicrab_core::config::schema::SandboxConfig;
+use oxicrab_core::config::schema::{AllowedCommands, SandboxConfig};
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
@@ -20,7 +20,7 @@ pub struct ExecTool {
     timeout: u64,
     working_dir: Option<PathBuf>,
     deny_patterns: Vec<Regex>,
-    allowed_commands: Vec<String>,
+    allowed_commands: AllowedCommands,
     restrict_to_workspace: bool,
     sandbox_config: SandboxConfig,
 }
@@ -30,7 +30,7 @@ impl ExecTool {
         timeout: u64,
         working_dir: Option<PathBuf>,
         restrict_to_workspace: bool,
-        allowed_commands: Vec<String>,
+        allowed_commands: AllowedCommands,
         sandbox_config: SandboxConfig,
     ) -> Result<Self> {
         let deny_patterns = compile_security_patterns()
@@ -156,15 +156,15 @@ impl ExecTool {
             ));
         }
 
-        if !self.allowed_commands.is_empty() {
+        if self.allowed_commands.is_restricted() {
             let cmd_names = Self::extract_all_commands(command);
             for name in &cmd_names {
-                if !self.allowed_commands.iter().any(|a| a == name) {
+                if !self.allowed_commands.is_allowed(name) {
                     return Some(format!(
                         "command '{}' is not in the allowed commands list. \
                          Allowed: {}",
                         name,
-                        self.allowed_commands.join(", ")
+                        self.allowed_commands.entries().join(", ")
                     ));
                 }
             }

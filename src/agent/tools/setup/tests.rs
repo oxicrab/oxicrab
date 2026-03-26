@@ -31,10 +31,16 @@ fn test_builtin_tools_have_builtin_capability() {
 
     assert!(ReadFileTool::new(None, None).capabilities().built_in);
     assert!(
-        ExecTool::new(10, None, false, vec![], config::SandboxConfig::default())
-            .unwrap()
-            .capabilities()
-            .built_in
+        ExecTool::new(
+            10,
+            None,
+            false,
+            config::AllowedCommands::new(vec![]),
+            config::SandboxConfig::default()
+        )
+        .unwrap()
+        .capabilities()
+        .built_in
     );
     // WebSearchTool built_in is tested in oxicrab-tools-web crate
 }

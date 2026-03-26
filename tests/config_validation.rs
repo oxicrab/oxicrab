@@ -239,7 +239,7 @@ fn test_exfiltration_guard_with_allow_tools() {
     });
     let config: ExfiltrationGuardConfig = serde_json::from_value(json).expect("parse json");
     assert!(config.enabled);
-    assert_eq!(config.allow_tools, vec!["web_search"]);
+    assert!(config.allow_tools.allows("web_search"));
 }
 
 #[test]
@@ -254,8 +254,11 @@ fn test_exfiltration_guard_parses_from_full_config() {
     });
     let config: Config = serde_json::from_value(json).expect("parse config");
     assert!(config.tools.exfiltration_guard.enabled);
-    assert_eq!(
-        config.tools.exfiltration_guard.allow_tools,
-        vec!["web_fetch"]
+    assert!(
+        config
+            .tools
+            .exfiltration_guard
+            .allow_tools
+            .allows("web_fetch")
     );
 }

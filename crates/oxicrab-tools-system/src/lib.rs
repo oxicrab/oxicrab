@@ -8,7 +8,7 @@ pub mod shell;
 pub mod tmux;
 mod utils;
 
-use oxicrab_core::config::schema::SandboxConfig;
+use oxicrab_core::config::schema::{AllowedCommands, SandboxConfig};
 use oxicrab_core::tools::base::Tool;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,7 +45,7 @@ pub fn create_exec_tool(
     timeout: u64,
     working_dir: Option<PathBuf>,
     restrict_to_workspace: bool,
-    allowed_commands: Vec<String>,
+    allowed_commands: AllowedCommands,
     sandbox_config: SandboxConfig,
 ) -> anyhow::Result<Arc<dyn Tool>> {
     Ok(Arc::new(shell::ExecTool::new(

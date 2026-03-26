@@ -37,7 +37,7 @@ pub struct ToolConfigs {
     pub web_search_config: Option<crate::config::WebSearchConfig>,
     pub exec_timeout: u64,
     pub restrict_to_workspace: bool,
-    pub allowed_commands: Vec<String>,
+    pub allowed_commands: crate::config::AllowedCommands,
     pub sandbox_config: crate::config::SandboxConfig,
     pub channels_config: Option<crate::config::ChannelsConfig>,
     pub google_config: Option<crate::config::GoogleConfig>,
@@ -336,7 +336,7 @@ impl AgentLoopConfig {
                 web_search_config: None,
                 exec_timeout: 30,
                 restrict_to_workspace: true,
-                allowed_commands: vec![],
+                allowed_commands: crate::config::AllowedCommands::new(vec![]),
                 sandbox_config: crate::config::SandboxConfig {
                     enabled: false,
                     ..crate::config::SandboxConfig::default()

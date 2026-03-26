@@ -140,7 +140,7 @@ fn test_prompt_lists_tools_from_metadata() {
     // Use a disabled exfil guard so network tools (github, web_fetch) are available.
     let guard = crate::config::ExfiltrationGuardConfig {
         enabled: false,
-        allow_tools: vec![],
+        allow_tools: crate::config::DenyByDefaultList::new(vec![]),
     };
     let registry = super::build_subagent_tools(&make_inner_with_tools(guard, tools)).unwrap();
     let prompt = build_subagent_prompt("Do stuff", Path::new("/ws"), None, &registry);
@@ -511,7 +511,7 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
             10,
             None,
             false,
-            vec![],
+            crate::config::AllowedCommands::new(vec![]),
             crate::config::SandboxConfig::default(),
         )
         .unwrap(),
@@ -532,7 +532,7 @@ fn test_subagent_tools_capability_based() {
     // test_subagent_tools_exfil_blocks_all_network.
     let guard = crate::config::ExfiltrationGuardConfig {
         enabled: false,
-        allow_tools: vec![],
+        allow_tools: crate::config::DenyByDefaultList::new(vec![]),
     };
     let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config).unwrap();
@@ -576,7 +576,7 @@ fn test_subagent_github_is_read_only() {
     // Use a disabled exfil guard so github is included (network_outbound).
     let guard = crate::config::ExfiltrationGuardConfig {
         enabled: false,
-        allow_tools: vec![],
+        allow_tools: crate::config::DenyByDefaultList::new(vec![]),
     };
     let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config).unwrap();
@@ -611,7 +611,7 @@ fn test_subagent_tools_exfil_blocks_all_network() {
     // Guard enabled with no allow_tools → all network_outbound tools blocked
     let guard = crate::config::ExfiltrationGuardConfig {
         enabled: true,
-        allow_tools: vec![],
+        allow_tools: crate::config::DenyByDefaultList::new(vec![]),
     };
     let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config).unwrap();
@@ -632,7 +632,7 @@ fn test_subagent_tools_exfil_allows_specific_tool() {
     // Guard enabled but web_search is allow-listed
     let guard = crate::config::ExfiltrationGuardConfig {
         enabled: true,
-        allow_tools: vec!["web_search".to_string()],
+        allow_tools: crate::config::DenyByDefaultList::new(vec!["web_search".to_string()]),
     };
     let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config).unwrap();

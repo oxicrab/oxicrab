@@ -315,7 +315,7 @@ fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
             SubagentAccess::Full => {
                 if caps.network_outbound
                     && config.exfil_guard.enabled
-                    && !config.exfil_guard.allow_tools.contains(&name.to_string())
+                    && !config.exfil_guard.allow_tools.allows(name)
                 {
                     continue;
                 }
@@ -324,7 +324,7 @@ fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
             SubagentAccess::ReadOnly => {
                 if caps.network_outbound
                     && config.exfil_guard.enabled
-                    && !config.exfil_guard.allow_tools.contains(&name.to_string())
+                    && !config.exfil_guard.allow_tools.allows(name)
                 {
                     continue;
                 }

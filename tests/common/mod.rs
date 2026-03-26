@@ -161,7 +161,7 @@ impl LLMProvider for ToolCapturingProvider {
 
 #[derive(Default)]
 pub struct TestAgentOverrides {
-    pub allowed_commands: Option<Vec<String>>,
+    pub allowed_commands: Option<oxicrab::config::AllowedCommands>,
     pub exec_timeout: Option<u64>,
     pub compaction_config: Option<CompactionConfig>,
     pub restrict_to_workspace: Option<bool>,

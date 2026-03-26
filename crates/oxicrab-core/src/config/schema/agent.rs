@@ -502,6 +502,66 @@ impl Default for ComplexityWeights {
     }
 }
 
+/// Specifies which tool actions require approval.
+/// Empty = all non-read-only actions require approval (secure default).
+/// Use specific entries like `"tool.action"` or `"tool"` to narrow scope.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(transparent)]
+pub struct ApprovalScope(Vec<String>);
+
+impl ApprovalScope {
+    pub fn new(entries: Vec<String>) -> Self {
+        Self(entries)
+    }
+
+    /// Check if a given tool/action combination is covered by this scope.
+    /// Empty scope = covers all non-read-only actions (secure default).
+    pub fn covers(
+        &self,
+        tool_name: &str,
+        action: Option<&str>,
+        tool_actions: &[crate::tools::base::ActionDescriptor],
+    ) -> bool {
+        let effective_action = action.unwrap_or("");
+
+        // Resolve effective action for single-purpose tools
+        let effective_action = if effective_action.is_empty() && tool_actions.len() == 1 {
+            tool_actions[0].name
+        } else if effective_action.is_empty() && tool_actions.len() > 1 {
+            // Multi-action tool with no action param — can't determine intent.
+            // Fail safe: require approval when enabled to prevent silent bypass.
+            return true;
+        } else {
+            effective_action
+        };
+
+        if self.0.is_empty() {
+            // Default: cover all non-read-only actions
+            tool_actions
+                .iter()
+                .any(|a| a.name == effective_action && !a.read_only)
+        } else {
+            // Explicit list: "tool.action" matches specific action,
+            // bare "tool" matches all non-read-only actions (consistent with empty-list mode)
+            let full_key = format!("{tool_name}.{effective_action}");
+            let is_mutating = tool_actions
+                .iter()
+                .any(|a| a.name == effective_action && !a.read_only);
+            self.0
+                .iter()
+                .any(|a| *a == full_key || (*a == tool_name && is_mutating))
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn entries(&self) -> &[String] {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalConfig {
     #[serde(default)]
@@ -511,7 +571,7 @@ pub struct ApprovalConfig {
     #[serde(default = "default_approval_timeout")]
     pub timeout: u64,
     #[serde(default)]
-    pub actions: Vec<String>,
+    pub actions: ApprovalScope,
 }
 
 fn default_approval_timeout() -> u64 {
@@ -524,7 +584,7 @@ impl Default for ApprovalConfig {
             enabled: false,
             channel: String::new(),
             timeout: 300,
-            actions: vec![],
+            actions: ApprovalScope::default(),
         }
     }
 }
@@ -543,33 +603,13 @@ impl ApprovalConfig {
             return false;
         }
 
-        // Resolve effective action for single-purpose tools
-        let effective_action = if action_from_params.is_empty() && tool_actions.len() == 1 {
-            tool_actions[0].name
-        } else if action_from_params.is_empty() && tool_actions.len() > 1 {
-            // Multi-action tool with no action param — can't determine intent.
-            // Fail safe: require approval when enabled to prevent silent bypass.
-            return true;
+        let action = if action_from_params.is_empty() {
+            None
         } else {
-            action_from_params
+            Some(action_from_params)
         };
 
-        if self.actions.is_empty() {
-            // Default: cover all non-read-only actions
-            tool_actions
-                .iter()
-                .any(|a| a.name == effective_action && !a.read_only)
-        } else {
-            // Explicit list: "tool.action" matches specific action,
-            // bare "tool" matches all non-read-only actions (consistent with empty-list mode)
-            let full_key = format!("{tool_name}.{effective_action}");
-            let is_mutating = tool_actions
-                .iter()
-                .any(|a| a.name == effective_action && !a.read_only);
-            self.actions
-                .iter()
-                .any(|a| *a == full_key || (*a == tool_name && is_mutating))
-        }
+        self.actions.covers(tool_name, action, tool_actions)
     }
 }
 
@@ -683,7 +723,7 @@ mod approval_tests {
     fn test_covers_explicit_tool_dot_action() {
         let config = ApprovalConfig {
             enabled: true,
-            actions: vec!["google_mail.send".to_string()],
+            actions: ApprovalScope::new(vec!["google_mail.send".to_string()]),
             ..Default::default()
         };
         let actions = make_actions(&[("send", false), ("search", true)]);
@@ -695,7 +735,7 @@ mod approval_tests {
     fn test_covers_bare_tool_name_matches_mutating_only() {
         let config = ApprovalConfig {
             enabled: true,
-            actions: vec!["google_mail".to_string()],
+            actions: ApprovalScope::new(vec!["google_mail".to_string()]),
             ..Default::default()
         };
         let actions = make_actions(&[("send", false), ("search", true)]);
@@ -708,7 +748,7 @@ mod approval_tests {
     fn test_covers_empty_list_uses_mutating_actions() {
         let config = ApprovalConfig {
             enabled: true,
-            actions: vec![],
+            actions: ApprovalScope::new(vec![]),
             ..Default::default()
         };
         let actions = make_actions(&[("send", false), ("search", true)]);
@@ -721,7 +761,7 @@ mod approval_tests {
     fn test_covers_single_purpose_tool_empty_action_param() {
         let config = ApprovalConfig {
             enabled: true,
-            actions: vec!["exec.execute".to_string()],
+            actions: ApprovalScope::new(vec!["exec.execute".to_string()]),
             ..Default::default()
         };
         let actions = make_actions(&[("execute", false)]);
@@ -733,7 +773,7 @@ mod approval_tests {
     fn test_covers_miss() {
         let config = ApprovalConfig {
             enabled: true,
-            actions: vec!["google_mail.send".to_string()],
+            actions: ApprovalScope::new(vec!["google_mail.send".to_string()]),
             ..Default::default()
         };
         let actions = make_actions(&[("list_issues", false)]);
@@ -744,7 +784,7 @@ mod approval_tests {
     fn test_covers_disabled_always_false() {
         let config = ApprovalConfig {
             enabled: false,
-            actions: vec!["google_mail.send".to_string()],
+            actions: ApprovalScope::new(vec!["google_mail.send".to_string()]),
             ..Default::default()
         };
         let actions = make_actions(&[("send", false)]);
@@ -755,7 +795,7 @@ mod approval_tests {
     fn test_covers_multi_action_tool_empty_action_fails_safe() {
         let config = ApprovalConfig {
             enabled: true,
-            actions: vec!["google_mail.send".to_string()],
+            actions: ApprovalScope::new(vec!["google_mail.send".to_string()]),
             ..Default::default()
         };
         // Multi-action tool with no action param — can't determine intent

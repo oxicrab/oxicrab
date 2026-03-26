@@ -19,7 +19,7 @@ pub struct ToolBuildContext {
     pub workspace: PathBuf,
     pub restrict_to_workspace: bool,
     pub exec_timeout: u64,
-    pub allowed_commands: Vec<String>,
+    pub allowed_commands: config::AllowedCommands,
     pub sandbox_config: config::SandboxConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub bus: Arc<MessageBus>,

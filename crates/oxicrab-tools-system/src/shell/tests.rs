@@ -12,7 +12,7 @@ fn tool(cmds: Vec<String>) -> ExecTool {
         60,
         Some(PathBuf::from("/tmp")),
         false,
-        cmds,
+        AllowedCommands::new(cmds),
         SandboxConfig {
             enabled: false,
             ..SandboxConfig::default()

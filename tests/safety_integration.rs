@@ -6,7 +6,9 @@ use common::{
 };
 use oxicrab::agent::{AgentLoop, AgentLoopConfig};
 use oxicrab::bus::{InboundMessage, MessageBus, OutboundMessage};
-use oxicrab::config::{ExfiltrationGuardConfig, PromptGuardAction, PromptGuardConfig};
+use oxicrab::config::{
+    DenyByDefaultList, ExfiltrationGuardConfig, PromptGuardAction, PromptGuardConfig,
+};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -27,7 +29,7 @@ async fn test_exfil_guard_hides_network_tools_from_llm() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                allow_tools: vec![],
+                allow_tools: DenyByDefaultList::new(vec![]),
             }),
             ..Default::default()
         },
@@ -81,7 +83,7 @@ async fn test_exfil_guard_disabled_shows_all_tools() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: false,
-                allow_tools: vec![],
+                allow_tools: DenyByDefaultList::new(vec![]),
             }),
             ..Default::default()
         },
@@ -133,7 +135,7 @@ async fn test_exfil_guard_blocks_tool_at_dispatch() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                allow_tools: vec![],
+                allow_tools: DenyByDefaultList::new(vec![]),
             }),
             ..Default::default()
         },
@@ -172,7 +174,7 @@ async fn test_exfil_guard_allows_non_network_tools() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                allow_tools: vec![],
+                allow_tools: DenyByDefaultList::new(vec![]),
             }),
             ..Default::default()
         },
@@ -461,7 +463,7 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                allow_tools: vec![],
+                allow_tools: DenyByDefaultList::new(vec![]),
             }),
             prompt_guard_config: Some(PromptGuardConfig {
                 enabled: true,
@@ -500,7 +502,7 @@ async fn test_exfil_guard_allow_tools_override() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                allow_tools: vec!["web_search".into()],
+                allow_tools: DenyByDefaultList::new(vec!["web_search".into()]),
             }),
             ..Default::default()
         },

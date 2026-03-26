@@ -9,7 +9,9 @@ use tempfile::TempDir;
 
 fn shell_overrides(allowed: Vec<&str>) -> TestAgentOverrides {
     TestAgentOverrides {
-        allowed_commands: Some(allowed.into_iter().map(String::from).collect()),
+        allowed_commands: Some(oxicrab::config::AllowedCommands::new(
+            allowed.into_iter().map(String::from).collect(),
+        )),
         ..Default::default()
     }
 }
@@ -149,7 +151,9 @@ async fn test_exec_blocklist_overrides_allowlist() {
         provider,
         &tmp,
         TestAgentOverrides {
-            allowed_commands: Some(vec!["rm".to_string()]),
+            allowed_commands: Some(oxicrab::config::AllowedCommands::new(vec![
+                "rm".to_string(),
+            ])),
             ..Default::default()
         },
     )
@@ -185,7 +189,9 @@ async fn test_exec_timeout() {
         provider,
         &tmp,
         TestAgentOverrides {
-            allowed_commands: Some(vec!["sleep".to_string()]),
+            allowed_commands: Some(oxicrab::config::AllowedCommands::new(vec![
+                "sleep".to_string(),
+            ])),
             exec_timeout: Some(1), // 1 second timeout
             ..Default::default()
         },
@@ -223,7 +229,7 @@ async fn test_exec_empty_allowlist_permits_all() {
         provider,
         &tmp,
         TestAgentOverrides {
-            allowed_commands: Some(vec![]),
+            allowed_commands: Some(oxicrab::config::AllowedCommands::new(vec![])),
             ..Default::default()
         },
     )

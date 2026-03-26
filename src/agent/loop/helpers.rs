@@ -134,7 +134,7 @@ pub(super) async fn execute_tool_call(
     tc_args: &Value,
     available_tools: &[String],
     ctx: &ExecutionContext,
-    exfil_allow: Option<&[String]>,
+    exfil_allow: Option<&crate::config::DenyByDefaultList>,
     workspace: Option<&std::path::Path>,
     approval_ctx: Option<ApprovalContext<'_>>,
 ) -> ToolResult {
@@ -143,7 +143,7 @@ pub(super) async fn execute_tool_call(
         let is_network = registry
             .get(tc_name)
             .is_some_and(|t| t.capabilities().network_outbound);
-        if is_network && !allow_tools.contains(&tc_name.to_string()) {
+        if is_network && !allow_tools.allows(tc_name) {
             warn!("security: exfiltration guard blocked tool: {}", tc_name);
             return ToolResult::error(
                 "Error: this tool is not available in the current security mode",

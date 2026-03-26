@@ -73,7 +73,7 @@ impl AgentLoop {
                             .tools
                             .get(&td.name)
                             .is_some_and(|t| t.capabilities().network_outbound);
-                        !is_network || allowed.contains(&td.name)
+                        !is_network || allowed.allows(&td.name)
                     })
                     .collect()
             } else {
@@ -295,7 +295,7 @@ impl AgentLoop {
                                     .tools
                                     .get(&td.name)
                                     .is_some_and(|t| t.capabilities().network_outbound);
-                                !is_network || allowed.contains(&td.name)
+                                !is_network || allowed.allows(&td.name)
                             });
                         }
                         // Re-apply tool filter (GuidedLLM constraint)
@@ -456,7 +456,8 @@ impl AgentLoop {
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
         routing_policy: Option<&crate::router::RoutingPolicy>,
     ) -> Vec<ToolResult> {
-        let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
+        let allow_tools: Option<crate::config::DenyByDefaultList> =
+            exfil_guard.map(|g| g.allow_tools.clone());
         let router_allow: Option<std::collections::HashSet<String>> =
             routing_policy.map(|_| tool_names.iter().cloned().collect());
         let router_block: Option<std::collections::HashSet<String>> =
@@ -497,7 +498,7 @@ impl AgentLoop {
                     &tc.arguments,
                     tool_names,
                     exec_ctx,
-                    allow_tools.as_deref(),
+                    allow_tools.as_ref(),
                     Some(&self.workspace),
                     Some(ApprovalContext {
                         store: &approval_store,
@@ -544,7 +545,7 @@ impl AgentLoop {
                             &tc_args,
                             &available,
                             &ctx,
-                            allow.as_deref(),
+                            allow.as_ref(),
                             Some(&ws),
                             Some(ApprovalContext {
                                 store: &a_store,

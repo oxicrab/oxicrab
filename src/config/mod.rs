@@ -5,11 +5,11 @@ pub mod schema;
 
 pub use loader::{get_config_path, load_config, save_config};
 pub use schema::{
-    A2aConfig, AgentDefaults, AgentsConfig, AnthropicOAuthConfig, ApprovalConfig, BrowserConfig,
-    ChannelsConfig, ChatModels, ChatRoutingConfig, ChatThresholds, CircuitBreakerConfig,
-    CognitiveConfig, CompactionConfig, Config, ContextProviderConfig, CredentialHelperConfig,
-    DenyByDefaultList, DiscordCommand, DiscordCommandOption, DiscordConfig, DmPolicy,
-    ExecToolConfig, ExfiltrationGuardConfig, FusionStrategy, GatewayConfig, GitHubConfig,
+    A2aConfig, AgentDefaults, AgentsConfig, AllowedCommands, AnthropicOAuthConfig, ApprovalConfig,
+    ApprovalScope, BrowserConfig, ChannelsConfig, ChatModels, ChatRoutingConfig, ChatThresholds,
+    CircuitBreakerConfig, CognitiveConfig, CompactionConfig, Config, ContextProviderConfig,
+    CredentialHelperConfig, DenyByDefaultList, DiscordCommand, DiscordCommandOption, DiscordConfig,
+    DmPolicy, ExecToolConfig, ExfiltrationGuardConfig, FusionStrategy, GatewayConfig, GitHubConfig,
     GoogleConfig, ImageGenConfig, McpConfig, McpTrust, MediaConfig, MemoryConfig,
     ModelRoutingConfig, ObsidianConfig, PromptGuardAction, PromptGuardConfig, ProviderConfig,
     ProvidersConfig, RouterConfig, RssConfig, SandboxConfig, SlackConfig, TaskRouting,
