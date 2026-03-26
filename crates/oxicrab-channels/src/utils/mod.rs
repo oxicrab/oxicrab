@@ -114,7 +114,7 @@ pub fn normalize_sender_id(sender: &str) -> String {
 ))]
 pub fn check_group_access(group_id: &str, allow_groups: &[String]) -> bool {
     if allow_groups.is_empty() {
-        return true; // empty = all groups allowed
+        return false; // empty = deny all groups
     }
     allow_groups.iter().any(|g| g == group_id || g == "*")
 }

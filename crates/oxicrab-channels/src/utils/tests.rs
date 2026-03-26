@@ -220,8 +220,8 @@ fn test_format_pairing_reply_contains_approve_command() {
 // --- check_group_access tests ---
 
 #[test]
-fn test_group_access_empty_allows_all() {
-    assert!(check_group_access("any_group", &[]));
+fn test_group_access_empty_denies_all() {
+    assert!(!check_group_access("any_group", &[]));
 }
 
 #[test]
