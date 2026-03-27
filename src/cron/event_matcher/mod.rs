@@ -11,7 +11,9 @@ static REGEX_CACHE: LazyLock<Mutex<lru::LruCache<String, Regex>>> = LazyLock::ne
 });
 
 fn cached_regex(pattern: &str) -> Result<Regex, regex::Error> {
-    let mut cache = REGEX_CACHE.lock().unwrap();
+    let mut cache = REGEX_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(re) = cache.get(pattern) {
         return Ok(re.clone());
     }

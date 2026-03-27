@@ -290,7 +290,16 @@ async fn await_approval(
         ),
     )
     .build();
-    let _ = outbound_tx.send(feedback).await;
+    if outbound_tx.send(feedback).await.is_err() {
+        store.remove(&approval_id);
+        warn!(
+            "approval: failed to send feedback to user channel={} chat_id={} — outbound bus closed",
+            channel, chat_id
+        );
+        return ToolResult::error(
+            "Could not request approval: message bus is unavailable, try again after restart",
+        );
+    }
 
     // Build and send approval request to operator
     let request_text = format_approval_request(
@@ -325,7 +334,16 @@ async fn await_approval(
                 serde_json::Value::Array(buttons),
             )
             .build();
-    let _ = outbound_tx.send(request_msg).await;
+    if outbound_tx.send(request_msg).await.is_err() {
+        store.remove(&approval_id);
+        warn!(
+            "approval: failed to send operator request to {}:{} — outbound bus closed",
+            operator_target.0, operator_target.1
+        );
+        return ToolResult::error(
+            "Could not deliver approval request to the operator channel, message bus may be closed",
+        );
+    }
 
     // Wait for approval decision
     match tokio::time::timeout(std::time::Duration::from_secs(config.timeout), rx).await {
