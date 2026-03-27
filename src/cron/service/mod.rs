@@ -317,12 +317,23 @@ impl CronService {
                                 warn!("cron: spawn_blocking failed: {e}");
                                 Ok(false)
                             });
-                            if let Err(e) = res {
-                                warn!("failed to fire cron job '{}': {}", job.id, e);
-                            }
+                            let fired = match res {
+                                Ok(true) => true,
+                                Ok(false) => {
+                                    info!(
+                                        "cron: fire_cron_job returned false for '{}' (already running or gone)",
+                                        job.id
+                                    );
+                                    false
+                                }
+                                Err(e) => {
+                                    warn!("failed to fire cron job '{}': {}", job.id, e);
+                                    false
+                                }
+                            };
 
-                            // Collect job for firing outside the loop
-                            if let Some(ref callback) = callback_opt {
+                            // Collect job for firing outside the loop — only if DB update succeeded
+                            if fired && let Some(ref callback) = callback_opt {
                                 info!("cron job fired: id={}, name={}", job.id, job.name);
                                 metrics::counter!("oxicrab_cron_executions_total").increment(1);
                                 jobs_to_fire.push((job.clone(), callback.clone()));
