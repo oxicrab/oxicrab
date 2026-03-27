@@ -72,8 +72,11 @@ fn is_safe_media_path(path: &str, media_dir: Option<&std::path::Path>) -> bool {
     let Some(media) = media_dir else {
         return false;
     };
+    let Ok(canonical_media) = media.canonicalize() else {
+        return false;
+    };
     p.canonicalize()
-        .is_ok_and(|canonical| canonical.starts_with(media))
+        .is_ok_and(|canonical| canonical.starts_with(&canonical_media))
 }
 
 /// Validate tool arguments against the tool's JSON schema.

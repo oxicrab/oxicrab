@@ -213,38 +213,46 @@ fn deserialize_config_strict(data: JsonValue) -> Result<Config> {
 }
 
 /// Warn if a config file or its parent directory has overly permissive permissions.
-/// Only emits warnings once per process to avoid spam when config is loaded multiple times.
+/// Uses a static set to warn once per unique path (not once per process).
 #[cfg(unix)]
 fn check_file_permissions(path: &Path) {
+    use std::collections::HashSet;
     use std::os::unix::fs::PermissionsExt;
-    use std::sync::Once;
 
-    static WARNED: Once = Once::new();
-    WARNED.call_once(|| {
-        if let Ok(meta) = std::fs::metadata(path) {
-            let mode = meta.permissions().mode();
-            if mode & 0o077 != 0 {
-                warn!(
-                    "config file {} has permissions {:o} - recommend 0600",
-                    path.display(),
-                    mode & 0o777
-                );
-            }
-        }
+    static WARNED: std::sync::Mutex<Option<HashSet<std::path::PathBuf>>> =
+        std::sync::Mutex::new(None);
 
-        if let Some(parent) = path.parent()
-            && let Ok(meta) = std::fs::metadata(parent)
-        {
-            let mode = meta.permissions().mode();
-            if mode & 0o077 != 0 {
-                warn!(
-                    "config directory {} has permissions {:o} - recommend 0700",
-                    parent.display(),
-                    mode & 0o777
-                );
-            }
+    let mut guard = WARNED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let warned = guard.get_or_insert_with(HashSet::new);
+    if !warned.insert(path.to_path_buf()) {
+        return; // already warned about this path
+    }
+
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mode = meta.permissions().mode();
+        if mode & 0o077 != 0 {
+            warn!(
+                "config file {} has permissions {:o} - recommend 0600",
+                path.display(),
+                mode & 0o777
+            );
         }
-    });
+    }
+
+    if let Some(parent) = path.parent()
+        && let Ok(meta) = std::fs::metadata(parent)
+    {
+        let mode = meta.permissions().mode();
+        if mode & 0o077 != 0 {
+            warn!(
+                "config directory {} has permissions {:o} - recommend 0700",
+                parent.display(),
+                mode & 0o777
+            );
+        }
+    }
 }
 
 #[cfg(not(unix))]
