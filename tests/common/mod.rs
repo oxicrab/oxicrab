@@ -179,8 +179,12 @@ pub async fn create_test_agent_with(
     overrides: TestAgentOverrides,
 ) -> AgentLoop {
     let bus = Arc::new(MessageBus::default());
-    let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel(100);
+    let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(100);
     let outbound_tx = Arc::new(outbound_tx);
+    // Leak the receiver so the channel stays open for the lifetime of the test.
+    // Without this, outbound_tx.send() fails because the receiver is dropped
+    // when this function returns, causing approval flows to abort early.
+    std::mem::forget(outbound_rx);
 
     let mut config = AgentLoopConfig::test_defaults(
         bus,
