@@ -145,6 +145,15 @@ impl GitHubTool {
         self.api_send(req).await
     }
 
+    async fn api_put(&self, path: &str, body: &Value) -> Result<Value> {
+        let req = self.github_headers(
+            self.client
+                .put(format!("{}{}", self.base_url, path))
+                .json(body),
+        );
+        self.api_send(req).await
+    }
+
     async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
         let req = self.github_headers(
             self.client
@@ -320,19 +329,11 @@ impl GitHubTool {
             payload["merge_method"] = Value::String(m.to_string());
         }
 
-        self.client
-            .put(format!(
-                "{}/repos/{owner}/{repo}/pulls/{number}/merge",
-                self.base_url
-            ))
-            .header("Authorization", format!("token {}", self.token))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "oxicrab")
-            .json(&payload)
-            .send()
-            .await?
-            .error_for_status()
-            .map_err(|e| anyhow::anyhow!("GitHub API error: {e}"))?;
+        self.api_put(
+            &format!("/repos/{owner}/{repo}/pulls/{number}/merge"),
+            &payload,
+        )
+        .await?;
 
         Ok(format!("Merged PR #{number}"))
     }

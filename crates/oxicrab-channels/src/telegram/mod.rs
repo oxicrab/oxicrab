@@ -31,6 +31,7 @@ pub struct TelegramChannel {
     bot: Bot,
     running: Arc<tokio::sync::Mutex<bool>>,
     dispatcher_handle: Option<tokio::task::JoinHandle<()>>,
+    dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
 }
 
 impl TelegramChannel {
@@ -42,13 +43,19 @@ impl TelegramChannel {
             bot,
             running: Arc::new(tokio::sync::Mutex::new(false)),
             dispatcher_handle: None,
+            dispatch_store: Arc::new(crate::dispatch::DispatchContextStore::new(500)),
         }
     }
 }
 
 /// Build an `InlineKeyboardMarkup` from unified button metadata, if present.
-/// Each button becomes its own row. Callback data is truncated to 64 bytes.
-fn build_inline_keyboard(msg: &OutboundMessage) -> Option<InlineKeyboardMarkup> {
+/// Each button becomes its own row. When context is an `ActionDispatchPayload`
+/// and would exceed 64 bytes, it's stored in the `DispatchContextStore` and
+/// only the button ID is put in `callback_data`.
+fn build_inline_keyboard(
+    msg: &OutboundMessage,
+    dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
+) -> Option<InlineKeyboardMarkup> {
     let buttons_val = msg.metadata.get(meta::BUTTONS)?;
     let buttons = buttons_val.as_array()?;
     let rows: Vec<Vec<InlineKeyboardButton>> = buttons
@@ -57,18 +64,24 @@ fn build_inline_keyboard(msg: &OutboundMessage) -> Option<InlineKeyboardMarkup> 
             let label = b["label"].as_str()?;
             let id = b["id"].as_str()?;
             let callback_data = if let Some(ctx) = b["context"].as_str() {
-                format!("{id}|{ctx}")
+                let inline = format!("{id}|{ctx}");
+                if inline.len() <= CALLBACK_DATA_MAX_BYTES {
+                    inline
+                } else if let Some(store) = dispatch_store
+                    && let Ok(payload) =
+                        serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(ctx)
+                {
+                    // Store full context, use just the ID in callback_data
+                    store.insert(id.to_string(), payload);
+                    id.to_string()
+                } else {
+                    // No store or not a dispatch payload — truncate (lossy fallback to LLM)
+                    inline[..inline.floor_char_boundary(CALLBACK_DATA_MAX_BYTES)].to_string()
+                }
             } else {
                 id.to_string()
             };
-            // Truncate callback_data to 64 bytes at a char boundary
-            let truncated = if callback_data.len() > CALLBACK_DATA_MAX_BYTES {
-                callback_data[..callback_data.floor_char_boundary(CALLBACK_DATA_MAX_BYTES)]
-                    .to_string()
-            } else {
-                callback_data
-            };
-            Some(InlineKeyboardButton::callback(label, truncated))
+            Some(InlineKeyboardButton::callback(label, callback_data))
         })
         .map(|b| vec![b])
         .collect();
@@ -183,6 +196,8 @@ impl BaseChannel for TelegramChannel {
             }
         }
 
+        let dispatch_store = self.dispatch_store.clone();
+
         // Spawn dispatcher in background task with retry loop
         let handle = tokio::spawn(async move {
             let mut reconnect_attempt = 0u32;
@@ -206,6 +221,7 @@ impl BaseChannel for TelegramChannel {
                 let cb_allow_list = allow_list.clone();
                 let cb_allow_groups = allow_groups.clone();
                 let cb_dm_policy = dm_policy.clone();
+                let cb_dispatch_store = dispatch_store.clone();
 
                 let message_handler =
                     Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
@@ -237,6 +253,7 @@ impl BaseChannel for TelegramChannel {
                         let allow_list = cb_allow_list.clone();
                         let allow_groups = cb_allow_groups.clone();
                         let dm_policy = cb_dm_policy.clone();
+                        let dispatch_store = cb_dispatch_store.clone();
                         async move {
                             handle_callback_query(
                                 bot,
@@ -245,6 +262,7 @@ impl BaseChannel for TelegramChannel {
                                 &allow_list,
                                 &allow_groups,
                                 &dm_policy,
+                                &dispatch_store,
                             )
                             .await
                         }
@@ -342,7 +360,7 @@ impl BaseChannel for TelegramChannel {
         let raw_chunks = split_message(&msg.content, 4096);
 
         // Fix #1: build inline keyboard from unified button metadata
-        let keyboard = build_inline_keyboard(msg);
+        let keyboard = build_inline_keyboard(msg, Some(&self.dispatch_store));
 
         for (i, html_chunk) in html_chunks.iter().enumerate() {
             let raw_chunk = raw_chunks
@@ -385,7 +403,7 @@ impl BaseChannel for TelegramChannel {
         let html_chunks = split_message(&html_content, 4096);
         let raw_chunks = split_message(&msg.content, 4096);
 
-        let keyboard = build_inline_keyboard(msg);
+        let keyboard = build_inline_keyboard(msg, Some(&self.dispatch_store));
 
         let mut last_id = None;
         for (i, html_chunk) in html_chunks.iter().enumerate() {
@@ -796,6 +814,7 @@ async fn handle_callback_query(
     allow_list: &oxicrab_core::config::schema::DenyByDefaultList,
     allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
     dm_policy: &oxicrab_core::config::schema::DmPolicy,
+    dispatch_store: &crate::dispatch::DispatchContextStore,
 ) -> Result<()> {
     let sender_id = q.from.id.to_string();
     let callback_data = q.data.as_deref().unwrap_or_default();
@@ -838,7 +857,19 @@ async fn handle_callback_query(
 
     // Try to parse context as ActionDispatchPayload for direct dispatch
     let (content, dispatch) = if context_str.is_empty() {
-        (format!("[button:{action_id}]"), None)
+        // No inline context — check dispatch store (used when context exceeded 64 bytes)
+        if let Some(payload) = dispatch_store.get(action_id) {
+            let dispatch = oxicrab_core::dispatch::ActionDispatch {
+                tool: payload.tool,
+                params: payload.params,
+                source: oxicrab_core::dispatch::ActionSource::Button {
+                    action_id: action_id.to_string(),
+                },
+            };
+            (format!("[button:{action_id}]"), Some(dispatch))
+        } else {
+            (format!("[button:{action_id}]"), None)
+        }
     } else if let Ok(payload) =
         serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(context_str)
     {

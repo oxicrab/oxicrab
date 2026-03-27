@@ -141,7 +141,7 @@ fn test_extension_from_tg_path_webp() {
 #[test]
 fn test_build_inline_keyboard_no_buttons() {
     let msg = OutboundMessage::builder("telegram", "123", "hello").build();
-    assert!(build_inline_keyboard(&msg).is_none());
+    assert!(build_inline_keyboard(&msg, None).is_none());
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn test_build_inline_keyboard_with_buttons() {
             ]),
         )
         .build();
-    let kb = build_inline_keyboard(&msg);
+    let kb = build_inline_keyboard(&msg, None);
     assert!(kb.is_some());
     let kb = kb.unwrap();
     assert_eq!(kb.inline_keyboard.len(), 2);
@@ -174,7 +174,7 @@ fn test_build_inline_keyboard_truncates_callback_data() {
             ]),
         )
         .build();
-    let kb = build_inline_keyboard(&msg).unwrap();
+    let kb = build_inline_keyboard(&msg, None).unwrap();
     // callback_data = "act|" + 100 x's = 104 bytes, must be truncated to 64
     let btn = &kb.inline_keyboard[0][0];
     if let teloxide::types::InlineKeyboardButtonKind::CallbackData(ref data) = btn.kind {
