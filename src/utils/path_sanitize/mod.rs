@@ -2,11 +2,6 @@ use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;
 
-/// System paths that are safe to expose in error messages.
-const SYSTEM_PREFIXES: &[&str] = &[
-    "/usr", "/etc", "/lib", "/lib64", "/bin", "/sbin", "/dev", "/proc", "/tmp", "/var",
-];
-
 /// Sanitize a path for inclusion in error messages sent to the LLM.
 ///
 /// - Paths under `~/workspace` → `~/workspace/...` (tilde-collapsed)
@@ -24,13 +19,6 @@ pub fn sanitize_path(path: &Path, workspace: Option<&Path>) -> String {
     // Not under home → return unchanged
     if !path_str.starts_with(home_str.as_ref()) {
         return path_str.to_string();
-    }
-
-    // Check system prefixes first (in case home is under /var or similar)
-    for prefix in SYSTEM_PREFIXES {
-        if path_str.starts_with(prefix) && !path_str.starts_with(home_str.as_ref()) {
-            return path_str.to_string();
-        }
     }
 
     // Under home — check if it's under workspace.
