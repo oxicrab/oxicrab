@@ -362,6 +362,7 @@ impl Tool for CronTool {
             actions: actions![
                 add,
                 list: ro,
+                get: ro,
                 update,
                 pause,
                 resume,
@@ -409,8 +410,9 @@ impl Tool for CronTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "update", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
+                    "enum": ["add", "list", "get", "update", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
                     "description": "Action to perform. 'add' creates a new scheduled job. \
+                     'get' retrieves full details of a single job by job_id. \
                      'update' modifies an existing job (name, message, schedule). \
                      'run' triggers an existing job immediately by job_id. 'list' shows all \
                      jobs. 'pause' disables a job. 'resume' re-enables a paused job. \
@@ -448,7 +450,7 @@ impl Tool for CronTool {
                 },
                 "job_id": {
                     "type": "string",
-                    "description": "Job ID (for remove or run)"
+                    "description": "Job ID (for get, update, pause, resume, remove, or run)"
                 },
                 "channels": {
                     "type": "array",
@@ -625,6 +627,83 @@ impl Tool for CronTool {
                     job.id,
                     targets_desc.join(", ")
                 )))
+            }
+            "get" => {
+                let job_id = require_param!(params, "job_id");
+                let job = self
+                    .cron_service
+                    .get_job(job_id)?
+                    .ok_or_else(|| anyhow::anyhow!("job {job_id} not found"))?;
+
+                let schedule_desc = job.schedule.describe();
+                let type_label = if job.payload.kind == "echo" {
+                    "echo"
+                } else {
+                    "agent"
+                };
+                let status = if job.enabled { "enabled" } else { "paused" };
+                let targets_desc = if job.payload.targets.is_empty() {
+                    "no targets".to_string()
+                } else {
+                    job.payload
+                        .targets
+                        .iter()
+                        .map(|t| format!("{}:{}", t.channel, t.to))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+
+                let fmt_ts = |ms: i64| -> String {
+                    chrono::DateTime::from_timestamp(ms / 1000, 0).map_or_else(
+                        || "unknown".into(),
+                        |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                    )
+                };
+
+                let next_run = job
+                    .state
+                    .next_run_at_ms
+                    .map_or_else(|| "pending".into(), &fmt_ts);
+                let last_run = job
+                    .state
+                    .last_run_at_ms
+                    .map_or_else(|| "never".into(), &fmt_ts);
+                let last_status = job.state.last_status.as_deref().unwrap_or("n/a");
+                let last_error = job.state.last_error.as_deref().unwrap_or("none");
+
+                let mut detail = format!(
+                    "Job: {} (id: {})\n\
+                     Status: {status}\n\
+                     Type: {type_label}\n\
+                     Schedule: {schedule_desc}\n\
+                     Next run: {next_run}\n\
+                     Last run: {last_run}\n\
+                     Last status: {last_status}\n\
+                     Last error: {last_error}\n\
+                     Run count: {}\n\
+                     Targets: [{targets_desc}]\n\
+                     Created: {}\n\
+                     Updated: {}\n\
+                     Message: \"{}\"",
+                    job.name,
+                    job.id,
+                    job.state.run_count,
+                    fmt_ts(job.created_at_ms),
+                    fmt_ts(job.updated_at_ms),
+                    job.payload.message,
+                );
+
+                if let Some(exp) = job.expires_at_ms {
+                    use std::fmt::Write;
+                    let _ = write!(detail, "\nExpires: {}", fmt_ts(exp));
+                }
+                if let Some(max) = job.max_runs {
+                    use std::fmt::Write;
+                    let _ = write!(detail, "\nMax runs: {max}");
+                }
+
+                let buttons = build_job_buttons(&[job]);
+                Ok(ToolResult::new(detail).with_buttons(buttons))
             }
             "list" => {
                 let all_jobs = self.cron_service.list_jobs(false)?;

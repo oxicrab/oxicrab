@@ -171,6 +171,7 @@ fn test_cron_capabilities() {
         .map(|a| a.name)
         .collect();
     assert!(read_only.contains(&"list"));
+    assert!(read_only.contains(&"get"));
     assert!(read_only.contains(&"dlq_list"));
     assert!(mutating.contains(&"add"));
     assert!(mutating.contains(&"remove"));
@@ -730,6 +731,67 @@ fn test_with_buttons_attaches_metadata() {
     let btns = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(btns.len(), 1);
     assert_eq!(btns[0]["id"], "b1");
+}
+
+#[tokio::test]
+async fn test_get_returns_single_job_details() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(
+        cron_service.clone(),
+        Some(make_test_channels_config()),
+        None,
+    );
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U08G6HBC89X".to_string(),
+        ..Default::default()
+    };
+
+    // Add a job
+    let add_result = tool
+        .execute(
+            json!({
+                "action": "add",
+                "message": "Check Arsenal calendar",
+                "cron_expr": "0 8 * * *",
+                "tz": "America/New_York"
+            }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(!add_result.is_error, "add failed: {}", add_result.content);
+
+    // Extract job ID from add result
+    let job_id = cron_service.list_jobs(false).unwrap()[0].id.clone();
+
+    // Get should return detailed info
+    let get_result = tool
+        .execute(json!({"action": "get", "job_id": job_id}), &ctx)
+        .await
+        .unwrap();
+    assert!(!get_result.is_error, "get failed: {}", get_result.content);
+    assert!(get_result.content.contains(&job_id));
+    assert!(get_result.content.contains("Check Arsenal calendar"));
+    assert!(get_result.content.contains("Schedule:"));
+    assert!(get_result.content.contains("Run count:"));
+    assert!(get_result.content.contains("Last run: never"));
+
+    // Should have buttons for this specific job
+    let meta = get_result
+        .metadata
+        .as_ref()
+        .expect("get should return metadata with buttons");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(buttons.len(), 2); // Run + Pause for one job
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Run: "));
+
+    // Get with invalid ID should error
+    let err_result = tool
+        .execute(json!({"action": "get", "job_id": "nonexistent"}), &ctx)
+        .await;
+    assert!(err_result.is_err());
 }
 
 #[tokio::test]
