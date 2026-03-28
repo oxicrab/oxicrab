@@ -370,6 +370,77 @@ fn test_coerce_multiple_params_simultaneously() {
     assert_eq!(result["enabled"], json!(true));
 }
 
+#[test]
+fn test_coerce_object_to_string() {
+    let schema = json!({"type": "object", "properties": {"context": {"type": "string"}}});
+    let params = json!({"context": {"job_id": "abc123"}});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["context"], json!(r#"{"job_id":"abc123"}"#));
+}
+
+#[test]
+fn test_coerce_array_to_string() {
+    let schema = json!({"type": "object", "properties": {"ids": {"type": "string"}}});
+    let params = json!({"ids": [1, 2, 3]});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["ids"], json!("[1,2,3]"));
+}
+
+#[test]
+fn test_coerce_nested_array_items() {
+    // Mirrors the add_buttons schema: buttons[].context should be coerced
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "buttons": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "context": {"type": "string"}
+                    }
+                }
+            }
+        }
+    });
+    let params = json!({"buttons": [
+        {"id": "run", "context": {"job_id": "d4e3442ca293"}},
+        {"id": "pause", "context": {"job_id": "d4e3442ca293"}}
+    ]});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(
+        result["buttons"][0]["context"],
+        json!(r#"{"job_id":"d4e3442ca293"}"#)
+    );
+    assert_eq!(
+        result["buttons"][1]["context"],
+        json!(r#"{"job_id":"d4e3442ca293"}"#)
+    );
+    // id should remain a string (already correct type)
+    assert_eq!(result["buttons"][0]["id"], json!("run"));
+}
+
+#[test]
+fn test_coerce_nested_object_properties() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "config": {
+                "type": "object",
+                "properties": {
+                    "port": {"type": "integer"},
+                    "host": {"type": "string"}
+                }
+            }
+        }
+    });
+    let params = json!({"config": {"port": "8080", "host": 42}});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["config"]["port"], json!(8080));
+    assert_eq!(result["config"]["host"], json!("42"));
+}
+
 // --- tool definition ordering tests ---
 
 #[test]

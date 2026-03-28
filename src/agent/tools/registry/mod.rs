@@ -45,66 +45,88 @@ const DEFAULT_MAX_RESULT_CHARS: usize = 10000;
 /// `5` when a schema expects a string. This auto-casting avoids wasting a full
 /// LLM round-trip on trivially fixable type mismatches.
 fn coerce_params_to_schema(mut params: Value, schema: &Value) -> Value {
-    let Some(Value::Object(properties)) = schema.get("properties") else {
-        return params;
-    };
-    let Some(params_obj) = params.as_object_mut() else {
-        return params;
+    coerce_value_to_schema(&mut params, schema);
+    params
+}
+
+/// Recursively coerce values to match the expected JSON Schema types.
+/// Descends into object properties and array items.
+fn coerce_value_to_schema(value: &mut Value, schema: &Value) {
+    let Some(expected_type) = schema.get("type").and_then(Value::as_str) else {
+        return;
     };
 
-    for (key, prop_schema) in properties {
-        let Some(expected_type) = prop_schema.get("type").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(value) = params_obj.get_mut(key) else {
-            continue;
-        };
+    // Coerce the value itself to match the expected type
+    match expected_type {
+        "integer" if value.is_string() => {
+            // "5" → 5
+            if let Some(s) = value.as_str()
+                && let Ok(n) = s.parse::<i64>()
+            {
+                *value = Value::Number(n.into());
+            }
+        }
+        "number" if value.is_string() => {
+            // "3.14" → 3.14
+            if let Some(s) = value.as_str()
+                && let Ok(n) = s.parse::<f64>()
+                && let Some(num) = serde_json::Number::from_f64(n)
+            {
+                *value = Value::Number(num);
+            }
+        }
+        "string" if value.is_number() => {
+            // 5 → "5"
+            *value = Value::String(value.to_string());
+        }
+        "string" if value.is_object() || value.is_array() => {
+            // {"a":1} → "{\"a\":1}" — common LLM mistake for opaque string fields
+            if let Ok(s) = serde_json::to_string(value) {
+                *value = Value::String(s);
+            }
+        }
+        "boolean" if value.is_string() => {
+            // "true" → true, "false" → false
+            match value.as_str() {
+                Some("true") => *value = Value::Bool(true),
+                Some("false") => *value = Value::Bool(false),
+                _ => {}
+            }
+        }
+        "array" | "object" if value.is_string() => {
+            // "{\"a\":1}" → {"a":1}, "[1,2]" → [1,2]
+            if let Some(s) = value.as_str()
+                && let Ok(parsed) = serde_json::from_str::<Value>(s)
+                && ((expected_type == "array" && parsed.is_array())
+                    || (expected_type == "object" && parsed.is_object()))
+            {
+                *value = parsed;
+            }
+        }
+        _ => {}
+    }
 
-        match expected_type {
-            "integer" if value.is_string() => {
-                // "5" → 5
-                if let Some(s) = value.as_str()
-                    && let Ok(n) = s.parse::<i64>()
-                {
-                    *value = Value::Number(n.into());
-                }
+    // Recurse into object properties
+    if expected_type == "object"
+        && let Some(Value::Object(properties)) = schema.get("properties")
+        && let Some(obj) = value.as_object_mut()
+    {
+        for (key, prop_schema) in properties {
+            if let Some(child) = obj.get_mut(key) {
+                coerce_value_to_schema(child, prop_schema);
             }
-            "number" if value.is_string() => {
-                // "3.14" → 3.14
-                if let Some(s) = value.as_str()
-                    && let Ok(n) = s.parse::<f64>()
-                    && let Some(num) = serde_json::Number::from_f64(n)
-                {
-                    *value = Value::Number(num);
-                }
-            }
-            "string" if value.is_number() => {
-                // 5 → "5"
-                *value = Value::String(value.to_string());
-            }
-            "boolean" if value.is_string() => {
-                // "true" → true, "false" → false
-                match value.as_str() {
-                    Some("true") => *value = Value::Bool(true),
-                    Some("false") => *value = Value::Bool(false),
-                    _ => {}
-                }
-            }
-            "array" | "object" if value.is_string() => {
-                // "{\"a\":1}" → {"a":1}, "[1,2]" → [1,2]
-                if let Some(s) = value.as_str()
-                    && let Ok(parsed) = serde_json::from_str::<Value>(s)
-                    && ((expected_type == "array" && parsed.is_array())
-                        || (expected_type == "object" && parsed.is_object()))
-                {
-                    *value = parsed;
-                }
-            }
-            _ => {}
         }
     }
 
-    params
+    // Recurse into array items
+    if expected_type == "array"
+        && let Some(items_schema) = schema.get("items")
+        && let Some(arr) = value.as_array_mut()
+    {
+        for item in arr.iter_mut() {
+            coerce_value_to_schema(item, items_schema);
+        }
+    }
 }
 
 struct CachedResult {
