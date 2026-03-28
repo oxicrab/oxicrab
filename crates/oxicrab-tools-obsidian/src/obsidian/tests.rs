@@ -34,7 +34,11 @@ async fn test_missing_action() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("unknown action"));
+    assert!(
+        result
+            .content
+            .contains("missing required parameter 'action'")
+    );
 }
 
 #[tokio::test]

@@ -189,7 +189,11 @@ impl Tool for ObsidianTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"].as_str().unwrap_or_default();
+        let Some(action) = params["action"].as_str() else {
+            return Ok(ToolResult::error(
+                "missing required parameter 'action'. Use: read, write, append, search, list, delete, or rename",
+            ));
+        };
 
         match action {
             "read" => {
