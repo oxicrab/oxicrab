@@ -189,11 +189,11 @@ impl ContextBuilder {
             now.month(),
             now.day(),
             now.format("%A"),
-            now.format("%H:%M %Z")
+            now.format("%H:%M:%S %Z")
         );
         let tz_str = now.format("%Z").to_string();
         // Natural-language datetime for prominence (LLMs respond better to this)
-        let datetime_natural = now.format("%A, %B %-d, %Y at %H:%M %Z").to_string();
+        let datetime_natural = now.format("%A, %B %-d, %Y at %H:%M:%S %Z").to_string();
 
         let workspace_path = self
             .workspace
@@ -483,7 +483,7 @@ impl ContextBuilder {
             });
         }
 
-        let time_prefix = format!("[{}] ", Local::now().format("%H:%M"));
+        let time_prefix = format!("[{}] ", Local::now().format("%H:%M:%S"));
         let user_content = format!("{time_prefix}{current_message}");
         if images.is_empty() {
             messages.push(crate::providers::base::Message::user(user_content));
