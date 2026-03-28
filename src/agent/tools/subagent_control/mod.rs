@@ -71,6 +71,7 @@ impl Tool for SubagentControlTool {
                         "No running subagents.\n{capacity_line}"
                     )));
                 }
+                let mut buttons = Vec::new();
                 let lines: Vec<String> = tasks
                     .iter()
                     .map(|t| {
@@ -88,6 +89,21 @@ impl Tool for SubagentControlTool {
                         } else if done {
                             "done"
                         } else {
+                            // Only offer cancel buttons for running subagents
+                            if buttons.len() < 5 {
+                                buttons.push(serde_json::json!({
+                                    "id": format!("cancel-{id}"),
+                                    "label": format!("Cancel: {}", if id.len() > 20 { &id[..20] } else { id }),
+                                    "style": "danger",
+                                    "context": serde_json::json!({
+                                        "tool": "subagent_control",
+                                        "params": {
+                                            "action": "cancel",
+                                            "task_id": id
+                                        }
+                                    }).to_string()
+                                }));
+                            }
                             "running"
                         };
                         format!("- [{id}] {status}")
@@ -97,7 +113,8 @@ impl Tool for SubagentControlTool {
                     "Running subagents:\n{}\n{}",
                     lines.join("\n"),
                     capacity_line
-                )))
+                ))
+                .with_buttons(buttons))
             }
             "cancel" => {
                 let task_id = require_param!(params, "task_id");
