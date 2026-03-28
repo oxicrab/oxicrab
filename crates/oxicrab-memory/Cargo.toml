@@ -29,5 +29,5 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.4"
+proptest = "1.11"
 tempfile = { workspace = true }
