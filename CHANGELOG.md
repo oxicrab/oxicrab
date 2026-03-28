@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.8] - 2026-03-28
+
+### Fixed
+- **tests:** keep outbound channel receiver alive in test agent ([b00dc5f](https://github.com/oxicrab/oxicrab/commit/b00dc5f5b645a86fa696f4079be89db2d29d8b44))
+- **cron:** skip job execution when fire_cron_job DB update fails ([e871961](https://github.com/oxicrab/oxicrab/commit/e87196109ba77574cad99a77b7e08f3f80b89ef3))
+- **config,media:** per-file permission warnings, canonicalize media dir ([8aded15](https://github.com/oxicrab/oxicrab/commit/8aded1530ac994918a163b2c90e259339bb68c71))
+- **utils:** remove dead system prefix check in path sanitization ([eda1373](https://github.com/oxicrab/oxicrab/commit/eda13738026edd43d0b1e23ea0d14807c128e8ab))
+- **github,telegram:** merge_pr uses proper API pipeline, Telegram buttons use DispatchContextStore ([f33c379](https://github.com/oxicrab/oxicrab/commit/f33c379d458224d2727675a1800b661477b7050f))
+- **agent:** handle approval bus send failures and cron regex cache poison ([01c08bf](https://github.com/oxicrab/oxicrab/commit/01c08bffaebd0c9b8c77c258937c0504432068cf))
+- **tools:** use floor_char_boundary() in schema hint description capping ([d014d79](https://github.com/oxicrab/oxicrab/commit/d014d7972127b98a5f79ef8f6342b05d81bcd411))
+
 ## [0.16.7] - 2026-03-26
 
 ### Added
