@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.9] - 2026-03-28
+
+### Added
+- **subagent:** add cancel buttons to subagent_control list action ([c5a40ef](https://github.com/oxicrab/oxicrab/commit/c5a40efaddeee5e1c9faacafc71d3c3a3e3e49d6))
+- **cron:** add get action for single job retrieval ([785fe82](https://github.com/oxicrab/oxicrab/commit/785fe82ec8c4071349de0031acfd366c680f8693))
+
+
+### CI/CD
+- bump actions/deploy-pages from 4 to 5 ([67cd14f](https://github.com/oxicrab/oxicrab/commit/67cd14f6f7d96c66d43982c4a980120ed6906c1b))
+- bump actions/configure-pages from 5 to 6 ([726450b](https://github.com/oxicrab/oxicrab/commit/726450b8876a3eeecf3af5da3b7c2bfaddb7772b))
+- bump trufflesecurity/trufflehog from 3.94.0 to 3.94.1 ([8c9563f](https://github.com/oxicrab/oxicrab/commit/8c9563f7cce7fba85631e8f356cb8118188a46ff))
+
+
+### Dependencies
+- bump rmcp from 1.2.0 to 1.3.0 ([b198ac4](https://github.com/oxicrab/oxicrab/commit/b198ac45bda3a32f5c96f1ca1e0dfdf24c35187c))
+- bump moka from 0.12.14 to 0.12.15 ([38494c8](https://github.com/oxicrab/oxicrab/commit/38494c86ffbeadc5e722d77f9819ce5a77c2f455))
+- bump cron from 0.15.0 to 0.16.0 ([d0921b3](https://github.com/oxicrab/oxicrab/commit/d0921b31c1dc46bcff7014f630e0dfdc4ca6fe7f))
+- bump proptest from 1.10.0 to 1.11.0 ([b8a888f](https://github.com/oxicrab/oxicrab/commit/b8a888ff41013dffde190799c1e511c73735a6e0))
+- bump uuid from 1.22.0 to 1.23.0 ([8a8b11d](https://github.com/oxicrab/oxicrab/commit/8a8b11d52703d9f337c3899f7ea7f56d006ffef6))
+- bump metrics-exporter-prometheus from 0.17.2 to 0.18.1 ([2621f39](https://github.com/oxicrab/oxicrab/commit/2621f39f2210504a650e24604ecac18c7caa4876))
+- bump whatsapp-rust from 0.4.3 to 0.5.0 ([c15c6e2](https://github.com/oxicrab/oxicrab/commit/c15c6e2bc9fe43c278653e09c5e3cc34bc19f1d9))
+- bump toml from 0.9.12+spec-1.1.0 to 1.1.0+spec-1.1.0 ([a2ab998](https://github.com/oxicrab/oxicrab/commit/a2ab99880ce5d90567d8867e81c9b845236a8710))
+
+
+### Documentation
+- update CLAUDE.md for seconds timestamps and recursive coercion ([959dcf3](https://github.com/oxicrab/oxicrab/commit/959dcf3fda1c2db3d7be61cf3c5c46044f8f6d7b))
+
+
+### Fixed
+- **obsidian:** validate action parameter instead of defaulting to empty string ([bf523b0](https://github.com/oxicrab/oxicrab/commit/bf523b0619d42a7b841404848c643ec8a6591176))
+- **tools:** recursive param auto-casting with object-to-string coercion ([2dc60f6](https://github.com/oxicrab/oxicrab/commit/2dc60f60b0f8f5cf0972f7f39275382d09ddd7cd))
+- **context:** add seconds precision to system prompt timestamps ([143cc9c](https://github.com/oxicrab/oxicrab/commit/143cc9c26949b87a7c6577d3c623ec748d8b13b5))
+
 ## [0.16.8] - 2026-03-28
 
 ### Fixed
