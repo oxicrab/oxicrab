@@ -7,6 +7,9 @@ fuzz/Cargo.lock
 # Cargo.lock should be committed for binaries (applications)
 # Only ignore for libraries
 
+# Environment
+.envrc
+
 # IDE
 .idea/
 .vscode/
