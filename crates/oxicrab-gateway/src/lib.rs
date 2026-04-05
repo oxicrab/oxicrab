@@ -35,7 +35,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use governor::{DefaultKeyedRateLimiter, Quota};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;

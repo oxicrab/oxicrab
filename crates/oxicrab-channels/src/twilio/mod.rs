@@ -7,7 +7,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use base64::Engine;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
 use oxicrab_core::channels::base::{BaseChannel, split_message};
 use oxicrab_core::config::schema::TwilioConfig;
