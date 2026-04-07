@@ -497,14 +497,34 @@ impl Tool for GoogleCalendarTool {
                     urlencoding::encode(event_id),
                     urlencoding::encode(send_updates)
                 );
+                let mut changes = Vec::new();
+                if params["summary"].as_str().is_some() {
+                    changes.push("summary");
+                }
+                if params["description"].as_str().is_some() {
+                    changes.push("description");
+                }
+                if params["location"].as_str().is_some() {
+                    changes.push("location");
+                }
+                if params["start"].as_str().is_some() {
+                    changes.push("start");
+                }
+                if params["end"].as_str().is_some() {
+                    changes.push("end");
+                }
+                if params["attendees"].as_array().is_some() {
+                    changes.push("attendees");
+                }
+
                 let updated = self
                     .api
                     .call(&endpoint, "PATCH", Some(Value::Object(patch)))
                     .await?;
                 Ok(ToolResult::new(format!(
-                    "Event updated: {} (ID: {})",
+                    "Event updated: {}\nChanged: {}",
                     updated["summary"].as_str().unwrap_or("?"),
-                    updated["id"].as_str().unwrap_or("?")
+                    changes.join(", "),
                 )))
             }
             "delete_event" => {

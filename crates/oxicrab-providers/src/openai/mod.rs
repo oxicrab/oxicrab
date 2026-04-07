@@ -107,9 +107,14 @@ impl OpenAIProvider {
                         None => json!({}),
                     };
 
+                    let name = function["name"].as_str().unwrap_or_default().to_string();
+                    if name.is_empty() {
+                        warn!("skipping tool call with empty name");
+                        continue;
+                    }
                     tool_calls.push(ToolCallRequest {
                         id: tc["id"].as_str().unwrap_or_default().to_string(),
-                        name: function["name"].as_str().unwrap_or_default().to_string(),
+                        name,
                         arguments,
                     });
                 }

@@ -347,16 +347,18 @@ impl SessionManager {
     }
 
     /// Delete sessions older than `ttl_days` days from the database.
-    /// Also clears the in-memory LRU cache to prevent serving stale entries.
+    /// Selectively evicts deleted sessions from the LRU cache.
     pub async fn cleanup_old_sessions(&self, ttl_days: u32) -> Result<usize> {
-        let deleted = self.db.cleanup_sessions(ttl_days)?;
-        if deleted > 0 {
-            info!("session cleanup: removed {} expired session(s)", deleted);
-            // Invalidate cache so stale sessions are not served from memory
+        let deleted_keys = self.db.cleanup_sessions(ttl_days)?;
+        let count = deleted_keys.len();
+        if count > 0 {
+            info!("session cleanup: removed {} expired session(s)", count);
             let mut cache = self.cache.lock().await;
-            cache.clear();
+            for key in &deleted_keys {
+                cache.pop(key);
+            }
         }
-        Ok(deleted)
+        Ok(count)
     }
 
     pub async fn save(&self, session: &Session) -> Result<()> {

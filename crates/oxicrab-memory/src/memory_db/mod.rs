@@ -183,19 +183,34 @@ impl MemoryDB {
         Ok(())
     }
 
-    /// Delete sessions not updated within `ttl_days`. Returns count deleted.
+    /// Delete sessions not updated within `ttl_days`. Returns deleted keys.
     /// A TTL of 0 deletes all sessions.
-    pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<usize> {
+    pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<Vec<String>> {
         let conn = self.lock_conn()?;
-        let deleted = if ttl_days == 0 {
-            conn.execute("DELETE FROM sessions", [])?
+        let keys: Vec<String> = if ttl_days == 0 {
+            let mut stmt = conn.prepare("SELECT key FROM sessions")?;
+            stmt.query_map([], |row| row.get(0))?
+                .filter_map(std::result::Result::ok)
+                .collect()
         } else {
-            conn.execute(
-                "DELETE FROM sessions WHERE updated_at < datetime('now', ?1)",
-                rusqlite::params![format!("-{ttl_days} days")],
-            )?
+            let modifier = format!("-{ttl_days} days");
+            let mut stmt =
+                conn.prepare("SELECT key FROM sessions WHERE updated_at < datetime('now', ?1)")?;
+            stmt.query_map(rusqlite::params![modifier], |row| row.get(0))?
+                .filter_map(std::result::Result::ok)
+                .collect()
         };
-        Ok(deleted)
+        if !keys.is_empty() {
+            if ttl_days == 0 {
+                conn.execute("DELETE FROM sessions", [])?;
+            } else {
+                conn.execute(
+                    "DELETE FROM sessions WHERE updated_at < datetime('now', ?1)",
+                    rusqlite::params![format!("-{ttl_days} days")],
+                )?;
+            }
+        }
+        Ok(keys)
     }
 }
 

@@ -280,10 +280,25 @@ impl Tool for GoogleTasksTool {
                     urlencoding::encode(task_id),
                 );
                 let task = self.api.call(&endpoint, "PATCH", Some(body)).await?;
+
+                let mut changes = Vec::new();
+                if let Some(status) = params["status"].as_str() {
+                    changes.push(format!("status → {status}"));
+                }
+                if let Some(title) = params["title"].as_str() {
+                    changes.push(format!("title → {title}"));
+                }
+                if let Some(notes) = params["notes"].as_str() {
+                    changes.push(format!("notes → {notes}"));
+                }
+                if let Some(due) = params["due"].as_str() {
+                    changes.push(format!("due → {due}"));
+                }
+
                 let result = ToolResult::new(format!(
-                    "Task updated: {} (ID: {})",
+                    "Task updated: {}\nChanges: {}",
                     task["title"].as_str().unwrap_or("?"),
-                    task["id"].as_str().unwrap_or("?"),
+                    changes.join(", "),
                 ));
                 // After completing a task, offer to view remaining tasks
                 if params["status"].as_str() == Some("completed") {

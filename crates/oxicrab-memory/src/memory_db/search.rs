@@ -55,12 +55,13 @@ impl MemoryDB {
                      JOIN memory_entries me ON memory_fts.rowid = me.id
                      WHERE memory_fts MATCH ?
                      ORDER BY bm25(memory_fts, 10.0, 1.0)
-                     LIMIT 100",
+                     LIMIT ?",
                 )?;
 
                 let now = Utc::now();
+                let fts_limit = (limit * 3 + exclude.len()).max(100).to_string();
                 let rows: Vec<_> = stmt
-                    .query_map([&query], |row| {
+                    .query_map([&query, &fts_limit], |row| {
                         Ok((
                             row.get::<_, i64>(0)?,
                             row.get::<_, String>(1)?,
@@ -305,8 +306,9 @@ impl MemoryDB {
                 LIMIT ?",
             )?;
 
+            let overfetch = (limit * 3 + exclude.len()).max(100);
             let rows: Result<Vec<_>, _> = stmt
-                .query_map([&query, &(limit + exclude.len()).to_string()], |row| {
+                .query_map([&query, &overfetch.to_string()], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })?
                 .collect();
@@ -350,8 +352,9 @@ impl MemoryDB {
             LIMIT ?",
         )?;
 
+        let overfetch = (limit * 3 + exclude.len()).max(100);
         let rows: Result<Vec<_>, _> = stmt
-            .query_map([&like, &(limit + exclude.len()).to_string()], |row| {
+            .query_map([&like, &overfetch.to_string()], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .collect();

@@ -114,7 +114,7 @@ static BASE_PATTERNS: LazyLock<BasePatterns> = LazyLock::new(|| {
         // Slack user tokens
         (
             "slack_user_token",
-            r"xoxp-[0-9]+-[0-9]+-[0-9]+-[a-f0-9]+",
+            r"xoxp-[0-9]+-[0-9]+-[0-9]+-[a-fA-F0-9]+",
             "xoxp-",
         ),
         // GitLab personal access tokens

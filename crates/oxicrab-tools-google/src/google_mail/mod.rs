@@ -409,6 +409,14 @@ impl Tool for GoogleMailTool {
                     ));
                 }
 
+                let mut changes = Vec::new();
+                if !label_ids.is_empty() {
+                    changes.push(format!("added: {}", label_ids.join(", ")));
+                }
+                if !remove_label_ids.is_empty() {
+                    changes.push(format!("removed: {}", remove_label_ids.join(", ")));
+                }
+
                 let mut body = serde_json::json!({});
                 if !label_ids.is_empty() {
                     body["addLabelIds"] =
@@ -425,7 +433,8 @@ impl Tool for GoogleMailTool {
                 );
                 self.api.call(&endpoint, "POST", Some(body)).await?;
                 Ok(ToolResult::new(format!(
-                    "Labels updated on message {message_id}"
+                    "Labels updated\nChanges: {}",
+                    changes.join("; "),
                 )))
             }
             "trash" => {

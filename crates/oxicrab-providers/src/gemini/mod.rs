@@ -6,7 +6,7 @@ use oxicrab_core::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolC
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1";
 
@@ -107,6 +107,10 @@ impl GeminiProvider {
                 // Gemini returns singular `functionCall` per part (not plural array)
                 if let Some(fc) = part.get("functionCall") {
                     let name = fc["name"].as_str().unwrap_or_default().to_string();
+                    if name.is_empty() {
+                        warn!("skipping Gemini functionCall with empty name");
+                        continue;
+                    }
                     // Generate a unique ID per tool call to avoid collisions
                     // when the same function is called multiple times
                     let id = format!("gemini_{}", &uuid::Uuid::new_v4().to_string()[..12]);
@@ -176,11 +180,22 @@ impl LLMProvider for GeminiProvider {
 
             if msg.role == "tool" {
                 // Gemini expects tool results as functionResponse parts
-                let tool_name = msg
-                    .tool_call_id
-                    .as_deref()
-                    .and_then(|id| tool_id_to_name.get(id))
-                    .map_or("unknown", String::as_str);
+                let tool_call_id = msg.tool_call_id.as_deref().unwrap_or("");
+                let tool_name = tool_id_to_name
+                    .get(tool_call_id)
+                    .map(String::as_str)
+                    .unwrap_or_else(|| {
+                        if !tool_call_id.is_empty() {
+                            warn!(
+                                "no tool name found for call_id '{}', \
+                                 using call_id as fallback",
+                                tool_call_id
+                            );
+                            tool_call_id
+                        } else {
+                            "unknown"
+                        }
+                    });
                 let response_value: Value = if msg.is_error {
                     // Wrap error results so Gemini sees the error semantics
                     json!({"error": &msg.content})

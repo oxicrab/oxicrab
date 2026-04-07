@@ -337,20 +337,26 @@ impl TodoistTool {
         priority: Option<u64>,
         labels: Option<Vec<&str>>,
     ) -> Result<String> {
+        let mut changes = Vec::new();
         let mut payload = serde_json::json!({});
         if let Some(c) = content {
             payload["content"] = Value::String(c.to_string());
+            changes.push(format!("content → {c}"));
         }
         if let Some(d) = description {
             payload["description"] = Value::String(d.to_string());
+            changes.push(format!("description → {d}"));
         }
         if let Some(due) = due_string {
             payload["due_string"] = Value::String(due.to_string());
+            changes.push(format!("due → {due}"));
         }
         if let Some(p) = priority {
             payload["priority"] = Value::Number(p.into());
+            changes.push(format!("priority → {p}"));
         }
         if let Some(l) = labels {
+            changes.push(format!("labels → {}", l.join(", ")));
             payload["labels"] = Value::Array(
                 l.into_iter()
                     .map(|s| Value::String(s.to_string()))
@@ -378,7 +384,7 @@ impl TodoistTool {
             anyhow::bail!("Todoist API {status}: {safe}");
         }
 
-        Ok(format!("Task {task_id} updated."))
+        Ok(format!("Task updated\nChanges: {}", changes.join(", ")))
     }
 
     async fn delete_task(&self, task_id: &str) -> Result<String> {

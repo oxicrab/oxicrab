@@ -301,7 +301,9 @@ pub fn handle_set_profile(db: &MemoryDB, interests: &str) -> Result<ToolResult> 
         Some(ref p) => {
             // Already past profile step — just update interests, keep current state
             db.set_rss_profile(interests, &p.onboarding_state.clone(), now)?;
-            Ok(ToolResult::new("interests updated successfully"))
+            Ok(ToolResult::new(format!(
+                "Interests updated to: {interests}"
+            )))
         }
     }
 }

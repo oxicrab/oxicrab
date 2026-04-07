@@ -99,6 +99,17 @@ impl MessageRouter {
         prefix: String,
         remember_checker: Option<RememberChecker>,
     ) -> Self {
+        if prefix.is_empty() {
+            tracing::warn!(
+                "router: empty prefix configured — all messages will match as prefix commands, \
+                 falling back to '!'"
+            );
+        }
+        let prefix = if prefix.is_empty() {
+            "!".to_string()
+        } else {
+            prefix
+        };
         let static_rules: Vec<rules::StaticRule> = static_rules
             .into_iter()
             .map(|mut r| {

@@ -299,9 +299,9 @@ impl ComplexityScorer {
 // Free functions
 // ---------------------------------------------------------------------------
 
-/// D1: Message length — sigmoid normalization centered at 500 bytes.
+/// D1: Message length — sigmoid normalization centered at 500 chars.
 fn score_message_length(content: &str) -> f64 {
-    let len = content.len() as f64;
+    let len = content.chars().count() as f64;
     sigmoid(len - 500.0, 0.005)
 }
 

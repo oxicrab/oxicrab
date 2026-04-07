@@ -248,13 +248,17 @@ impl PromptGuidedToolsProvider {
                 "tool" => {
                     // Convert tool result messages into user messages
                     let tool_id = msg.tool_call_id.as_deref().unwrap_or("unknown");
-                    let content = format!("[Tool result for {tool_id}]:\n{}", msg.content);
+                    let error_prefix = if msg.is_error { " (ERROR)" } else { "" };
+                    let content = format!(
+                        "[Tool result for {tool_id}{error_prefix}]:\n{}",
+                        msg.content
+                    );
                     messages.push(Message {
                         role: "user".into(),
                         content,
                         tool_calls: None,
                         tool_call_id: None,
-                        is_error: false,
+                        is_error: msg.is_error,
                         images: vec![],
                         ..Default::default()
                     });
