@@ -316,10 +316,22 @@ impl AgentLoop {
             leak_detector: leak_detector.clone(),
         };
 
-        let (tools, subagents, mcp_manager, tool_search_activated) =
-            crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
+        let (
+            tools,
+            subagents,
+            mcp_manager,
+            tool_search_activated,
+            _shared_tool_index,
+            collections_registry_handle,
+        ) = crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
         let tools = Arc::new(tools);
         subagents.set_main_tools(tools.clone());
+
+        // Wire up the collections tool's registry handle so it can register
+        // per-collection data tools at runtime.
+        if let Some(handle) = collections_registry_handle {
+            let _ = handle.set(tools.clone());
+        }
 
         // Warn about built-in tools with mutating actions that have no approval gate.
         // Only runs when the interactive approval workflow is disabled.

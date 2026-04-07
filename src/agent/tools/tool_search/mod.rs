@@ -18,6 +18,9 @@ pub struct ToolIndexEntry {
     pub deferred: bool,
 }
 
+/// Shared tool search index that supports runtime additions.
+pub type SharedToolIndex = Arc<std::sync::Mutex<Vec<ToolIndexEntry>>>;
+
 /// Meta-tool that lets the LLM discover available tools by keyword search.
 ///
 /// When MCP servers register many tools, sending all schemas in every request
@@ -25,7 +28,7 @@ pub struct ToolIndexEntry {
 /// request until the LLM discovers them via `tool_search`. Once discovered,
 /// their schemas are included in subsequent iterations of the same agent run.
 pub struct ToolSearchTool {
-    index: Vec<ToolIndexEntry>,
+    index: SharedToolIndex,
     /// Request-scoped set of tool names activated during the current agent run.
     /// The agent loop reads this to dynamically expand tool definitions.
     activated: ActivatedTools,
@@ -33,7 +36,15 @@ pub struct ToolSearchTool {
 
 impl ToolSearchTool {
     pub fn new(index: Vec<ToolIndexEntry>, activated: ActivatedTools) -> Self {
-        Self { index, activated }
+        Self {
+            index: Arc::new(std::sync::Mutex::new(index)),
+            activated,
+        }
+    }
+
+    /// Shared reference to the index for runtime additions.
+    pub fn shared_index(&self) -> SharedToolIndex {
+        Arc::clone(&self.index)
     }
 }
 
@@ -103,25 +114,24 @@ impl Tool for ToolSearchTool {
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let query = params["query"].as_str().unwrap_or("").to_lowercase();
+        let index = self.index.lock().unwrap().clone();
 
         if query.is_empty() {
             // List all tools (names only)
-            let mut lines: Vec<String> = self
-                .index
+            let mut lines: Vec<String> = index
                 .iter()
                 .map(|e| format!("- {}: {}", e.name, e.description))
                 .collect();
             lines.sort();
             return Ok(ToolResult::new(format!(
                 "Available tools ({}):\n{}",
-                self.index.len(),
+                index.len(),
                 lines.join("\n")
             )));
         }
 
         let keywords: Vec<&str> = query.split_whitespace().collect();
-        let mut matches: Vec<&ToolIndexEntry> = self
-            .index
+        let mut matches: Vec<&ToolIndexEntry> = index
             .iter()
             .filter(|e| {
                 let haystack = format!("{} {}", e.name, e.description).to_lowercase();
