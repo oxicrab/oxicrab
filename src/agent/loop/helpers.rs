@@ -169,21 +169,7 @@ pub(super) async fn execute_tool_call(
     if let Some(ref approval) = approval_ctx {
         let tool_caps = tool.capabilities();
         if approval.config.enabled && approval.config.covers(tc_name, action, &tool_caps.actions) {
-            return await_approval(
-                registry,
-                tc_name,
-                action,
-                tc_args,
-                ctx,
-                approval.store,
-                approval.config,
-                approval.outbound_tx,
-                approval.leak_detector,
-                approval.channel,
-                approval.chat_id,
-                approval.sender_id,
-            )
-            .await;
+            return await_approval(registry, tc_name, action, tc_args, ctx, approval).await;
         }
     }
 
@@ -227,20 +213,13 @@ pub(super) async fn execute_tool_call(
 /// Sends a feedback message to the user, an approval request with buttons to
 /// the operator channel, then blocks on a oneshot receiver until the operator
 /// responds or the timeout expires.
-#[allow(clippy::too_many_arguments)]
 async fn await_approval(
     registry: &crate::agent::tools::ToolRegistry,
     tool_name: &str,
     action: &str,
     params: &Value,
     ctx: &ExecutionContext,
-    store: &crate::agent::approval::ApprovalStore,
-    config: &crate::config::ApprovalConfig,
-    outbound_tx: &tokio::sync::mpsc::Sender<OutboundMessage>,
-    leak_detector: &crate::safety::LeakDetector,
-    channel: &str,
-    chat_id: &str,
-    sender_id: &str,
+    approval: &ApprovalContext<'_>,
 ) -> ToolResult {
     use crate::agent::approval::{ApprovalDecision, ApprovalEntry, ApprovalStore};
 
@@ -258,7 +237,7 @@ async fn await_approval(
     };
 
     // Determine operator channel target
-    let (operator_target, operator_channel_key) = match &config.channel {
+    let (operator_target, operator_channel_key) = match &approval.config.channel {
         Some(target) => (
             (
                 target.channel_type().to_string(),
@@ -268,36 +247,39 @@ async fn await_approval(
         ),
         None => {
             // Self-approval: use same conversation, empty key accepts any source
-            ((channel.to_string(), chat_id.to_string()), String::new())
+            (
+                (approval.channel.to_string(), approval.chat_id.to_string()),
+                String::new(),
+            )
         }
     };
 
     // Register the pending approval
-    store.register(
+    approval.store.register(
         &approval_id,
         ApprovalEntry {
             sender: tx,
             tool_name: tool_name.to_string(),
             action: display_action.clone(),
-            requested_by: sender_id.to_string(),
+            requested_by: approval.sender_id.to_string(),
             operator_channel: operator_channel_key,
         },
     );
 
     // Send feedback to user
     let feedback = OutboundMessage::builder(
-        channel,
-        chat_id,
+        approval.channel,
+        approval.chat_id,
         format!(
             "This action requires approval. Waiting for an operator to approve `{tool_name}.{display_action}`..."
         ),
     )
     .build();
-    if outbound_tx.send(feedback).await.is_err() {
-        store.remove(&approval_id);
+    if approval.outbound_tx.send(feedback).await.is_err() {
+        approval.store.remove(&approval_id);
         warn!(
             "approval: failed to send feedback to user channel={} chat_id={} — outbound bus closed",
-            channel, chat_id
+            approval.channel, approval.chat_id
         );
         return ToolResult::error(
             "Could not request approval: message bus is unavailable, try again after restart",
@@ -308,11 +290,11 @@ async fn await_approval(
     let request_text = format_approval_request(
         tool_name,
         &display_action,
-        sender_id,
-        channel,
-        chat_id,
+        approval.sender_id,
+        approval.channel,
+        approval.chat_id,
         params,
-        leak_detector,
+        approval.leak_detector,
     );
     let approve_ctx = serde_json::json!({
         "tool": "__approval",
@@ -337,8 +319,8 @@ async fn await_approval(
                 serde_json::Value::Array(buttons),
             )
             .build();
-    if outbound_tx.send(request_msg).await.is_err() {
-        store.remove(&approval_id);
+    if approval.outbound_tx.send(request_msg).await.is_err() {
+        approval.store.remove(&approval_id);
         warn!(
             "approval: failed to send operator request to {}:{} — outbound bus closed",
             operator_target.0, operator_target.1
@@ -349,7 +331,8 @@ async fn await_approval(
     }
 
     // Wait for approval decision
-    match tokio::time::timeout(std::time::Duration::from_secs(config.timeout), rx).await {
+    let sender_id = approval.sender_id;
+    match tokio::time::timeout(std::time::Duration::from_secs(approval.config.timeout), rx).await {
         Ok(Ok(ApprovalDecision::Approved)) => {
             info!("approval granted for {tool_name}.{display_action} (requested by {sender_id})");
             // Route through the registry to get timeout, panic isolation, truncation, and metrics
@@ -367,7 +350,7 @@ async fn await_approval(
         }
         _ => {
             // Clean up the timed-out entry to prevent unbounded growth
-            store.remove(&approval_id);
+            approval.store.remove(&approval_id);
             warn!("approval timed out for {tool_name}.{display_action} (requested by {sender_id})");
             ToolResult::error("approval timed out — action not executed")
         }
