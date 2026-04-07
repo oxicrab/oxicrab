@@ -351,7 +351,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &'static str {
-        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, pause, resume, remove, run, dlq_list, dlq_replay, dlq_clear. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, pause, resume, remove, run, dlq_list, dlq_replay, dlq_clear, traces, trace_detail. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -371,6 +371,8 @@ impl Tool for CronTool {
                 dlq_list: ro,
                 dlq_replay,
                 dlq_clear,
+                traces: ro,
+                trace_detail: ro,
             ],
             category: ToolCategory::Scheduling,
         }
@@ -410,14 +412,16 @@ impl Tool for CronTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "get", "update", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
+                    "enum": ["add", "list", "get", "update", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear", "traces", "trace_detail"],
                     "description": "Action to perform. 'add' creates a new scheduled job. \
                      'get' retrieves full details of a single job by job_id. \
                      'update' modifies an existing job (name, message, schedule). \
                      'run' triggers an existing job immediately by job_id. 'list' shows all \
                      jobs. 'pause' disables a job. 'resume' re-enables a paused job. \
                      'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
-                     dead letter queue for failed executions."
+                     dead letter queue for failed executions. 'traces' lists recent execution \
+                     traces (optional job_id filter, limit). 'trace_detail' shows full trace \
+                     by trace_id."
                 },
                 "type": {
                     "type": "string",
@@ -488,6 +492,14 @@ impl Tool for CronTool {
                 "max_concurrent": {
                     "type": "integer",
                     "description": "Maximum concurrent executions for event-triggered jobs."
+                },
+                "trace_id": {
+                    "type": "string",
+                    "description": "Trace ID (for trace_detail action)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (for traces action, default 10)"
                 }
             },
             "required": ["action"]
@@ -956,6 +968,78 @@ impl Tool for CronTool {
                     status_filter
                         .map(|s| format!(" (status={s})"))
                         .unwrap_or_default()
+                )))
+            }
+            "traces" => {
+                let Some(ref db) = self.memory_db else {
+                    return Ok(ToolResult::error(
+                        "traces not available (no memory database)".to_string(),
+                    ));
+                };
+                let job_id = params["job_id"].as_str();
+                let limit = params["limit"].as_u64().map_or(10, |n| n.min(100) as usize);
+                let traces = db.list_cron_traces(job_id, limit)?;
+                if traces.is_empty() {
+                    return Ok(ToolResult::new("No execution traces found.".to_string()));
+                }
+                let lines: Vec<String> = traces
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "- [{}] job={} ({}) | status={} | tools={} | tokens={} | started={} | {}",
+                            t.id,
+                            t.job_id,
+                            t.job_name,
+                            t.status,
+                            t.tool_call_count,
+                            t.token_count,
+                            t.started_at,
+                            t.summary.as_deref().unwrap_or("(no summary)")
+                        )
+                    })
+                    .collect();
+                Ok(ToolResult::new(format!(
+                    "Execution traces ({}):\n{}",
+                    traces.len(),
+                    lines.join("\n")
+                )))
+            }
+            "trace_detail" => {
+                let Some(ref db) = self.memory_db else {
+                    return Ok(ToolResult::error(
+                        "traces not available (no memory database)".to_string(),
+                    ));
+                };
+                let Some(trace_id) = params["trace_id"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'trace_id' parameter".to_string(),
+                    ));
+                };
+                let Some(trace) = db.get_cron_trace(trace_id)? else {
+                    return Ok(ToolResult::error(format!("trace '{trace_id}' not found")));
+                };
+                let events_json = serde_json::to_string_pretty(&trace.events)
+                    .unwrap_or_else(|_| "[]".to_string());
+                Ok(ToolResult::new(format!(
+                    "Trace: {}\n\
+                     Job: {} ({})\n\
+                     Status: {}\n\
+                     Started: {}\n\
+                     Completed: {}\n\
+                     Tools called: {}\n\
+                     Tokens used: {}\n\
+                     Summary: {}\n\n\
+                     Events:\n{}",
+                    trace.id,
+                    trace.job_id,
+                    trace.job_name,
+                    trace.status,
+                    trace.started_at,
+                    trace.completed_at.as_deref().unwrap_or("(still running)"),
+                    trace.tool_call_count,
+                    trace.token_count,
+                    trace.summary.as_deref().unwrap_or("(none)"),
+                    events_json,
                 )))
             }
             _ => Ok(ToolResult::error(format!("unknown action: {action}"))),

@@ -66,6 +66,11 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
         Err(e) => warn!("memory entry purge failed: {}", e),
         _ => {}
     }
+    match db.purge_old_cron_traces(200) {
+        Ok(n) if n > 0 => info!("purged {} old cron execution traces", n),
+        Err(e) => warn!("cron trace purge failed: {}", e),
+        _ => {}
+    }
     // Update query planner statistics after bulk deletions.
     if let Err(e) = db.optimize() {
         warn!("failed to optimize database: {e}");

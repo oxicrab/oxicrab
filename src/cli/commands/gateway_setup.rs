@@ -503,17 +503,48 @@ async fn setup_cron_callbacks(
         let bus = bus_clone.clone();
         let db = db_clone.clone();
         Box::pin(async move {
+            use crate::agent::memory::memory_db::{CronTrace, TraceEvent};
+
+            let trace_id = format!("ctr-{}", uuid::Uuid::new_v4());
+            let mut trace = CronTrace::new(trace_id, job.id.clone(), job.name.clone());
+            trace.add_event(TraceEvent::Started {
+                message: job.payload.message.clone(),
+            });
+
             let result = cron_job_execute(&job, &agent, &bus).await;
 
-            if let Err(ref e) = result {
-                let payload_json =
-                    serde_json::to_string(&job.payload).unwrap_or_else(|_| "{}".to_string());
-                if let Err(dlq_err) =
-                    db.insert_dlq_entry(&job.id, &job.name, &payload_json, &e.to_string())
-                {
-                    warn!("failed to insert DLQ entry for job {}: {}", job.id, dlq_err);
+            match &result {
+                Ok(Some(response)) => {
+                    let summary = if response.len() > 100 {
+                        format!("{}...", response.chars().take(97).collect::<String>())
+                    } else {
+                        response.clone()
+                    };
+                    trace.complete(Some(summary));
+                }
+                Ok(None) => {
+                    trace.complete(Some("no response".into()));
+                }
+                Err(e) => {
+                    trace.fail(&e.to_string());
+                    let payload_json =
+                        serde_json::to_string(&job.payload).unwrap_or_else(|_| "{}".to_string());
+                    if let Err(dlq_err) =
+                        db.insert_dlq_entry(&job.id, &job.name, &payload_json, &e.to_string())
+                    {
+                        warn!("failed to insert DLQ entry for job {}: {}", job.id, dlq_err);
+                    }
                 }
             }
+
+            // Persist trace (fire-and-forget on blocking thread)
+            let db_trace = db.clone();
+            let trace_clone = trace.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = db_trace.insert_cron_trace(&trace_clone) {
+                    warn!("failed to save cron trace {}: {}", trace_clone.id, e);
+                }
+            });
 
             result
         })

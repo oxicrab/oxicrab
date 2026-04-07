@@ -92,6 +92,26 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         conn.execute("PRAGMA user_version = 5", [])?;
     }
 
+    if user_version(conn)? < 6 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS cron_execution_traces (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                job_name TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
+                events TEXT NOT NULL DEFAULT '[]',
+                summary TEXT,
+                token_count INTEGER DEFAULT 0,
+                tool_call_count INTEGER DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_cron_traces_job ON cron_execution_traces(job_id);
+            CREATE INDEX IF NOT EXISTS idx_cron_traces_started ON cron_execution_traces(started_at);",
+        )?;
+        conn.execute("PRAGMA user_version = 6", [])?;
+    }
+
     Ok(())
 }
 
@@ -197,7 +217,7 @@ mod tests {
         let v: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
     }
 
     #[test]

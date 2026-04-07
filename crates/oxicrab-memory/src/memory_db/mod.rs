@@ -18,6 +18,7 @@ pub mod rss;
 mod search;
 mod stats;
 mod subagent_log;
+mod traces;
 mod workspace;
 
 pub use cost::TokenSummaryRow;
@@ -30,6 +31,7 @@ pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, SearchStats,
 };
 pub use subagent_log::SubagentLogEntry;
+pub use traces::{CronTrace, TraceEvent, summarize_params, summarize_result};
 pub use workspace::WorkspaceFileEntry;
 
 use embeddings::CachedEmbedding;
