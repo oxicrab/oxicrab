@@ -33,6 +33,7 @@ pub fn provider_http_client() -> Client {
     Client::builder()
         .connect_timeout(Duration::from_secs(PROVIDER_CONNECT_TIMEOUT_SECS))
         .timeout(Duration::from_secs(PROVIDER_REQUEST_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_else(|_| Client::new())
 }

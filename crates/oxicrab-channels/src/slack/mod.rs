@@ -136,6 +136,7 @@ impl SlackChannel {
             client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .timeout(std::time::Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
         }

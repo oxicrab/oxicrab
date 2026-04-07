@@ -196,6 +196,7 @@ impl TranscriptionService {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_mins(1))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_else(|_| Client::new());
 
