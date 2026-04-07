@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use tracing::warn;
 
+pub mod collections;
 mod cost;
 mod cron;
 mod dlq;
@@ -21,6 +22,10 @@ mod subagent_log;
 mod traces;
 mod workspace;
 
+pub use collections::{
+    AggFunction, AggregationRequest, AggregationResult, CollectionInfo, CollectionRecord,
+    CollectionSchema, FieldDef, FieldType, FilterOp, RecordFilter,
+};
 pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
 pub use oxicrab_core::credential_store::OAuthTokenRow;
