@@ -100,18 +100,27 @@ impl AgentLoop {
                         let filtered = crate::agent::memory::quality::filter_lines(facts);
                         if filtered.trim().is_empty() {
                             debug!("pre-compaction flush: all facts filtered by quality gates");
-                        } else if let Err(e) = self
-                            .memory
-                            .append_to_section("Pre-compaction context", &filtered)
-                        {
-                            warn!("failed to write pre-compaction flush: {}", e);
                         } else {
-                            debug!(
-                                "pre-compaction flush: saved {} bytes to daily notes ({} filtered)",
-                                filtered.len(),
-                                facts.len().saturating_sub(filtered.len())
-                            );
-                            flushed_content = true;
+                            let scan =
+                                oxicrab_safety::scan_memory_content(&filtered, &self.leak_detector);
+                            let filtered = scan.content;
+                            if filtered.trim().is_empty() {
+                                debug!(
+                                    "pre-compaction flush: all content stripped by memory scanner"
+                                );
+                            } else if let Err(e) = self
+                                .memory
+                                .append_to_section("Pre-compaction context", &filtered)
+                            {
+                                warn!("failed to write pre-compaction flush: {}", e);
+                            } else {
+                                debug!(
+                                    "pre-compaction flush: saved {} bytes to daily notes ({} filtered)",
+                                    filtered.len(),
+                                    facts.len().saturating_sub(filtered.len())
+                                );
+                                flushed_content = true;
+                            }
                         }
                     }
                     Err(e) => {

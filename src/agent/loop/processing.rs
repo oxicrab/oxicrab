@@ -396,6 +396,7 @@ impl AgentLoop {
             let user_msg = content.clone();
             let assistant_msg = assistant_content.clone();
             let task_tracker = self.task_tracker.clone();
+            let leak_det = self.leak_detector.clone();
             let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
             // Use spawn_auto_cleanup since this is a one-off task that should remove itself
             task_tracker
@@ -411,6 +412,13 @@ impl AgentLoop {
                                     crate::agent::memory::quality::filter_lines(&facts);
                                 if filtered.trim().is_empty() {
                                     debug!("fact extraction: all lines filtered by quality gates");
+                                } else {
+                                let scan = oxicrab_safety::scan_memory_content(
+                                    &filtered, &leak_det,
+                                );
+                                let filtered = scan.content;
+                                if filtered.trim().is_empty() {
+                                    debug!("fact extraction: all content stripped by memory scanner");
                                 } else if let Err(e) =
                                     memory.append_to_section("Facts", &filtered)
                                 {
@@ -433,6 +441,7 @@ impl AgentLoop {
                                         filtered.len(),
                                         facts.len().saturating_sub(filtered.len())
                                     );
+                                }
                                 }
                             }
                         }
@@ -761,18 +770,23 @@ impl AgentLoop {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&reframed)?;
-                    metrics::counter!(
-                        "oxicrab_memory_remember_write_total",
-                        "path" => "fast",
-                        "outcome" => "written_reframed"
-                    )
-                    .increment(1);
-                    info!(
-                        "remember fast path: wrote {} chars to daily notes (reframed)",
-                        reframed.len()
-                    );
-                    format!("Noted (reframed for accuracy): {reframed}")
+                    let scan = oxicrab_safety::scan_memory_content(&reframed, &self.leak_detector);
+                    if scan.content.trim().is_empty() {
+                        "That content was flagged and not stored.".to_string()
+                    } else {
+                        self.memory.append_today(&scan.content)?;
+                        metrics::counter!(
+                            "oxicrab_memory_remember_write_total",
+                            "path" => "fast",
+                            "outcome" => "written_reframed"
+                        )
+                        .increment(1);
+                        info!(
+                            "remember fast path: wrote {} chars to daily notes (reframed)",
+                            scan.content.len()
+                        );
+                        format!("Noted (reframed for accuracy): {}", scan.content)
+                    }
                 }
             }
             QualityVerdict::Pass => {
@@ -797,18 +811,23 @@ impl AgentLoop {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(content)?;
-                    metrics::counter!(
-                        "oxicrab_memory_remember_write_total",
-                        "path" => "fast",
-                        "outcome" => "written"
-                    )
-                    .increment(1);
-                    info!(
-                        "remember fast path: wrote {} chars to daily notes",
-                        content.len()
-                    );
-                    format!("Noted! I'll remember: {content}")
+                    let scan = oxicrab_safety::scan_memory_content(content, &self.leak_detector);
+                    if scan.content.trim().is_empty() {
+                        "That content was flagged and not stored.".to_string()
+                    } else {
+                        self.memory.append_today(&scan.content)?;
+                        metrics::counter!(
+                            "oxicrab_memory_remember_write_total",
+                            "path" => "fast",
+                            "outcome" => "written"
+                        )
+                        .increment(1);
+                        info!(
+                            "remember fast path: wrote {} chars to daily notes",
+                            scan.content.len()
+                        );
+                        format!("Noted! I'll remember: {}", scan.content)
+                    }
                 }
             }
         };

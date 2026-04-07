@@ -2,6 +2,7 @@ use crate::actions;
 use crate::agent::memory::MemoryStore;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::safety::LeakDetector;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -9,11 +10,15 @@ use std::sync::Arc;
 
 pub struct MemorySearchTool {
     memory: Arc<MemoryStore>,
+    leak_detector: Arc<LeakDetector>,
 }
 
 impl MemorySearchTool {
-    pub fn new(memory: Arc<MemoryStore>) -> Self {
-        Self { memory }
+    pub fn new(memory: Arc<MemoryStore>, leak_detector: Arc<LeakDetector>) -> Self {
+        Self {
+            memory,
+            leak_detector,
+        }
     }
 
     fn record_retrieval_metrics_for_sources<'a, I>(source_keys: I)
@@ -200,7 +205,9 @@ impl Tool for MemorySearchTool {
                         .iter()
                         .map(|h| format!("**{}**: {}", h.source_key, h.content))
                         .collect();
-                    return Ok(ToolResult::new(chunks.join("\n\n---\n\n")));
+                    let result = chunks.join("\n\n---\n\n");
+                    let result = oxicrab_safety::redact_memory_output(&result, &self.leak_detector);
+                    return Ok(ToolResult::new(result));
                 }
                 Ok(_) => {} // empty, fall through to keyword search
                 Err(e) => {
@@ -223,6 +230,8 @@ impl Tool for MemorySearchTool {
                             details.source_keys.iter().map(String::as_str),
                         );
                     }
+                    let context =
+                        oxicrab_safety::redact_memory_output(&context, &self.leak_detector);
                     Ok(ToolResult::new(context))
                 }
             }

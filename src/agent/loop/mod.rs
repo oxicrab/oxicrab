@@ -313,6 +313,7 @@ impl AgentLoop {
             workspace_ttl: tool_configs.workspace_ttl,
             pending_buttons: pending_buttons.clone(),
             rss_config: tool_configs.rss_config,
+            leak_detector: leak_detector.clone(),
         };
 
         let (tools, subagents, mcp_manager, tool_search_activated) =

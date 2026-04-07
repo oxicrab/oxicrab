@@ -4,7 +4,8 @@ use crate::agent::tools::base::ExecutionContext;
 fn create_tool() -> MemorySearchTool {
     let tmp = tempfile::TempDir::new().unwrap();
     let memory = Arc::new(MemoryStore::new(tmp.path()).unwrap());
-    MemorySearchTool::new(memory)
+    let leak_detector = Arc::new(crate::safety::LeakDetector::new());
+    MemorySearchTool::new(memory, leak_detector)
 }
 
 #[tokio::test]

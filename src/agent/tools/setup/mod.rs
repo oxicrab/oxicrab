@@ -42,6 +42,7 @@ pub struct ToolBuildContext {
     pub workspace_ttl: config::WorkspaceTtlConfig,
     pub pending_buttons: crate::agent::tools::interactive::PendingButtons,
     pub rss_config: Option<config::RssConfig>,
+    pub leak_detector: Arc<crate::safety::LeakDetector>,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -394,7 +395,10 @@ fn register_rss(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::memory_search::MemorySearchTool;
 
-    registry.register(Arc::new(MemorySearchTool::new(ctx.memory.clone())));
+    registry.register(Arc::new(MemorySearchTool::new(
+        ctx.memory.clone(),
+        ctx.leak_detector.clone(),
+    )));
 }
 
 fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
