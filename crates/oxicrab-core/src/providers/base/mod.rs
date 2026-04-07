@@ -12,7 +12,7 @@ pub struct ToolCallRequest {
     pub arguments: Value,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LLMResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallRequest>,

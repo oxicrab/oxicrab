@@ -1,0 +1,57 @@
+[
+  {
+    "hint": "weather",
+    "response": {
+      "content": "The weather in London is currently 18C and partly cloudy.",
+      "tool_calls": [],
+      "reasoning_content": null,
+      "reasoning_signature": null,
+      "redacted_thinking_blocks": null,
+      "input_tokens": 150,
+      "output_tokens": 25,
+      "cache_creation_input_tokens": null,
+      "cache_read_input_tokens": null,
+      "actual_model": null,
+      "finish_reason": "stop"
+    }
+  },
+  {
+    "hint": "todo",
+    "response": {
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_abc123",
+          "name": "todoist",
+          "arguments": {
+            "action": "list_tasks"
+          }
+        }
+      ],
+      "reasoning_content": null,
+      "reasoning_signature": null,
+      "redacted_thinking_blocks": null,
+      "input_tokens": 200,
+      "output_tokens": 30,
+      "cache_creation_input_tokens": null,
+      "cache_read_input_tokens": null,
+      "actual_model": null,
+      "finish_reason": "tool_calls"
+    }
+  },
+  {
+    "response": {
+      "content": "I'm not sure how to help with that. Could you be more specific?",
+      "tool_calls": [],
+      "reasoning_content": null,
+      "reasoning_signature": null,
+      "redacted_thinking_blocks": null,
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_creation_input_tokens": null,
+      "cache_read_input_tokens": null,
+      "actual_model": null,
+      "finish_reason": "stop"
+    }
+  }
+]

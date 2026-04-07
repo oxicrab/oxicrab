@@ -1,6 +1,8 @@
 // Shared test helpers — not all items used by every test binary.
 #![allow(unused)]
 
+pub mod session_logger;
+
 use async_trait::async_trait;
 use oxicrab::agent::{AgentLoop, AgentLoopConfig, ToolConfigs};
 use oxicrab::bus::MessageBus;
