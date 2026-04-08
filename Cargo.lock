@@ -3616,7 +3616,7 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
 name = "oxicrab"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -3686,7 +3686,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-channels"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3724,7 +3724,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-core"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3748,7 +3748,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-gateway"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-memory"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3795,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-providers"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3818,7 +3818,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-router"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "metrics",
  "oxicrab-core",
@@ -3830,7 +3830,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-safety"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "aho-corasick",
  "base64 0.22.1",
@@ -3843,7 +3843,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-api"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3861,7 +3861,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-browser"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3876,7 +3876,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-google"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3901,7 +3901,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-obsidian"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3924,7 +3924,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-rss"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3945,7 +3945,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-system"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3965,7 +3965,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-tools-web"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3982,7 +3982,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab-transcription"
-version = "0.16.9"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "dirs",

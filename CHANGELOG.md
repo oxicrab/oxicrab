@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.0] - 2026-04-08
+
+### Added
+- **collections:** add structured collections tools with dynamic registration ([6666a57](https://github.com/oxicrab/oxicrab/commit/6666a577f33e88642c830976a35353924c920235))
+- **collections:** add structured collections database layer with typed CRUD ([9e3faa7](https://github.com/oxicrab/oxicrab/commit/9e3faa7163b150fbe0668e01ca0766958f366936))
+- Added gitnexus ([07bc20d](https://github.com/oxicrab/oxicrab/commit/07bc20d9acb8e22f610608a6de4eec8a0989a8ea))
+- **cron:** add execution trace logging for cron job debugging ([a6d670b](https://github.com/oxicrab/oxicrab/commit/a6d670be85db8d752bb02a25ad4f7652eadf8439))
+- **testing:** add JSON fixture provider, hint matching, and session logging ([d5399a4](https://github.com/oxicrab/oxicrab/commit/d5399a4986e2f747b7f71ebac7f23e1eff07da5a))
+
+
+### CI/CD
+- bump trufflesecurity/trufflehog from 3.94.1 to 3.94.2 ([ccf3ef0](https://github.com/oxicrab/oxicrab/commit/ccf3ef0f44a07a2c62e84c828d4150745228da17))
+- bump rhysd/actionlint from 1.7.11 to 1.7.12 ([4b39649](https://github.com/oxicrab/oxicrab/commit/4b3964990881a2834d1a34cd21451a74fb53273d))
+
+
+### Changed
+- extract inline tests to separate files per project convention ([b4c7218](https://github.com/oxicrab/oxicrab/commit/b4c72180dfd6b9afcbbc1e2fe9f201b70ad07009))
+- deduplicate code, fix bugs, and extract shared helpers across all subsystems ([c87845c](https://github.com/oxicrab/oxicrab/commit/c87845c542ad9eb8bab5401f0d472547ad74c287))
+- **approval:** pass ApprovalContext struct to await_approval ([fefbb9e](https://github.com/oxicrab/oxicrab/commit/fefbb9e65eb3155470fd0ef29dba0b2cc524ba1f))
+
+
+### Dependencies
+- bump metrics-exporter-prometheus from 0.17.2 to 0.18.1 ([3268a9a](https://github.com/oxicrab/oxicrab/commit/3268a9a39f5021a3669a96669572220d948cc69f))
+- bump whatsapp-rust from 0.4.3 to 0.5.0 ([46c43e6](https://github.com/oxicrab/oxicrab/commit/46c43e6690e488ea6ac0dbd9ba03fbe83807c960))
+- bump nalgebra from 0.34.1 to 0.34.2 ([74bad66](https://github.com/oxicrab/oxicrab/commit/74bad6657840cb3b25307e2d4146b057451a8957))
+- bump toml from 0.9.12+spec-1.1.0 to 1.1.2+spec-1.1.0 ([f79577a](https://github.com/oxicrab/oxicrab/commit/f79577a679c75be0cff32ff752f4987e6b30cc89))
+- bump indexmap from 2.13.0 to 2.13.1 ([29bbe44](https://github.com/oxicrab/oxicrab/commit/29bbe448e0ef2622ed6607597b3fd2cd82e12e5d))
+
+
+### Documentation
+- Updated CLAUDE and AGENTS ([c829dc7](https://github.com/oxicrab/oxicrab/commit/c829dc722244377f563e0046eda84e09b786c325))
+
+
+### Fixed
+- **test:** correct gemini nameless function call test assertion ([d69fccd](https://github.com/oxicrab/oxicrab/commit/d69fccd43252d1746a6b8cd1e1e65913d2abb251))
+- resolve 20 bugs across all subsystems (3 regressions, 17 pre-existing) ([841c970](https://github.com/oxicrab/oxicrab/commit/841c970bcf9bd74d816de4d7d6e1f4e7ce3cdfaf))
+- **security:** harden config validation, tool isolation, and secret scanning ([0f163a7](https://github.com/oxicrab/oxicrab/commit/0f163a7f06c404eac0fcea7449e21ed74f15fb20))
+- **safety:** add injection scanning and leak detection on memory write paths ([fe97cf8](https://github.com/oxicrab/oxicrab/commit/fe97cf8b595b24cd6906464de2545d2d69c717cb))
+- **security:** disable HTTP redirects on trusted-API clients ([698eef0](https://github.com/oxicrab/oxicrab/commit/698eef088e0631aa07b20747b5dd1c444eba275b))
+- **tools:** include change details in update tool responses ([7650c1c](https://github.com/oxicrab/oxicrab/commit/7650c1ce7ac02d886be616b8043367223ee6c43d))
+
+
+### Other
+- committed hmac upgrade ([4369f3c](https://github.com/oxicrab/oxicrab/commit/4369f3cbf719bc5c3b386980b811f8b674f98c66))
+
+
+### Testing
+- add 76 tests covering critical gaps across all subsystems ([4bd5650](https://github.com/oxicrab/oxicrab/commit/4bd5650ec55a166b8991bea706b63470283f9660))
+
 ## [0.16.9] - 2026-03-28
 
 ### Added
