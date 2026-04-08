@@ -1,0 +1,261 @@
+use super::MemoryDB;
+use anyhow::Result;
+use rusqlite::params;
+
+/// A pending pairing request returned from DB queries.
+#[derive(Debug, Clone)]
+pub struct DbPendingRequest {
+    pub channel: String,
+    pub sender_id: String,
+    pub code: String,
+    pub created_at: u64,
+}
+
+impl MemoryDB {
+    /// Add a sender to the pairing allowlist. Returns `true` if newly inserted.
+    pub fn add_paired_sender(&self, channel: &str, sender_id: &str) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO pairing_allowlist (channel, sender_id) VALUES (?1, ?2)",
+            params![channel, sender_id],
+        )?;
+        Ok(inserted > 0)
+    }
+
+    /// Remove a sender from the pairing allowlist. Returns `true` if removed.
+    pub fn remove_paired_sender(&self, channel: &str, sender_id: &str) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        let deleted = conn.execute(
+            "DELETE FROM pairing_allowlist WHERE channel = ?1 AND sender_id = ?2",
+            params![channel, sender_id],
+        )?;
+        Ok(deleted > 0)
+    }
+
+    /// Check if a sender is paired for a channel.
+    pub fn is_sender_paired(&self, channel: &str, sender_id: &str) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM pairing_allowlist WHERE channel = ?1 AND sender_id = ?2 LIMIT 1",
+                params![channel, sender_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        Ok(exists)
+    }
+
+    /// List all paired senders for a channel.
+    pub fn list_paired_senders(&self, channel: &str) -> Result<Vec<String>> {
+        let conn = self.lock_conn()?;
+        let mut stmt =
+            conn.prepare("SELECT sender_id FROM pairing_allowlist WHERE channel = ?1")?;
+        let rows = stmt
+            .query_map(params![channel], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Count total paired senders across all channels.
+    pub fn count_paired_senders(&self) -> Result<usize> {
+        let conn = self.lock_conn()?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM pairing_allowlist", [], |row| {
+            row.get(0)
+        })?;
+        Ok(count as usize)
+    }
+
+    /// List all paired channels and their senders.
+    pub fn list_all_paired_channels(&self) -> Result<Vec<(String, Vec<String>)>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT channel, sender_id FROM pairing_allowlist ORDER BY channel, sender_id",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut result: Vec<(String, Vec<String>)> = Vec::new();
+        for (channel, sender_id) in rows {
+            if let Some(last) = result.last_mut()
+                && last.0 == channel
+            {
+                last.1.push(sender_id);
+                continue;
+            }
+            result.push((channel, vec![sender_id]));
+        }
+        Ok(result)
+    }
+
+    /// Add a pending pairing request.
+    pub fn add_pending_request(
+        &self,
+        channel: &str,
+        sender_id: &str,
+        code: &str,
+        created_at: u64,
+    ) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO pairing_pending (channel, sender_id, code, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![channel, sender_id, code, created_at as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Get all non-expired pending requests.
+    /// Returns all requests where `now - created_at < ttl_secs`.
+    /// The caller does constant-time code comparison in Rust.
+    pub fn get_all_pending(&self, ttl_secs: u64) -> Result<Vec<DbPendingRequest>> {
+        let conn = self.lock_conn()?;
+        let now = super::unix_now();
+        let cutoff = now.saturating_sub(ttl_secs) as i64;
+
+        let mut stmt = conn.prepare(
+            "SELECT channel, sender_id, code, created_at FROM pairing_pending
+             WHERE created_at > ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![cutoff], |row| {
+                Ok(DbPendingRequest {
+                    channel: row.get(0)?,
+                    sender_id: row.get(1)?,
+                    code: row.get(2)?,
+                    created_at: row.get::<_, i64>(3)? as u64,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Get a pending request for a specific sender on a channel (non-expired).
+    pub fn get_pending_for_sender(
+        &self,
+        channel: &str,
+        sender_id: &str,
+        ttl_secs: u64,
+    ) -> Result<Option<DbPendingRequest>> {
+        let conn = self.lock_conn()?;
+        let now = super::unix_now();
+        let cutoff = now.saturating_sub(ttl_secs) as i64;
+
+        let mut stmt = conn.prepare(
+            "SELECT channel, sender_id, code, created_at FROM pairing_pending
+             WHERE channel = ?1 AND sender_id = ?2 AND created_at > ?3",
+        )?;
+        let mut rows = stmt.query(params![channel, sender_id, cutoff])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(DbPendingRequest {
+                channel: row.get(0)?,
+                sender_id: row.get(1)?,
+                code: row.get(2)?,
+                created_at: row.get::<_, i64>(3)? as u64,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Count non-expired pending requests for a channel.
+    pub fn count_pending_for_channel(&self, channel: &str, ttl_secs: u64) -> Result<usize> {
+        let conn = self.lock_conn()?;
+        let now = super::unix_now();
+        let cutoff = now.saturating_sub(ttl_secs) as i64;
+
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pairing_pending WHERE channel = ?1 AND created_at > ?2",
+            params![channel, cutoff],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Remove a pending request by code. Returns `true` if removed.
+    pub fn remove_pending(&self, code: &str) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        let deleted = conn.execute("DELETE FROM pairing_pending WHERE code = ?1", params![code])?;
+        Ok(deleted > 0)
+    }
+
+    /// Clean up expired pending requests. Returns count removed.
+    pub fn cleanup_expired_pending(&self, ttl_secs: u64) -> Result<usize> {
+        let conn = self.lock_conn()?;
+        let now = super::unix_now();
+        let cutoff = now.saturating_sub(ttl_secs) as i64;
+
+        let deleted = conn.execute(
+            "DELETE FROM pairing_pending WHERE created_at <= ?1",
+            params![cutoff],
+        )?;
+        Ok(deleted)
+    }
+
+    /// Record a failed approval attempt.
+    pub fn record_failed_attempt(&self, client_id: &str, timestamp: u64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO pairing_failed_attempts (client_id, attempted_at) VALUES (?1, ?2)",
+            params![client_id, timestamp as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Count recent failed attempts for a client within a time window.
+    pub fn count_recent_failed_attempts(&self, client_id: &str, window_secs: u64) -> Result<usize> {
+        let conn = self.lock_conn()?;
+        let now = super::unix_now();
+        let cutoff = now.saturating_sub(window_secs) as i64;
+
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pairing_failed_attempts
+             WHERE client_id = ?1 AND attempted_at > ?2",
+            params![client_id, cutoff],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Clean up old failed attempts outside the window. Returns count removed.
+    pub fn cleanup_old_failed_attempts(&self, window_secs: u64) -> Result<usize> {
+        let conn = self.lock_conn()?;
+        let now = super::unix_now();
+        let cutoff = now.saturating_sub(window_secs) as i64;
+
+        let deleted = conn.execute(
+            "DELETE FROM pairing_failed_attempts WHERE attempted_at <= ?1",
+            params![cutoff],
+        )?;
+        Ok(deleted)
+    }
+
+    /// Evict the oldest lockout client if we exceed `max_clients`.
+    pub fn evict_oldest_lockout_client(&self, max_clients: usize) -> Result<()> {
+        let conn = self.lock_conn()?;
+        let distinct_count: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT client_id) FROM pairing_failed_attempts",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if (distinct_count as usize) > max_clients {
+            // Find the client whose most-recent attempt is oldest
+            conn.execute(
+                "DELETE FROM pairing_failed_attempts WHERE client_id = (
+                    SELECT client_id FROM pairing_failed_attempts
+                    GROUP BY client_id
+                    ORDER BY MAX(attempted_at) ASC
+                    LIMIT 1
+                )",
+                [],
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests;
