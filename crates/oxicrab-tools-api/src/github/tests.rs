@@ -1553,3 +1553,104 @@ async fn test_list_issues_no_buttons_when_empty() {
     assert!(!result.is_error);
     assert!(result.metadata.is_none());
 }
+
+#[tokio::test]
+async fn test_api_call_retries_on_500() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+            "message": "Internal Server Error"
+        })))
+        .expect(2) // initial request + one retry
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.is_error, "persistent 500 should result in error");
+    assert!(
+        result.content.contains("500"),
+        "error should contain status code, got: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn test_sanitize_api_error_text_redacts_token() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues"))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_string("Invalid token: ghp_abc123XYZ for Bearer auth"),
+        )
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.is_error);
+    assert!(
+        !result.content.contains("ghp_abc123XYZ"),
+        "token should be redacted from error, got: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("authentication error"),
+        "should contain safe message, got: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn test_sanitize_api_error_text_passes_safe_messages() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.is_error);
+    assert!(
+        result.content.contains("Not Found"),
+        "safe error message should pass through, got: {}",
+        result.content
+    );
+}

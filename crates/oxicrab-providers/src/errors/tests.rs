@@ -125,3 +125,25 @@ fn test_handle_auth_error() {
         _ => panic!("expected Auth error"),
     }
 }
+
+#[test]
+fn test_parse_api_error_529_retryable() {
+    let err = ProviderErrorHandler::parse_api_error(529, "overloaded");
+    match err {
+        OxicrabError::Provider { retryable, .. } => {
+            assert!(retryable, "529 (overloaded) should be retryable");
+        }
+        _ => panic!("expected Provider error"),
+    }
+}
+
+#[test]
+fn test_parse_api_error_504_retryable() {
+    let err = ProviderErrorHandler::parse_api_error(504, "gateway timeout");
+    match err {
+        OxicrabError::Provider { retryable, .. } => {
+            assert!(retryable, "504 (gateway timeout) should be retryable");
+        }
+        _ => panic!("expected Provider error"),
+    }
+}

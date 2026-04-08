@@ -544,3 +544,33 @@ mod http_url_tests {
         assert!(config.api_base.is_none());
     }
 }
+
+#[cfg(test)]
+mod providers_config_tests {
+    use super::*;
+
+    #[test]
+    fn test_get_api_key_prefix_notation() {
+        let mut providers = ProvidersConfig::default();
+        providers.anthropic.api_key = "sk-ant-test-key".to_string();
+        let key = providers.get_api_key("anthropic/claude-opus");
+        assert_eq!(key, Some("sk-ant-test-key"));
+    }
+
+    #[test]
+    fn test_get_api_key_model_inference() {
+        let mut providers = ProvidersConfig::default();
+        providers.openai.api_key = "sk-openai-test".to_string();
+        let key = providers.get_api_key("gpt-4o");
+        assert_eq!(key, Some("sk-openai-test"));
+    }
+
+    #[test]
+    fn test_first_available_key_all_providers() {
+        let mut providers = ProvidersConfig::default();
+        providers.deepseek.api_key = "ds-key-123".to_string();
+        // Unknown model should fall through inference, then hit first_available_key
+        let key = providers.get_api_key("unknown-model");
+        assert_eq!(key, Some("ds-key-123"));
+    }
+}

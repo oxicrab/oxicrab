@@ -1007,4 +1007,60 @@ mod tests {
         let ok_got = db.get_cron_job("job-ok").unwrap().unwrap();
         assert_eq!(ok_got.state.last_status.as_deref(), Some("success"));
     }
+
+    #[test]
+    fn test_fire_cron_job_increments_run_count() {
+        let db = MemoryDB::new(":memory:").unwrap();
+        let job = make_test_job(
+            "job-fire",
+            "fire test",
+            CronSchedule::Every {
+                every_ms: Some(5000),
+            },
+        );
+        db.insert_cron_job(&job).unwrap();
+
+        // Initial run_count is 0
+        let got = db.get_cron_job("job-fire").unwrap().unwrap();
+        assert_eq!(got.state.run_count, 0);
+
+        // Fire twice
+        db.fire_cron_job("job-fire", Some(10_000), 5000, 5000)
+            .unwrap();
+        db.fire_cron_job("job-fire", Some(15_000), 10_000, 10_000)
+            .unwrap();
+
+        let got = db.get_cron_job("job-fire").unwrap().unwrap();
+        assert_eq!(got.state.run_count, 2);
+    }
+
+    #[test]
+    fn test_update_status_preserves_run_count() {
+        let db = MemoryDB::new(":memory:").unwrap();
+        let job = make_test_job(
+            "job-status",
+            "status test",
+            CronSchedule::Every {
+                every_ms: Some(5000),
+            },
+        );
+        db.insert_cron_job(&job).unwrap();
+
+        // Fire once to set run_count=1
+        db.fire_cron_job("job-status", Some(10_000), 5000, 5000)
+            .unwrap();
+        let got = db.get_cron_job("job-status").unwrap().unwrap();
+        assert_eq!(got.state.run_count, 1);
+
+        // Update status only — run_count must remain 1
+        db.update_cron_job_status("job-status", "completed", None)
+            .unwrap();
+
+        let got = db.get_cron_job("job-status").unwrap().unwrap();
+        assert_eq!(
+            got.state.run_count, 1,
+            "update_status must not touch run_count"
+        );
+        assert_eq!(got.state.last_status.as_deref(), Some("completed"));
+    }
 }

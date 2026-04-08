@@ -312,4 +312,39 @@ mod tests {
         assert_eq!(resolved.host, "example.com");
         assert!(!resolved.addrs.is_empty());
     }
+
+    #[tokio::test]
+    async fn blocks_ipv4_mapped_ipv6_loopback() {
+        let err = validate("http://[::ffff:127.0.0.1]/").await;
+        assert!(err.is_err(), "IPv4-mapped loopback should be blocked");
+    }
+
+    #[tokio::test]
+    async fn blocks_ipv4_mapped_ipv6_private() {
+        let err = validate("http://[::ffff:10.0.0.1]/").await;
+        assert!(err.is_err(), "IPv4-mapped private should be blocked");
+    }
+
+    #[tokio::test]
+    async fn blocks_embedded_credentials() {
+        let result = validate("http://user:pass@example.com/").await;
+        assert!(result.is_err(), "URLs with credentials should be blocked");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("credentials"),
+            "expected credentials error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn blocks_cgnat_range() {
+        assert!(
+            validate("http://100.64.0.1/").await.is_err(),
+            "CGNAT start should be blocked"
+        );
+        assert!(
+            validate("http://100.127.255.255/").await.is_err(),
+            "CGNAT end should be blocked"
+        );
+    }
 }

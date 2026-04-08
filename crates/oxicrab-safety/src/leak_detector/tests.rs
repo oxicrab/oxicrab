@@ -338,6 +338,56 @@ fn test_url_decoded_scan_detects_encoded_key() {
     );
 }
 
+// --- New pattern detection tests ---
+
+#[test]
+fn test_detect_twilio_api_key() {
+    let detector = LeakDetector::new();
+    // Use DEADBEEF-style hex to avoid GitHub push protection false positives
+    let valid = "SKdeadbeefdeadbeefdeadbeefdeadbeef";
+    let matches = detector.scan(valid);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "twilio_api_key");
+
+    // Too short: SK + only 3 hex chars
+    let short = "SK123";
+    let matches = detector.scan(short);
+    assert!(
+        matches.is_empty(),
+        "SK + 3 chars should not match Twilio pattern"
+    );
+}
+
+#[test]
+fn test_detect_digitalocean_pat() {
+    let detector = LeakDetector::new();
+    let hex64 = "a".repeat(64);
+    let token = format!("dop_v1_{hex64}");
+    let matches = detector.scan(&token);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "digitalocean_pat");
+}
+
+#[test]
+fn test_detect_huggingface_token() {
+    let detector = LeakDetector::new();
+    let alphanum34 = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7";
+    let token = format!("hf_{alphanum34}");
+    let matches = detector.scan(&token);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "huggingface_token");
+}
+
+#[test]
+fn test_detect_replicate_token() {
+    let detector = LeakDetector::new();
+    let alphanum38 = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9";
+    let token = format!("r8_{alphanum38}");
+    let matches = detector.scan(&token);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "replicate_token");
+}
+
 #[test]
 fn test_redact_url_encoded_secret() {
     let detector = LeakDetector::new();

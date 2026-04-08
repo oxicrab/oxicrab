@@ -96,3 +96,13 @@ fn test_jaccard_single_word() {
     let sim = jaccard_similarity("hello", "world");
     assert!((sim - 0.0).abs() < f64::EPSILON);
 }
+
+#[test]
+fn test_extract_remember_preserves_case() {
+    let result = extract_remember_content("REMEMBER THAT My Server Is 10.0.0.1");
+    assert_eq!(
+        result,
+        Some("My Server Is 10.0.0.1".to_string()),
+        "original case of the content after the trigger phrase must be preserved"
+    );
+}

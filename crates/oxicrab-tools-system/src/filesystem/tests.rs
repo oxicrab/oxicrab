@@ -192,3 +192,33 @@ async fn test_backup_creates_copy() {
 
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn test_expand_path_tilde() {
+    let result = expand_path(Path::new("~/test.txt")).await;
+    let expanded = result.expect("expand_path should succeed for ~/test.txt");
+    assert!(
+        expanded.to_str().unwrap().ends_with("test.txt"),
+        "expanded path should end with test.txt, got: {}",
+        expanded.display()
+    );
+    assert!(
+        !expanded.to_str().unwrap().starts_with("~"),
+        "expanded path should not start with ~, got: {}",
+        expanded.display()
+    );
+}
+
+#[tokio::test]
+async fn test_expand_path_nonexistent_returns_normalized() {
+    let result = expand_path(Path::new("/nonexistent/deep/path.txt")).await;
+    let expanded = result.expect("expand_path should succeed for nonexistent paths");
+    assert!(
+        expanded
+            .to_str()
+            .unwrap()
+            .contains("nonexistent/deep/path.txt"),
+        "lexical normalize should preserve path components, got: {}",
+        expanded.display()
+    );
+}

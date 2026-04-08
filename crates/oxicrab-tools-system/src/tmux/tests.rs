@@ -72,3 +72,47 @@ fn test_tmux_actions_match_schema() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_send_rejects_command_substitution() {
+    let tool = test_tool();
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "send",
+                "session_name": "test",
+                "command": "$(whoami)"
+            }),
+            &oxicrab_core::tools::base::ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error, "command substitution should be rejected");
+    assert!(
+        result.content.contains("blocked by structural analysis"),
+        "error should mention structural analysis, got: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn test_send_rejects_eval() {
+    let tool = test_tool();
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "send",
+                "session_name": "test",
+                "command": "eval malicious_code"
+            }),
+            &oxicrab_core::tools::base::ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error, "eval command should be rejected");
+    assert!(
+        result.content.contains("blocked"),
+        "error should mention blocked, got: {}",
+        result.content
+    );
+}

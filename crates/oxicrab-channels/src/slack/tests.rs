@@ -734,6 +734,41 @@ fn test_convert_buttons_to_blocks_with_context() {
     assert!(elements[1].get("value").is_none() || elements[1]["value"].is_null());
 }
 
+// --- download_slack_file oversized content-length test ---
+
+#[tokio::test]
+async fn test_download_slack_file_rejects_oversized_content_length() {
+    let server = MockServer::start().await;
+
+    // Create a body that exceeds the max_size. The Content-Length will
+    // match the actual body size (set automatically by wiremock), and
+    // the function should reject based on content_length() > max_size
+    // before fully downloading.
+    let large_body = vec![0xAA; 2048];
+    Mock::given(method("GET"))
+        .and(path("/big-file.bin"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(large_body)
+                .insert_header("Content-Type", "application/octet-stream"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/big-file.bin", server.uri());
+    let small_max = 1024; // 1 KB limit — body is 2 KB
+    let result = download_slack_file(&client, "xoxb-test", &url, small_max).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("too large"),
+        "should mention file too large, got: {err}"
+    );
+}
+
 // --- is_slack_domain tests ---
 
 #[test]

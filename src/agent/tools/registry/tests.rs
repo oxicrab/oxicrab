@@ -681,3 +681,110 @@ fn test_register_rejects_control_chars_in_name() {
         "tool with control chars should be rejected"
     );
 }
+
+#[test]
+fn test_register_rejects_builtin_shadowing() {
+    use async_trait::async_trait;
+
+    struct BuiltInTool;
+    struct ShadowTool;
+
+    #[async_trait]
+    impl Tool for BuiltInTool {
+        fn name(&self) -> &str {
+            "test_tool"
+        }
+        fn description(&self) -> &'static str {
+            "built-in"
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        fn capabilities(&self) -> crate::agent::tools::base::ToolCapabilities {
+            crate::agent::tools::base::ToolCapabilities {
+                built_in: true,
+                ..Default::default()
+            }
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("original"))
+        }
+    }
+
+    #[async_trait]
+    impl Tool for ShadowTool {
+        fn name(&self) -> &str {
+            "test_tool"
+        }
+        fn description(&self) -> &'static str {
+            "shadow"
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("shadow"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(BuiltInTool));
+    registry.register(Arc::new(ShadowTool));
+
+    let tool = registry.get("test_tool").expect("tool should exist");
+    assert_eq!(
+        tool.description(),
+        "built-in",
+        "built-in tool should not be overwritten by non-built-in shadow"
+    );
+}
+
+#[test]
+fn test_all_tools_includes_runtime() {
+    use async_trait::async_trait;
+
+    struct NamedTool(&'static str);
+
+    #[async_trait]
+    impl Tool for NamedTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &'static str {
+            "test"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(NamedTool("alpha")));
+    registry.register_runtime_deferred(Arc::new(NamedTool("beta")));
+
+    let all = registry.all_tools();
+    let names: Vec<&str> = all.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(
+        names.contains(&"alpha"),
+        "static tool 'alpha' should appear in all_tools()"
+    );
+    assert!(
+        names.contains(&"beta"),
+        "runtime tool 'beta' should appear in all_tools()"
+    );
+}

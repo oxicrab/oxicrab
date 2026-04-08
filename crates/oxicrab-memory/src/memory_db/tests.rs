@@ -1124,3 +1124,61 @@ fn test_purge_old_memory_entries() {
         );
     }
 }
+
+// ── escape_like tests ───────────────────────────────────
+
+#[test]
+fn test_escape_like_wildcards() {
+    assert_eq!(escape_like("100%_done\\path"), "100\\%\\_done\\\\path");
+}
+
+#[test]
+fn test_escape_like_empty() {
+    assert_eq!(escape_like(""), "");
+}
+
+#[test]
+fn test_escape_like_no_special_chars() {
+    assert_eq!(escape_like("hello world"), "hello world");
+}
+
+// ── fts_query operator injection tests ──────────────────
+
+#[test]
+fn test_fts_query_quotes_operators() {
+    let q = fts_query("NOT important");
+    // "NOT" should be double-quoted so FTS5 treats it as a literal term
+    assert!(
+        q.contains("\"not\""),
+        "FTS5 NOT operator should be quoted, got: {q}"
+    );
+    assert!(
+        q.contains("\"important\""),
+        "terms should be quoted, got: {q}"
+    );
+
+    let q2 = fts_query("a OR b");
+    // "OR" should be quoted — but "a" is only 1 char, stripped by the [2+] regex
+    assert!(
+        !q2.contains(" OR ") || q2.contains("\"or\""),
+        "FTS5 OR operator should be quoted, got: {q2}"
+    );
+}
+
+#[test]
+fn test_fts_query_literal_not_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("fts_not.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.insert_memory("test", "this is NOT a drill").unwrap();
+    db.insert_memory("test", "totally unrelated sentence about cats")
+        .unwrap();
+
+    let results = db.search("NOT", 10, None).unwrap();
+    assert!(
+        !results.is_empty(),
+        "searching for literal 'NOT' should find the entry containing it"
+    );
+    assert!(results[0].content.contains("NOT"));
+}

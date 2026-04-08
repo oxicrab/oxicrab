@@ -275,3 +275,71 @@ async fn test_create_task_updates_store_to_working() {
     assert_eq!(task.status, TaskStatus::Working);
     assert_eq!(task.message, "check store");
 }
+
+#[test]
+fn test_eviction_prefers_completed_over_working() {
+    let store = A2aTaskStore::new();
+
+    // Fill half with Working tasks (non-RFC3339 created_at so time-based
+    // expire won't remove them).
+    let half = MAX_A2A_TASKS / 2;
+    for i in 0..half {
+        store.insert(A2aTask {
+            id: format!("working-{i}"),
+            status: TaskStatus::Working,
+            message: String::new(),
+            result: None,
+            created_at: format!("{i:06}"),
+            updated_at: String::new(),
+        });
+    }
+
+    // Fill the other half with Completed tasks (older created_at values)
+    for i in 0..(MAX_A2A_TASKS - half) {
+        store.insert(A2aTask {
+            id: format!("completed-{i}"),
+            status: TaskStatus::Completed,
+            message: String::new(),
+            result: None,
+            // Older than working tasks
+            created_at: format!("{:06}", MAX_A2A_TASKS + i),
+            updated_at: String::new(),
+        });
+    }
+
+    let count_before = store.tasks.lock().unwrap().len();
+    assert_eq!(count_before, MAX_A2A_TASKS);
+
+    // Insert one more — should evict a Completed task, not a Working one
+    store.insert(A2aTask {
+        id: "new-task".to_string(),
+        status: TaskStatus::Submitted,
+        message: String::new(),
+        result: None,
+        created_at: format!("{:06}", MAX_A2A_TASKS * 2),
+        updated_at: String::new(),
+    });
+
+    // Verify the new task was inserted
+    assert!(store.get("new-task").is_some());
+
+    // All working tasks should still be present
+    for i in 0..half {
+        assert!(
+            store.get(&format!("working-{i}")).is_some(),
+            "working task {i} should not be evicted"
+        );
+    }
+
+    // Exactly one completed task should have been evicted
+    let tasks = store.tasks.lock().unwrap();
+    assert_eq!(tasks.len(), MAX_A2A_TASKS);
+    let working_count = tasks
+        .values()
+        .filter(|t| t.status == TaskStatus::Working)
+        .count();
+    assert_eq!(
+        working_count, half,
+        "all working tasks should survive eviction"
+    );
+}

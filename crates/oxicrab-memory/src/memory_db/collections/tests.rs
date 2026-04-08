@@ -1137,3 +1137,91 @@ fn aggregate_on_empty_collection() {
         .unwrap();
     assert_eq!(results[0].value, serde_json::json!(0));
 }
+
+// ── Null equality filter tests ──────────────────────────
+
+#[test]
+fn filter_null_equality() {
+    let db = test_db();
+    let schema = simple_schema(); // title (required Text), count (optional Number)
+    db.create_collection("items", "", &schema).unwrap();
+
+    db.insert_record(
+        "items",
+        serde_json::json!({"title": "with_count", "count": 5}),
+    )
+    .unwrap();
+    db.insert_record("items", serde_json::json!({"title": "no_count"}))
+        .unwrap();
+
+    // Eq null: records missing the field
+    let filters = vec![RecordFilter {
+        field: "count".into(),
+        op: FilterOp::Eq,
+        value: serde_json::Value::Null,
+    }];
+    let records = db.query_records("items", &filters, None, None).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].data["title"], "no_count");
+
+    // Neq null: records having the field
+    let filters = vec![RecordFilter {
+        field: "count".into(),
+        op: FilterOp::Neq,
+        value: serde_json::Value::Null,
+    }];
+    let records = db.query_records("items", &filters, None, None).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].data["title"], "with_count");
+}
+
+// ── Contains filter escapes wildcards ───────────────────
+
+#[test]
+fn contains_filter_escapes_wildcards() {
+    let db = test_db();
+    let schema = simple_schema();
+    db.create_collection("tasks", "", &schema).unwrap();
+
+    db.insert_record("tasks", serde_json::json!({"title": "50% done"}))
+        .unwrap();
+    db.insert_record("tasks", serde_json::json!({"title": "100 percent"}))
+        .unwrap();
+
+    let filters = vec![RecordFilter {
+        field: "title".into(),
+        op: FilterOp::Contains,
+        value: serde_json::json!("50%"),
+    }];
+    let records = db.query_records("tasks", &filters, None, None).unwrap();
+    assert_eq!(
+        records.len(),
+        1,
+        "only the record with literal '50%' should match"
+    );
+    assert_eq!(records[0].data["title"], "50% done");
+}
+
+// ── Collection name validation ──────────────────────────
+
+#[test]
+fn collection_name_starting_with_digit_rejected() {
+    let db = test_db();
+    let schema = simple_schema();
+    let err = db.create_collection("1tasks", "", &schema).unwrap_err();
+    assert!(
+        err.to_string().contains("start with a letter"),
+        "expected 'start with a letter' error, got: {err}"
+    );
+}
+
+#[test]
+fn collection_name_starting_with_underscore_rejected() {
+    let db = test_db();
+    let schema = simple_schema();
+    let err = db.create_collection("_tasks", "", &schema).unwrap_err();
+    assert!(
+        err.to_string().contains("start with a letter"),
+        "expected 'start with a letter' error, got: {err}"
+    );
+}

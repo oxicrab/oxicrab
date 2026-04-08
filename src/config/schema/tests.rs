@@ -1145,6 +1145,166 @@ fn test_generated_config_example_uses_camel_case_keys() {
 }
 
 // -----------------------------------------------------------------------
+// Gateway: API key validation on public host
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_gateway_rejects_short_api_key_on_public_host() {
+    let mut config = Config::default();
+    config.gateway.enabled = true;
+    config.gateway.host = "0.0.0.0".into();
+    config.gateway.api_key = "short".into();
+    let err = config.validate().unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("at least 32 characters"),
+        "expected key-length error, got: {msg}"
+    );
+}
+
+#[test]
+fn test_gateway_accepts_short_api_key_on_loopback() {
+    let mut config = Config::default();
+    config.gateway.enabled = true;
+    config.gateway.host = "127.0.0.1".into();
+    config.gateway.api_key = "short".into();
+    assert!(
+        config.validate().is_ok(),
+        "loopback host should allow short api key"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Webhook: secret whitespace trimming
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_webhook_secret_whitespace_trimmed_before_length_check() {
+    let mut config = Config::default();
+    config.gateway.webhooks.insert(
+        "deploy".into(),
+        WebhookConfig {
+            enabled: true,
+            // Raw length > 32 but trimmed length < 32
+            secret: " short ".into(),
+            targets: vec![WebhookTarget {
+                channel: "slack".into(),
+                chat_id: "C123".into(),
+            }],
+            ..Default::default()
+        },
+    );
+    let err = config.validate().unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("at least 32 characters"),
+        "trimmed secret should fail length check, got: {msg}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Provider headers: reserved header rejection
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_reserved_header_rejected() {
+    let mut config = Config::default();
+    config
+        .providers
+        .openai
+        .headers
+        .insert("Authorization".into(), "bad".into());
+    let err = config.validate().unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("reserved header"),
+        "expected reserved header error, got: {msg}"
+    );
+}
+
+#[test]
+fn test_custom_header_accepted() {
+    let mut config = Config::default();
+    config
+        .providers
+        .openai
+        .headers
+        .insert("X-Custom".into(), "ok".into());
+    assert!(
+        config.validate().is_ok(),
+        "custom header should be accepted"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Provider temperature: NaN rejection
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_provider_temperature_rejects_nan() {
+    let mut config = Config::default();
+    config.providers.openai.temperature = Some(f32::NAN);
+    let err = config.validate().unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("temperature"),
+        "expected temperature error, got: {msg}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Approval: timeout minimum
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_approval_timeout_minimum() {
+    let mut config = Config::default();
+    config.agents.defaults.approval.enabled = true;
+    config.agents.defaults.approval.timeout = 5;
+    let err = config.validate().unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("timeout"),
+        "expected timeout error, got: {msg}"
+    );
+
+    config.agents.defaults.approval.timeout = 10;
+    assert!(
+        config.validate().is_ok(),
+        "timeout=10 should pass validation"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Context provider: empty command
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_context_provider_empty_command() {
+    let mut config = Config::default();
+    config
+        .agents
+        .defaults
+        .context_providers
+        .push(ContextProviderConfig {
+            name: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: true,
+            timeout: 5,
+            ttl: 300,
+            requires_bins: vec![],
+            requires_env: vec![],
+        });
+    let err = config.validate().unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("command must not be empty"),
+        "expected empty command error, got: {msg}"
+    );
+}
+
+// -----------------------------------------------------------------------
 // RssConfig defaults
 // -----------------------------------------------------------------------
 

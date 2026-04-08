@@ -183,3 +183,112 @@ fn test_build_inline_keyboard_truncates_callback_data() {
         panic!("expected CallbackData");
     }
 }
+
+// --- utf16_substr tests ---
+
+#[test]
+fn test_utf16_substr_ascii() {
+    assert_eq!(utf16_substr("abc", 0, 3), Some("abc".to_string()));
+}
+
+#[test]
+fn test_utf16_substr_with_emoji() {
+    // "Hello 🌍 world"
+    // UTF-16: H(1) e(1) l(1) l(1) o(1) ' '(1) 🌍(2) ' '(1) w(1) o(1) r(1) l(1) d(1)
+    // Offsets: 0    1    2    3    4    5      6-7     8     9   10   11   12   13
+    // "world" starts at UTF-16 offset 9, length 5
+    assert_eq!(
+        utf16_substr("Hello 🌍 world", 9, 5),
+        Some("world".to_string())
+    );
+}
+
+#[test]
+fn test_utf16_substr_extract_emoji() {
+    // Extract the emoji itself (2 UTF-16 code units)
+    assert_eq!(utf16_substr("Hello 🌍 world", 6, 2), Some("🌍".to_string()));
+}
+
+#[test]
+fn test_utf16_substr_out_of_bounds() {
+    assert_eq!(utf16_substr("abc", 2, 5), None);
+}
+
+#[test]
+fn test_utf16_substr_empty_string() {
+    assert_eq!(utf16_substr("", 0, 0), Some(String::new()));
+}
+
+#[test]
+fn test_utf16_substr_zero_length() {
+    assert_eq!(utf16_substr("abc", 1, 0), Some(String::new()));
+}
+
+// --- markdown_to_telegram_html code block tests ---
+
+#[test]
+fn test_markdown_to_html_code_block_preserves_formatting() {
+    // Bold inside a code block should NOT be converted
+    let input = "```\n**not bold**\n```";
+    let output = markdown_to_telegram_html(input);
+    assert!(
+        output.contains("<pre><code>"),
+        "should have code block: {output}"
+    );
+    assert!(
+        !output.contains("<b>"),
+        "bold should not be converted inside code block: {output}"
+    );
+    assert!(
+        output.contains("**not bold**") || output.contains("*not bold*"),
+        "raw markers should be preserved inside code block: {output}"
+    );
+}
+
+#[test]
+fn test_markdown_to_html_bold_outside_code_block_converted() {
+    // Bold outside a code block SHOULD be converted
+    let input = "**bold text** and ```\n**raw**\n```";
+    let output = markdown_to_telegram_html(input);
+    assert!(
+        output.contains("<b>bold text</b>"),
+        "bold outside code block should convert: {output}"
+    );
+    // Inside the code block, bold markers should be preserved
+    assert!(
+        output.contains("<pre><code>"),
+        "code block should exist: {output}"
+    );
+}
+
+#[test]
+fn test_markdown_to_html_code_block_with_language() {
+    let input = "```rust\nfn main() {}\n```";
+    let output = markdown_to_telegram_html(input);
+    assert!(
+        output.contains("<pre><code>"),
+        "code block should be present: {output}"
+    );
+    assert!(
+        output.contains("fn main()"),
+        "code content preserved: {output}"
+    );
+}
+
+#[test]
+fn test_markdown_to_html_mixed_code_block_and_formatting() {
+    let input = "**header**\n```\ncode here\n```\n_footer_";
+    let output = markdown_to_telegram_html(input);
+    assert!(
+        output.contains("<b>header</b>"),
+        "bold before code block: {output}"
+    );
+    assert!(
+        output.contains("<i>footer</i>"),
+        "italic after code block: {output}"
+    );
+    assert!(
+        output.contains("<pre><code>"),
+        "code block present: {output}"
+    );
+}

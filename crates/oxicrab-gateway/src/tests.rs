@@ -1469,3 +1469,203 @@ async fn test_status_json_with_populated_state() {
     assert!(json["tokens"]["today"]["input"].is_number());
     assert!(json["cron"]["jobs"].is_array());
 }
+
+// --- Webhook empty secret tests ---
+
+#[tokio::test]
+async fn test_webhook_empty_secret_rejects() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut webhooks = HashMap::new();
+    webhooks.insert("test-hook".to_string(), make_webhook_config(true, ""));
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
+    let app = build_router(state, None, None, None);
+
+    let body = b"payload";
+    // Any signature against empty secret
+    let sig = sign_body("", body);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/test-hook")
+        .header("X-Signature-256", &sig)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    // Empty secret should reject — deny by default for unconfigured secrets
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "empty secret webhook should reject all requests"
+    );
+}
+
+// --- API key auth tests ---
+
+#[tokio::test]
+async fn test_api_key_auth_accepts_valid_bearer() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+        leak_detector: Arc::new(NoopRedactor),
+        ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
+        echo_mode: false,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(
+        state,
+        None,
+        Some(Arc::new("my-secret-key".to_string())),
+        None,
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer my-secret-key")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    let msg = inbound_rx.recv().await.unwrap();
+    let request_id = msg.chat_id.clone();
+    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    tx.send(OutboundMessage::builder("http", request_id, "ok").build())
+        .unwrap();
+
+    let resp = handle.await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "valid Bearer token should be accepted"
+    );
+}
+
+#[tokio::test]
+async fn test_api_key_auth_accepts_x_api_key_header() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+        leak_detector: Arc::new(NoopRedactor),
+        ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
+        echo_mode: false,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(
+        state,
+        None,
+        Some(Arc::new("my-secret-key".to_string())),
+        None,
+    );
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .header("X-API-Key", "my-secret-key")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    let msg = inbound_rx.recv().await.unwrap();
+    let request_id = msg.chat_id.clone();
+    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    tx.send(OutboundMessage::builder("http", request_id, "ok").build())
+        .unwrap();
+
+    let resp = handle.await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "valid X-API-Key header should be accepted"
+    );
+}
+
+#[tokio::test]
+async fn test_api_key_auth_rejects_wrong_key() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, Some(Arc::new("correct-key".to_string())), None);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer wrong-key")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "wrong key should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_api_key_auth_rejects_missing_header() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, Some(Arc::new("some-key".to_string())), None);
+
+    // No auth header at all
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "missing auth header should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_api_key_health_endpoint_bypasses_auth() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, Some(Arc::new("some-key".to_string())), None);
+
+    // Health endpoint should be public even with API key configured
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/health")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "health endpoint should bypass API key auth"
+    );
+}

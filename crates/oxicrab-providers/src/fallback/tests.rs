@@ -1,4 +1,5 @@
 use super::*;
+use oxicrab_core::errors::OxicrabError;
 use oxicrab_core::providers::base::{ChatRequest, LLMResponse, ToolCallRequest};
 use serde_json::json;
 
@@ -6,6 +7,8 @@ use serde_json::json;
 struct MockProvider {
     model: String,
     response: Result<LLMResponse, String>,
+    /// When true, error is wrapped as a non-transient OxicrabError::Auth
+    auth_error: bool,
 }
 
 impl MockProvider {
@@ -13,6 +16,7 @@ impl MockProvider {
         Arc::new(Self {
             model: model.to_string(),
             response: Ok(response),
+            auth_error: false,
         })
     }
 
@@ -20,6 +24,15 @@ impl MockProvider {
         Arc::new(Self {
             model: model.to_string(),
             response: Err(error.to_string()),
+            auth_error: false,
+        })
+    }
+
+    fn auth_err(model: &str, error: &str) -> Arc<dyn LLMProvider> {
+        Arc::new(Self {
+            model: model.to_string(),
+            response: Err(error.to_string()),
+            auth_error: true,
         })
     }
 }
@@ -29,7 +42,13 @@ impl LLMProvider for MockProvider {
     async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         match &self.response {
             Ok(r) => Ok(r.clone()),
-            Err(e) => Err(anyhow::anyhow!("{e}")),
+            Err(e) => {
+                if self.auth_error {
+                    Err(OxicrabError::Auth(e.clone()).into())
+                } else {
+                    Err(anyhow::anyhow!("{e}"))
+                }
+            }
         }
     }
 
@@ -319,4 +338,49 @@ async fn test_single_provider_chain() {
     let provider = FallbackProvider::new(vec![(p1, "model-a".to_string())]).unwrap();
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("only provider"));
+}
+
+#[tokio::test]
+async fn test_fallback_stops_on_auth_error() {
+    let primary = MockProvider::auth_err("model-a", "invalid API key");
+    let fallback = MockProvider::ok("model-b", text_response("should not reach"));
+
+    let provider = FallbackProvider::pair(
+        primary,
+        fallback,
+        "model-a".to_string(),
+        "model-b".to_string(),
+    );
+
+    let err = provider.chat(&make_request()).await.unwrap_err();
+    assert!(
+        err.downcast_ref::<OxicrabError>()
+            .is_some_and(|e| !e.is_retryable()),
+        "auth error should be non-transient and not fall through"
+    );
+    assert!(
+        err.to_string().contains("invalid API key"),
+        "should return the auth error message"
+    );
+}
+
+#[tokio::test]
+async fn test_fallback_actual_model_tagging() {
+    let primary = MockProvider::err("model-a", "timeout");
+    let fallback = MockProvider::ok("model-b", text_response("from fallback"));
+
+    let provider = FallbackProvider::pair(
+        primary,
+        fallback,
+        "model-a".to_string(),
+        "model-b".to_string(),
+    );
+
+    let result = provider.chat(&make_request()).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("from fallback"));
+    assert_eq!(
+        result.actual_model.as_deref(),
+        Some("model-b"),
+        "actual_model should be set to the fallback model"
+    );
 }
