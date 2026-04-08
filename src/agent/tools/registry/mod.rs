@@ -214,7 +214,14 @@ impl ToolRegistry {
             );
             return;
         }
-        if self.tools.contains_key(&name) {
+        if let Some(existing) = self.tools.get(&name) {
+            if existing.capabilities().built_in {
+                warn!(
+                    "tool registry: rejecting '{}' — cannot shadow built-in tool",
+                    name
+                );
+                return;
+            }
             warn!("tool registry: overwriting duplicate tool '{}'", name);
         }
         // Compute and cache the definition once at registration time

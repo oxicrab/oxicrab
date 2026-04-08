@@ -1,4 +1,12 @@
 use super::*;
+use oxicrab_core::config::schema::SandboxConfig;
+
+fn test_tool() -> TmuxTool {
+    TmuxTool::new(SandboxConfig {
+        enabled: false,
+        ..SandboxConfig::default()
+    })
+}
 
 #[test]
 fn test_is_session_missing_no_such_file() {
@@ -32,7 +40,7 @@ fn test_socket_path() {
 
 #[test]
 fn test_tmux_capabilities() {
-    let tool = TmuxTool::new();
+    let tool = test_tool();
     let caps = tool.capabilities();
     assert!(caps.built_in);
     assert!(!caps.network_outbound);
@@ -41,7 +49,7 @@ fn test_tmux_capabilities() {
 
 #[test]
 fn test_tmux_actions_match_schema() {
-    let tool = TmuxTool::new();
+    let tool = test_tool();
     let caps = tool.capabilities();
     let params = tool.parameters();
     let schema_actions: Vec<String> = params["properties"]["action"]["enum"]

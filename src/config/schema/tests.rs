@@ -100,7 +100,7 @@ fn test_enabled_webhook_rejects_agent_turn_and_dispatch_together() {
         "deploy".into(),
         WebhookConfig {
             enabled: true,
-            secret: "secret".into(),
+            secret: "a-sufficiently-long-webhook-secret-that-passes-validation".into(),
             agent_turn: true,
             targets: vec![WebhookTarget {
                 channel: "slack".into(),

@@ -38,3 +38,4 @@ config.json
 .fastembed_cache/
 .worktrees/
 .gitnexus
+.mcp.json

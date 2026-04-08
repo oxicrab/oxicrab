@@ -1148,6 +1148,24 @@ impl AgentLoop {
             ));
         }
 
+        // Also check interactive approval config — direct dispatch must not
+        // bypass operator-configured approval requirements.
+        if self
+            .approval_config
+            .covers(&tool, action, &tool_ref.capabilities().actions)
+        {
+            return Ok(Some(
+                OutboundMessage::from_inbound(
+                    msg.clone(),
+                    format!(
+                        "Action failed: tool '{tool}' action '{action}' requires operator approval \
+                         and cannot be invoked via direct dispatch."
+                    ),
+                )
+                .build(),
+            ));
+        }
+
         // Secret-scan params
         let params = match redact_dispatch_params(&self.leak_detector, params) {
             Ok(p) => p,
@@ -1528,6 +1546,22 @@ impl AgentLoop {
             if tool_ref.requires_approval_for_action(action) {
                 return Ok(super::config::DirectResult {
                     content: format!("Action failed: tool '{}' requires approval.", dispatch.tool),
+                    metadata: HashMap::new(),
+                });
+            }
+
+            // Also check interactive approval config — direct dispatch must not
+            // bypass operator-configured approval requirements.
+            if self
+                .approval_config
+                .covers(&dispatch.tool, action, &tool_ref.capabilities().actions)
+            {
+                return Ok(super::config::DirectResult {
+                    content: format!(
+                        "Action failed: tool '{}' action '{}' requires operator approval \
+                         and cannot be invoked via direct dispatch.",
+                        dispatch.tool, action
+                    ),
                     metadata: HashMap::new(),
                 });
             }

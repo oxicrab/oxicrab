@@ -65,7 +65,7 @@ pub async fn register_all_tools(
 
     register_filesystem(&mut tools, ctx);
     register_shell(&mut tools, ctx)?;
-    register_tmux(&mut tools);
+    register_tmux(&mut tools, ctx);
     register_web(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
     register_browser(&mut tools, ctx);
@@ -200,8 +200,10 @@ fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result
     Ok(())
 }
 
-fn register_tmux(registry: &mut ToolRegistry) {
-    registry.register(oxicrab_tools_system::create_tmux_tool());
+fn register_tmux(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    registry.register(oxicrab_tools_system::create_tmux_tool(
+        ctx.sandbox_config.clone(),
+    ));
 }
 
 fn register_web(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {

@@ -245,6 +245,23 @@ impl MessageBus {
             msg.content = self.leak_detector.redact(&msg.content);
         }
 
+        // Scan button context metadata for leaked secrets
+        if let Some(buttons) = msg.metadata.get_mut("buttons")
+            && let Some(arr) = buttons.as_array_mut()
+        {
+            for btn in arr.iter_mut() {
+                if let Some(ctx) = btn.get_mut("context")
+                    && let Some(ctx_str) = ctx.as_str()
+                {
+                    let redacted = self.leak_detector.redact(ctx_str);
+                    if redacted != ctx_str {
+                        warn!("security: secret leak in button context metadata — redacting");
+                        *ctx = serde_json::Value::String(redacted);
+                    }
+                }
+            }
+        }
+
         let channel = msg.channel.clone();
         let chat_id = msg.chat_id.clone();
         // Use timeout to prevent indefinite blocking when consumer is slow

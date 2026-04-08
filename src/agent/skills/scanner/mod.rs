@@ -139,11 +139,16 @@ static SCAN_PATTERNS: LazyLock<Vec<ScanPattern>> = LazyLock::new(|| {
 ///
 /// Returns blocked findings (skill should not be loaded) and warnings
 /// (skill can be loaded but operator should review).
+///
+/// Scans both per-line (for most patterns) and with a sliding window of
+/// adjacent lines joined together (to catch multi-line split evasion).
 pub fn scan_skill(content: &str) -> SkillScanResult {
     let mut blocked = Vec::new();
     let mut warnings = Vec::new();
 
-    for (line_idx, line) in content.lines().enumerate() {
+    let lines: Vec<&str> = content.lines().collect();
+
+    for (line_idx, line) in lines.iter().enumerate() {
         // Skip code fence markers themselves
         let trimmed = line.trim();
         if trimmed.starts_with("```") {
@@ -162,6 +167,45 @@ pub fn scan_skill(content: &str) -> SkillScanResult {
                     blocked.push(finding);
                 } else {
                     warnings.push(finding);
+                }
+            }
+        }
+    }
+
+    // Multi-line sliding window: join adjacent lines to catch split evasion
+    // (e.g., "ignore all previous\ninstructions and rules")
+    for window_size in [2, 3] {
+        if lines.len() < window_size {
+            continue;
+        }
+        for start in 0..lines.len() - (window_size - 1) {
+            let joined: String = lines[start..start + window_size].join(" ");
+            for pattern in SCAN_PATTERNS.iter() {
+                if let Some(m) = pattern.regex.find(&joined) {
+                    // Only report if this wasn't already caught by single-line scan
+                    let matched = m.as_str().chars().take(100).collect::<String>();
+                    let already_found = if pattern.block {
+                        blocked
+                            .iter()
+                            .any(|f| f.pattern_name == pattern.name && f.matched_text == matched)
+                    } else {
+                        warnings
+                            .iter()
+                            .any(|f| f.pattern_name == pattern.name && f.matched_text == matched)
+                    };
+                    if !already_found {
+                        let finding = SkillFinding {
+                            category: pattern.category,
+                            pattern_name: pattern.name,
+                            matched_text: matched,
+                            line_number: start + 1,
+                        };
+                        if pattern.block {
+                            blocked.push(finding);
+                        } else {
+                            warnings.push(finding);
+                        }
+                    }
                 }
             }
         }

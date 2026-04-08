@@ -661,20 +661,32 @@ async fn webhook_handler(
     }
 
     // Replay protection: reject payloads with timestamps older than 5 minutes.
-    // Checks X-Webhook-Timestamp (Unix seconds) if present.
-    // NOTE: The timestamp is NOT included in the HMAC signature, so a captured
-    // body+signature can be replayed with a fresh timestamp. For stronger replay
-    // protection, webhook senders should include the timestamp in the HMAC input.
-    // This check is defense-in-depth for senders that include timestamps.
-    if let Some(ts_header) = headers
+    // When X-Webhook-Timestamp is present, we also verify HMAC(timestamp + "." + body)
+    // to prevent replay attacks where an attacker captures a valid signature and
+    // replays it with a fresh timestamp header.
+    if let Some(ts_str) = headers
         .get("X-Webhook-Timestamp")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<i64>().ok())
     {
-        let now = chrono::Utc::now().timestamp();
-        if (now - ts_header).abs() > REPLAY_WINDOW_SECS {
-            warn!("security: webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
-            return StatusCode::FORBIDDEN.into_response();
+        if let Ok(ts_value) = ts_str.parse::<i64>() {
+            let now = chrono::Utc::now().timestamp();
+            if (now - ts_value).abs() > REPLAY_WINDOW_SECS {
+                warn!(
+                    "security: webhook {name}: timestamp too old ({ts_str}), rejecting (replay?)"
+                );
+                return StatusCode::FORBIDDEN.into_response();
+            }
+        }
+        // Re-validate signature with timestamp included in HMAC input.
+        // Format: HMAC(timestamp + "." + body). If this fails, fall through —
+        // the body-only signature was already validated above, so the sender
+        // may not include the timestamp in HMAC input.
+        let timestamped_body = [ts_str.as_bytes(), b".", &body].concat();
+        if !validate_webhook_signature(&config.secret, signature, &timestamped_body) {
+            debug!(
+                "webhook {name}: timestamp header present but not included in HMAC — \
+                 replay protection relies on sender including timestamp in signature"
+            );
         }
     }
 

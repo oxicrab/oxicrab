@@ -348,6 +348,7 @@ impl Config {
         self.validate_channels()?;
         self.validate_model_routing()?;
         self.validate_provider_temperatures()?;
+        self.validate_provider_headers()?;
         self.validate_observability()?;
         self.validate_context_providers()?;
         Ok(())
@@ -382,6 +383,11 @@ impl Config {
         if d.max_tool_iterations > 1000 {
             return Err(OxicrabError::Config(
                 "agents.defaults.maxToolIterations is unreasonably large (> 1000)".into(),
+            ));
+        }
+        if d.approval.enabled && d.approval.timeout < 10 {
+            return Err(OxicrabError::Config(
+                "agents.defaults.approval.timeout must be >= 10 seconds when enabled".into(),
             ));
         }
         Ok(())
@@ -490,6 +496,19 @@ impl Config {
                 self.gateway.host
             );
         }
+        if self.gateway.enabled
+            && !self.gateway.api_key.is_empty()
+            && self.gateway.api_key.len() < 32
+            && self.gateway.host != "127.0.0.1"
+            && self.gateway.host != "localhost"
+            && self.gateway.host != "::1"
+        {
+            return Err(OxicrabError::Config(format!(
+                "gateway.apiKey must be at least 32 characters when listening on {} (got {})",
+                self.gateway.host,
+                self.gateway.api_key.len()
+            )));
+        }
         if self.gateway.rate_limit.enabled && self.gateway.rate_limit.requests_per_second == 0 {
             return Err(OxicrabError::Config(
                 "gateway.rateLimit.requestsPerSecond must be > 0 when enabled".into(),
@@ -517,9 +536,16 @@ impl Config {
             if !webhook.enabled {
                 continue;
             }
-            if webhook.secret.trim().is_empty() {
+            let trimmed_secret = webhook.secret.trim();
+            if trimmed_secret.is_empty() {
                 return Err(OxicrabError::Config(format!(
                     "gateway.webhooks.{name}.secret is required when webhook is enabled"
+                )));
+            }
+            if trimmed_secret.len() < 32 {
+                return Err(OxicrabError::Config(format!(
+                    "gateway.webhooks.{name}.secret must be at least 32 characters (got {})",
+                    trimmed_secret.len()
                 )));
             }
             if webhook.targets.is_empty() {
@@ -599,6 +625,16 @@ impl Config {
         }
         if self.tools.exec.timeout > 3600 {
             warn!("tools.exec.timeout is very long (> 3600s), this may cause timeouts");
+        }
+        // Warn about AllowedCommands polarity: empty = unrestricted (opposite of
+        // DenyByDefaultList where empty = deny-all). Operators expecting deny-all
+        // semantics from `allowedCommands = []` would get unrestricted execution.
+        if !self.tools.exec.allowed_commands.is_restricted() {
+            warn!(
+                "tools.exec.allowedCommands is empty/unset — all shell commands are allowed. \
+                 set a command list to restrict execution, or set to the defaults to restore \
+                 the built-in allowlist"
+            );
         }
         if self.tools.browser.timeout == 0 {
             return Err(OxicrabError::Config(
@@ -840,6 +876,55 @@ impl Config {
         Ok(())
     }
 
+    fn validate_provider_headers(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+
+        let reserved_headers: &[&str] = &[
+            "authorization",
+            "content-type",
+            "x-api-key",
+            "anthropic-version",
+            "x-session-affinity",
+        ];
+        let providers: &[(&str, &ProviderConfig)] = &[
+            ("anthropic", &self.providers.anthropic),
+            ("openai", &self.providers.openai),
+            ("openrouter", &self.providers.openrouter),
+            ("deepseek", &self.providers.deepseek),
+            ("groq", &self.providers.groq),
+            ("zhipu", &self.providers.zhipu),
+            ("dashscope", &self.providers.dashscope),
+            ("gemini", &self.providers.gemini),
+            ("minimax", &self.providers.minimax),
+            ("moonshot", &self.providers.moonshot),
+        ];
+        for (provider_name, config) in providers {
+            for key in config.headers.keys() {
+                if reserved_headers.contains(&key.to_lowercase().as_str()) {
+                    return Err(OxicrabError::Config(format!(
+                        "providers.{provider_name}.headers: '{key}' is a reserved header name \
+                         and cannot be overridden"
+                    )));
+                }
+            }
+        }
+        for (name, config) in [
+            ("vllm", &self.providers.vllm.base),
+            ("ollama", &self.providers.ollama.base),
+        ] {
+            for key in config.headers.keys() {
+                if reserved_headers.contains(&key.to_lowercase().as_str()) {
+                    return Err(OxicrabError::Config(format!(
+                        "providers.{name}.headers: '{key}' is a reserved header name \
+                         and cannot be overridden"
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn validate_context_providers(&self) -> Result<(), crate::errors::OxicrabError> {
         use crate::errors::OxicrabError;
 
@@ -879,6 +964,28 @@ impl Config {
                 if env_var.contains('=') {
                     return Err(OxicrabError::Config(format!(
                         "agents.defaults.contextProviders[{i}].requiresEnv[{j}] must not contain '='"
+                    )));
+                }
+            }
+            if cp.command.is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "agents.defaults.contextProviders[{i}].command must not be empty"
+                )));
+            }
+            if has_control_chars(&cp.command) {
+                return Err(OxicrabError::Config(format!(
+                    "agents.defaults.contextProviders[{i}].command contains control characters"
+                )));
+            }
+            if cp.command.contains('/') || cp.command.contains('\\') {
+                return Err(OxicrabError::Config(format!(
+                    "agents.defaults.contextProviders[{i}].command must be a binary name, not a path"
+                )));
+            }
+            for (j, arg) in cp.args.iter().enumerate() {
+                if has_control_chars(arg) {
+                    return Err(OxicrabError::Config(format!(
+                        "agents.defaults.contextProviders[{i}].args[{j}] contains control characters"
                     )));
                 }
             }
@@ -968,6 +1075,15 @@ impl Config {
             for value in cfg.headers.values() {
                 if !value.is_empty() {
                     secrets.push(("provider_header", value.as_str()));
+                }
+            }
+        }
+
+        // Include MCP server environment variable values (may contain API keys)
+        for server in self.tools.mcp.servers.values() {
+            for value in server.env.values() {
+                if !value.is_empty() {
+                    secrets.push(("mcp_server_env", value.as_str()));
                 }
             }
         }

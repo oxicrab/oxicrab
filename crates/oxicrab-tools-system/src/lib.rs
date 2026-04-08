@@ -58,6 +58,6 @@ pub fn create_exec_tool(
 }
 
 /// Create the tmux tool.
-pub fn create_tmux_tool() -> Arc<dyn Tool> {
-    Arc::new(tmux::TmuxTool::new())
+pub fn create_tmux_tool(sandbox_config: SandboxConfig) -> Arc<dyn Tool> {
+    Arc::new(tmux::TmuxTool::new(sandbox_config))
 }

@@ -255,7 +255,7 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **oxicrab** (7931 symbols, 19472 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **oxicrab** (8173 symbols, 20311 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

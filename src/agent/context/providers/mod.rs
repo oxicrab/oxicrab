@@ -1,8 +1,41 @@
 use crate::config::ContextProviderConfig;
+use regex::Regex;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, warn};
+
+/// Patterns that indicate prompt injection in context provider output.
+/// These are stripped before the output enters the system prompt.
+static INJECTION_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    [
+        // Role override markers
+        r"(?im)^\s*(?:system|assistant|user)\s*:",
+        // Common injection phrases
+        r"(?i)\b(?:ignore|disregard|forget)\b.{0,30}\b(?:previous|prior|above|all)\b.{0,20}\b(?:instructions?|prompts?|rules?)\b",
+        // New identity injection
+        r"(?i)\byou\s+are\s+now\b.{0,50}\b(?:new|different|another)\b",
+        // System prompt override
+        r"(?i)\b(?:new|override|replace)\b.{0,20}\b(?:system\s+prompt|instructions)\b",
+    ]
+    .iter()
+    .filter_map(|p| Regex::new(p).ok())
+    .collect()
+});
+
+/// Strip prompt injection markers from context provider output.
+fn sanitize_provider_output(output: &str) -> String {
+    let mut sanitized = output.to_string();
+    for pattern in INJECTION_PATTERNS.iter() {
+        if pattern.is_match(&sanitized) {
+            warn!(
+                "security: prompt injection pattern detected in context provider output — stripping"
+            );
+            sanitized = pattern.replace_all(&sanitized, "[redacted]").to_string();
+        }
+    }
+    sanitized
+}
 
 struct CachedOutput {
     content: String,
@@ -129,6 +162,9 @@ impl ContextProviderRunner {
             provider.name,
             output.len()
         );
+
+        // Sanitize output for prompt injection before caching
+        let output = sanitize_provider_output(&output);
 
         // Update cache
         {

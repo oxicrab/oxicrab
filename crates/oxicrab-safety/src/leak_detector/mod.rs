@@ -125,6 +125,14 @@ static BASE_PATTERNS: LazyLock<BasePatterns> = LazyLock::new(|| {
             r"rk_(live|test)_[A-Za-z0-9]{24,}",
             "rk_",
         ),
+        // Twilio API keys (SK prefix + 32 hex chars)
+        ("twilio_api_key", r"SK[0-9a-fA-F]{32}", "SK"),
+        // DigitalOcean personal access tokens
+        ("digitalocean_pat", r"dop_v1_[a-f0-9]{64}", "dop_v1_"),
+        // Hugging Face tokens
+        ("huggingface_token", r"hf_[a-zA-Z0-9]{34,}", "hf_"),
+        // Replicate API tokens
+        ("replicate_token", r"r8_[a-zA-Z0-9]{38,}", "r8_"),
     ];
 
     let mut prefixes = Vec::with_capacity(pattern_defs.len());

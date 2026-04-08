@@ -152,16 +152,46 @@ fn apply_runtime_overrides(config: &mut Config) {
     crate::config::credentials::apply_keyring_overrides(config);
 }
 
+/// Security-sensitive top-level config keys that warrant a log when overridden
+/// by a local overlay file.
+const SECURITY_SENSITIVE_KEYS: &[&str] = &[
+    "promptGuard",
+    "exfiltrationGuard",
+    "approval",
+    "allowFrom",
+    "allowGroups",
+    "dmPolicy",
+    "apiKey",
+    "sandbox",
+    "allowedCommands",
+    "trustProxy",
+];
+
 fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
+    merge_toml_inner(base, overlay, &mut String::new());
+}
+
+fn merge_toml_inner(base: &mut toml::Value, overlay: toml::Value, path: &mut String) {
     match (base, overlay) {
         (toml::Value::Table(base_table), toml::Value::Table(overlay_table)) => {
             for (key, value) in overlay_table {
+                let prev_len = path.len();
+                if !path.is_empty() {
+                    path.push('.');
+                }
+                path.push_str(&key);
+
+                if SECURITY_SENSITIVE_KEYS.contains(&key.as_str()) {
+                    tracing::warn!("config overlay overrides security-sensitive key '{path}'");
+                }
+
                 match base_table.get_mut(&key) {
-                    Some(existing) => merge_toml(existing, value),
+                    Some(existing) => merge_toml_inner(existing, value, path),
                     None => {
                         base_table.insert(key, value);
                     }
                 }
+                path.truncate(prev_len);
             }
         }
         (base_slot, overlay_value) => *base_slot = overlay_value,

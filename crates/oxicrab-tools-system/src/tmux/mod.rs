@@ -2,6 +2,7 @@ use crate::utils::regex_utils::compile_security_patterns;
 use anyhow::Result;
 use async_trait::async_trait;
 use oxicrab_core::actions;
+use oxicrab_core::config::schema::SandboxConfig;
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
@@ -26,18 +27,16 @@ fn get_socket_path() -> PathBuf {
 
 pub struct TmuxTool {
     deny_patterns: Vec<Regex>,
-}
-
-impl Default for TmuxTool {
-    fn default() -> Self {
-        Self::new()
-    }
+    sandbox_config: SandboxConfig,
 }
 
 impl TmuxTool {
-    pub fn new() -> Self {
+    pub fn new(sandbox_config: SandboxConfig) -> Self {
         let deny_patterns = compile_security_patterns().unwrap_or_default();
-        Self { deny_patterns }
+        Self {
+            deny_patterns,
+            sandbox_config,
+        }
     }
 
     async fn run_tmux(&self, args: &[&str]) -> Result<(i32, String, String)> {
@@ -46,14 +45,21 @@ impl TmuxTool {
             std::fs::create_dir_all(parent)?;
         }
 
-        let output = crate::utils::subprocess::scrubbed_command("tmux")
-            .arg("-S")
+        let mut cmd = crate::utils::subprocess::scrubbed_command("tmux");
+        cmd.arg("-S")
             .arg(socket_path.as_os_str())
             .args(args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await?;
+            .stderr(Stdio::piped());
+
+        if self.sandbox_config.enabled {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
+            let rules = crate::utils::sandbox::SandboxRules::for_shell(&cwd, &self.sandbox_config);
+            crate::utils::sandbox::apply_to_command(&mut cmd, &rules)
+                .map_err(|e| anyhow::anyhow!("sandbox is required but failed to apply: {e}"))?;
+        }
+
+        let output = cmd.output().await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = crate::utils::path_sanitize::sanitize_error_message(
@@ -174,6 +180,14 @@ impl Tool for TmuxTool {
                     ));
                 }
                 let command = require_param!(params, "command");
+
+                let violations = crate::utils::shell_ast::analyze_command(command);
+                if let Some(v) = violations.first() {
+                    return Ok(ToolResult::error(format!(
+                        "command blocked by structural analysis ({:?}): {}",
+                        v.kind, v.description
+                    )));
+                }
 
                 for pattern in &self.deny_patterns {
                     if pattern.is_match(command) {

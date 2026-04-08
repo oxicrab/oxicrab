@@ -163,33 +163,34 @@ async fn webhook_handler(
     headers: HeaderMap,
     body: String,
 ) -> axum::response::Response {
-    // Skip signature validation if webhook_url is empty (warn at startup, not per-request)
-    let validate_signature = !state.webhook_url.is_empty();
+    // Always validate signature — startup rejects empty webhook_url, so
+    // webhook_url is guaranteed to be present here.
+    let Some(signature) = headers
+        .get("X-Twilio-Signature")
+        .and_then(|v| v.to_str().ok())
+    else {
+        warn!("twilio webhook: missing X-Twilio-Signature header");
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let signature = signature.to_string();
 
-    // Extract signature header
-    if validate_signature {
-        let Some(signature) = headers
-            .get("X-Twilio-Signature")
-            .and_then(|v| v.to_str().ok())
-        else {
-            warn!("twilio webhook: missing X-Twilio-Signature header");
-            return StatusCode::FORBIDDEN.into_response();
-        };
-        let signature = signature.to_string();
+    // Parse form-encoded body for validation
+    let sig_params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
 
-        // Parse form-encoded body for validation
-        let params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
-            .map(|(k, v)| (k.into_owned(), v.into_owned()))
-            .collect();
-
-        // Validates against the configured webhook_url, not the inbound request URL.
-        // This is standard for Twilio integrations behind reverse proxies — the URL
-        // must match what Twilio was configured to call. If validation fails, check
-        // that the webhookUrl config matches the URL configured in Twilio's console.
-        if !validate_twilio_signature(&state.auth_token, &signature, &state.webhook_url, &params) {
-            warn!("twilio webhook: invalid signature");
-            return StatusCode::FORBIDDEN.into_response();
-        }
+    // Validates against the configured webhook_url, not the inbound request URL.
+    // This is standard for Twilio integrations behind reverse proxies — the URL
+    // must match what Twilio was configured to call. If validation fails, check
+    // that the webhookUrl config matches the URL configured in Twilio's console.
+    if !validate_twilio_signature(
+        &state.auth_token,
+        &signature,
+        &state.webhook_url,
+        &sig_params,
+    ) {
+        warn!("twilio webhook: invalid signature");
+        return StatusCode::FORBIDDEN.into_response();
     }
 
     // Parse form-encoded body
@@ -403,9 +404,13 @@ impl BaseChannel for TwilioChannel {
             return Ok(());
         }
 
-        // Warn if webhook_url is empty — signature validation will be skipped
+        // Reject startup if webhook_url is empty — without it, signature
+        // validation is impossible and any HTTP client can forge messages.
         if self.config.webhook_url.is_empty() {
-            warn!("twilio webhookUrl is empty — webhook signature validation is disabled");
+            anyhow::bail!(
+                "twilio: webhookUrl must be configured — without it, webhook signature \
+                 validation is disabled and the endpoint accepts unauthenticated requests"
+            );
         }
 
         // Validate webhook URL before using it for signature verification

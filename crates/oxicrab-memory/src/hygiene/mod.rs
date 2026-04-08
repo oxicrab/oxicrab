@@ -71,6 +71,23 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
         Err(e) => warn!("cron trace purge failed: {}", e),
         _ => {}
     }
+    // Purge old subagent logs (keep most recent 200 tasks).
+    match db.purge_old_subagent_logs(200) {
+        Ok(n) if n > 0 => info!("purged {} old subagent log entries", n),
+        Err(e) => warn!("subagent log purge failed: {}", e),
+        _ => {}
+    }
+    // Cleanup expired pairing entries
+    match db.cleanup_expired_pending(86_400) {
+        Ok(n) if n > 0 => info!("cleaned up {} expired pairing entries", n),
+        Err(e) => warn!("pairing cleanup failed: {}", e),
+        _ => {}
+    }
+    match db.cleanup_old_failed_attempts(86_400) {
+        Ok(n) if n > 0 => info!("cleaned up {} old failed pairing attempts", n),
+        Err(e) => warn!("pairing failed attempts cleanup failed: {}", e),
+        _ => {}
+    }
     // Update query planner statistics after bulk deletions.
     if let Err(e) = db.optimize() {
         warn!("failed to optimize database: {e}");

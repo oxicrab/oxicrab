@@ -126,6 +126,12 @@ impl BrowserTool {
             builder = builder.chrome_executable(path);
         }
 
+        // Disable DNS prefetch and speculative connections to reduce SSRF
+        // surface from in-page JS (fetch/XHR to internal IPs).
+        builder = builder
+            .arg("--disable-features=NetworkPrediction")
+            .arg("--dns-prefetch-disable");
+
         // Clean up stale SingletonLock files from previous crashes
         for lock_dir in [
             user_data_dir.clone(),

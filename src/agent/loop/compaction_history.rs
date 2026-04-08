@@ -188,6 +188,9 @@ impl AgentLoop {
                         }
                         recovery_summary.truncate(pos);
                     }
+                    // Redact any leaked secrets from the compaction summary
+                    let recovery_summary = self.leak_detector.redact(&recovery_summary);
+
                     // Cache summary locally so it survives save failures
                     self.set_session_checkpoint(&session.key, recovery_summary.clone())
                         .await;
