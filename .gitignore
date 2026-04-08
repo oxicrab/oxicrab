@@ -37,3 +37,4 @@ config.json
 # Embedding model cache
 .fastembed_cache/
 .worktrees/
+.gitnexus
