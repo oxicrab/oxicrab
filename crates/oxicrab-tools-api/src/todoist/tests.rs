@@ -569,6 +569,7 @@ async fn test_update_task_success() {
     assert!(!result.is_error);
     assert!(result.content.contains("task_abc"));
     assert!(result.content.contains("updated"));
+    assert!(result.content.contains("Updated title"));
 }
 
 #[tokio::test]

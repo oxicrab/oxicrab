@@ -139,20 +139,20 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             } else {
                 Some(config.gateway.api_key.clone())
             };
-            let (http_task, state) = crate::gateway::start(
-                &config.gateway.host,
-                config.gateway.port,
-                Arc::new(inbound_tx.clone()),
-                Some(outbound_tx.clone()),
-                config.gateway.webhooks.clone(),
+            let (http_task, state) = crate::gateway::start(crate::gateway::GatewayStartConfig {
+                host: config.gateway.host.clone(),
+                port: config.gateway.port,
+                inbound_tx: Arc::new(inbound_tx.clone()),
+                outbound_tx: Some(outbound_tx.clone()),
+                webhooks: config.gateway.webhooks.clone(),
                 a2a_config,
                 api_key,
-                &config.gateway.rate_limit,
-                leak_detector.clone() as Arc<dyn oxicrab_core::safety::LeakRedactor>,
-                ready.clone(),
-                status_lock.clone(),
-                false, // not echo mode
-            )
+                rate_limit: config.gateway.rate_limit.clone(),
+                leak_detector: leak_detector.clone() as Arc<dyn oxicrab_core::safety::LeakRedactor>,
+                ready: ready.clone(),
+                status: status_lock.clone(),
+                echo_mode: false,
+            })
             .await?;
             Ok(Some((http_task, state)))
         } else {
@@ -281,20 +281,20 @@ pub(super) async fn gateway_echo() -> Result<()> {
         } else {
             Some(config.gateway.api_key.clone())
         };
-        let (http_task, state) = crate::gateway::start(
-            &config.gateway.host,
-            config.gateway.port,
-            Arc::new(inbound_tx.clone()),
-            Some(outbound_tx.clone()),
-            config.gateway.webhooks.clone(),
-            None, // A2A not available in echo mode
+        let (http_task, state) = crate::gateway::start(crate::gateway::GatewayStartConfig {
+            host: config.gateway.host.clone(),
+            port: config.gateway.port,
+            inbound_tx: Arc::new(inbound_tx.clone()),
+            outbound_tx: Some(outbound_tx.clone()),
+            webhooks: config.gateway.webhooks.clone(),
+            a2a_config: None, // A2A not available in echo mode
             api_key,
-            &config.gateway.rate_limit,
-            leak_detector as Arc<dyn oxicrab_core::safety::LeakRedactor>,
+            rate_limit: config.gateway.rate_limit.clone(),
+            leak_detector: leak_detector as Arc<dyn oxicrab_core::safety::LeakRedactor>,
             ready,
-            Arc::new(std::sync::OnceLock::new()),
-            true, // echo mode
-        )
+            status: Arc::new(std::sync::OnceLock::new()),
+            echo_mode: true,
+        })
         .await?;
         drop(http_task);
         Some(state)

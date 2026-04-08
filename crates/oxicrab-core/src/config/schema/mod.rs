@@ -71,7 +71,7 @@ pub use providers::*;
 pub use router::*;
 pub use tools::*;
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -151,26 +151,16 @@ pub struct GatewayConfig {
     pub rate_limit: RateLimitConfig,
 }
 
-impl std::fmt::Debug for GatewayConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GatewayConfig")
-            .field("enabled", &self.enabled)
-            .field("host", &self.host)
-            .field("port", &self.port)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("webhooks", &self.webhooks)
-            .field("a2a", &self.a2a)
-            .field("rate_limit", &self.rate_limit)
-            .finish()
-    }
-}
+redact_debug!(
+    GatewayConfig,
+    enabled,
+    host,
+    port,
+    redact(api_key),
+    webhooks,
+    a2a,
+    rate_limit,
+);
 
 impl Default for GatewayConfig {
     fn default() -> Self {
@@ -848,22 +838,7 @@ impl Config {
     fn validate_provider_temperatures(&self) -> Result<(), crate::errors::OxicrabError> {
         use crate::errors::OxicrabError;
 
-        let providers: &[(&str, &ProviderConfig)] = &[
-            ("anthropic", &self.providers.anthropic),
-            ("openai", &self.providers.openai),
-            ("gemini", &self.providers.gemini),
-            ("openrouter", &self.providers.openrouter),
-            ("deepseek", &self.providers.deepseek),
-            ("groq", &self.providers.groq),
-            ("moonshot", &self.providers.moonshot),
-            ("zhipu", &self.providers.zhipu),
-            ("dashscope", &self.providers.dashscope),
-            ("minimax", &self.providers.minimax),
-            ("vllm", &self.providers.vllm.base),
-            ("ollama", &self.providers.ollama.base),
-        ];
-
-        for (name, cfg) in providers {
+        for (name, cfg) in self.providers.all_providers() {
             if let Some(t) = cfg.temperature
                 && (t.is_nan() || t.is_infinite() || !(0.0..=2.0).contains(&t))
             {
@@ -886,36 +861,11 @@ impl Config {
             "anthropic-version",
             "x-session-affinity",
         ];
-        let providers: &[(&str, &ProviderConfig)] = &[
-            ("anthropic", &self.providers.anthropic),
-            ("openai", &self.providers.openai),
-            ("openrouter", &self.providers.openrouter),
-            ("deepseek", &self.providers.deepseek),
-            ("groq", &self.providers.groq),
-            ("zhipu", &self.providers.zhipu),
-            ("dashscope", &self.providers.dashscope),
-            ("gemini", &self.providers.gemini),
-            ("minimax", &self.providers.minimax),
-            ("moonshot", &self.providers.moonshot),
-        ];
-        for (provider_name, config) in providers {
+        for (provider_name, config) in self.providers.all_providers() {
             for key in config.headers.keys() {
                 if reserved_headers.contains(&key.to_lowercase().as_str()) {
                     return Err(OxicrabError::Config(format!(
                         "providers.{provider_name}.headers: '{key}' is a reserved header name \
-                         and cannot be overridden"
-                    )));
-                }
-            }
-        }
-        for (name, config) in [
-            ("vllm", &self.providers.vllm.base),
-            ("ollama", &self.providers.ollama.base),
-        ] {
-            for key in config.headers.keys() {
-                if reserved_headers.contains(&key.to_lowercase().as_str()) {
-                    return Err(OxicrabError::Config(format!(
-                        "providers.{name}.headers: '{key}' is a reserved header name \
                          and cannot be overridden"
                     )));
                 }
@@ -1058,20 +1008,7 @@ impl Config {
         }
 
         // Include custom header values from all providers (may contain auth tokens)
-        let provider_configs = [
-            &self.providers.anthropic,
-            &self.providers.openai,
-            &self.providers.openrouter,
-            &self.providers.deepseek,
-            &self.providers.groq,
-            &self.providers.zhipu,
-            &self.providers.dashscope,
-            &self.providers.vllm.base,
-            &self.providers.gemini,
-            &self.providers.moonshot,
-            &self.providers.ollama.base,
-        ];
-        for cfg in provider_configs {
+        for (_, cfg) in self.providers.all_providers() {
             for value in cfg.headers.values() {
                 if !value.is_empty() {
                     secrets.push(("provider_header", value.as_str()));

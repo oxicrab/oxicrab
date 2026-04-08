@@ -469,8 +469,7 @@ impl Default for BrowserConfig {
 pub enum ImageGenProvider {
     #[default]
     Openai,
-    Google,
-    #[serde(alias = "gemini")]
+    #[serde(alias = "google")]
     Gemini,
 }
 

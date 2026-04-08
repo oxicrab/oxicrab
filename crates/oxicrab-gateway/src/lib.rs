@@ -96,6 +96,34 @@ pub struct HttpApiState {
     pub echo_mode: bool,
 }
 
+impl HttpApiState {
+    /// Lock the pending response map, recovering from poison.
+    fn lock_pending(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<OutboundMessage>>> {
+        self.pending.lock().unwrap_or_else(|poison| {
+            warn!("gateway pending map mutex was poisoned, recovering");
+            poison.into_inner()
+        })
+    }
+}
+
+/// Configuration for [`start()`], replacing the 12-parameter function signature.
+pub struct GatewayStartConfig<S: BuildHasher> {
+    pub host: String,
+    pub port: u16,
+    pub inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
+    pub outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
+    pub webhooks: HashMap<String, WebhookConfig, S>,
+    pub a2a_config: Option<oxicrab_core::config::schema::A2aConfig>,
+    pub api_key: Option<String>,
+    pub rate_limit: oxicrab_core::config::schema::RateLimitConfig,
+    pub leak_detector: Arc<dyn LeakRedactor>,
+    pub ready: Arc<AtomicBool>,
+    pub status: Arc<OnceLock<status::StatusState>>,
+    pub echo_mode: bool,
+}
+
 /// Drop guard that removes a pending response entry when the handler is dropped
 /// (e.g., on client disconnect). If the response already arrived via `route_response()`,
 /// the entry will already be consumed and the remove is a harmless no-op.
@@ -389,10 +417,7 @@ async fn chat_handler(
     // Create oneshot channel for the response
     let (tx, rx) = oneshot::channel();
     {
-        let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-            warn!("gateway pending map mutex was poisoned, recovering");
-            poison.into_inner()
-        });
+        let mut pending = state.lock_pending();
         pending.insert(request_id.clone(), tx);
     }
 
@@ -466,10 +491,7 @@ async fn chat_handler(
 
     if let Err(e) = state.inbound_tx.send(msg).await {
         // Clean up pending entry
-        let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-            warn!("gateway pending map mutex was poisoned, recovering");
-            poison.into_inner()
-        });
+        let mut pending = state.lock_pending();
         pending.remove(&request_id);
         error!("failed to publish HTTP API message: {}", e);
         return (
@@ -499,10 +521,7 @@ async fn chat_handler(
         }
         Err(_) => {
             // Timeout — clean up pending entry
-            let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-                warn!("gateway pending map mutex was poisoned, recovering");
-                poison.into_inner()
-            });
+            let mut pending = state.lock_pending();
             pending.remove(&request_id);
             warn!("HTTP API request timed out: {}", request_id);
             (
@@ -751,10 +770,7 @@ async fn webhook_handler(
 
         let (tx, rx) = oneshot::channel();
         {
-            let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-                warn!("gateway pending map mutex was poisoned, recovering");
-                poison.into_inner()
-            });
+            let mut pending = state.lock_pending();
             pending.insert(request_id.clone(), tx);
         }
 
@@ -777,10 +793,7 @@ async fn webhook_handler(
         .build();
 
         if let Err(e) = state.inbound_tx.send(inbound).await {
-            let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-                warn!("gateway pending map mutex was poisoned, recovering");
-                poison.into_inner()
-            });
+            let mut pending = state.lock_pending();
             pending.remove(&request_id);
             error!("webhook {}: failed to publish inbound message: {}", name, e);
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -817,10 +830,7 @@ async fn webhook_handler(
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Err(_) => {
-                let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-                    warn!("gateway pending map mutex was poisoned, recovering");
-                    poison.into_inner()
-                });
+                let mut pending = state.lock_pending();
                 pending.remove(&request_id);
                 warn!("webhook {}: agent response timed out", name);
                 StatusCode::GATEWAY_TIMEOUT.into_response()
@@ -920,21 +930,23 @@ async fn deliver_to_targets(
 ///
 /// `leak_detector` is shared across the message bus, agent loop, and gateway.
 /// It has known secrets pre-registered before being wrapped in `Arc`.
-#[allow(clippy::too_many_arguments)]
 pub async fn start<S: BuildHasher>(
-    host: &str,
-    port: u16,
-    inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
-    webhooks: HashMap<String, WebhookConfig, S>,
-    a2a_config: Option<oxicrab_core::config::schema::A2aConfig>,
-    api_key: Option<String>,
-    rate_limit: &oxicrab_core::config::schema::RateLimitConfig,
-    leak_detector: Arc<dyn LeakRedactor>,
-    ready: Arc<AtomicBool>,
-    status: Arc<OnceLock<status::StatusState>>,
-    echo_mode: bool,
+    config: GatewayStartConfig<S>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
+    let GatewayStartConfig {
+        host,
+        port,
+        inbound_tx,
+        outbound_tx,
+        webhooks,
+        a2a_config,
+        api_key,
+        rate_limit,
+        leak_detector,
+        ready,
+        status,
+        echo_mode,
+    } = config;
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
         .iter()
@@ -971,7 +983,7 @@ pub async fn start<S: BuildHasher>(
                 store: Arc::new(a2a::A2aTaskStore::new()),
                 inbound_tx,
                 pending,
-                host: host.to_string(),
+                host: host.clone(),
                 port,
             })
         }
@@ -1050,10 +1062,7 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
         return false;
     }
 
-    let mut pending = state.pending.lock().unwrap_or_else(|poison| {
-        warn!("gateway pending map mutex was poisoned, recovering");
-        poison.into_inner()
-    });
+    let mut pending = state.lock_pending();
     if let Some(tx) = pending.remove(&msg.chat_id) {
         if tx.send(msg).is_err() {
             warn!("HTTP API client disconnected before receiving response");

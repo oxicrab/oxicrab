@@ -12,15 +12,10 @@ pub fn get_workspace_path(workspace: &str) -> PathBuf {
             let stripped = workspace.strip_prefix("~/").unwrap_or(workspace);
             return home.join(stripped);
         }
-    } else if workspace == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
-    } else if let Some(rest) = workspace.strip_prefix('~')
+    } else if workspace == "~"
         && let Some(home) = dirs::home_dir()
     {
-        let relative = rest.strip_prefix('/').unwrap_or(rest);
-        return home.join(relative);
+        return home;
     }
     PathBuf::from(workspace)
 }

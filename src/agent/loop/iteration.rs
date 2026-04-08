@@ -59,103 +59,19 @@ impl AgentLoop {
         let result = async {
             let mut activated_snapshot = std::collections::HashSet::new();
 
-            let tools_defs = self
-                .tools
-                .get_tool_definitions_with_activated(&activated_snapshot);
-
-            // Exfiltration guard: hide network-outbound tools from the LLM
-            let mut tools_defs = if self.exfiltration_guard.enabled {
-                let allowed = &self.exfiltration_guard.allow_tools;
-                tools_defs
-                    .into_iter()
-                    .filter(|td| {
-                        let is_network = self
-                            .tools
-                            .get(&td.name)
-                            .is_some_and(|t| t.capabilities().network_outbound);
-                        !is_network || allowed.allows(&td.name)
-                    })
-                    .collect()
-            } else {
-                tools_defs
-            };
-
-            // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
-            if let Some(policy) = overrides.routing_policy.as_ref() {
-                tools_defs.retain(|td| {
-                    policy.allowed_tools.contains(&td.name)
-                        || activated_snapshot.contains(&td.name)
-                        || td.name == "add_buttons"
-                        || td.name == "tool_search"
-                });
-            }
-            if let Some(policy) = overrides.routing_policy.as_ref() {
-                debug!(
-                    "router policy active: reason={} tools={}",
-                    policy.reason,
-                    tools_defs.len()
+            let (mut tool_names, mut tools_arc) =
+                self.prepare_tool_definitions(
+                    &activated_snapshot,
+                    overrides.routing_policy.as_ref(),
                 );
-            }
 
-            // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
-            let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
+            self.augment_system_prompt(
+                &mut messages,
+                &tool_names,
+                overrides.routing_policy.as_ref(),
+            );
 
-            // Wrap tools in Arc for cheap cloning into each ChatRequest iteration
-            let mut tools_arc = Arc::new(tools_defs);
-
-            // Reinforce tool awareness in the system prompt. Without this, models
-            // (especially via proxy APIs like OpenRouter) sometimes claim tools are
-            // unavailable and fabricate responses instead of calling them.
-            if !tool_names.is_empty()
-                && let Some(system_msg) = messages.first_mut()
-            {
-                system_msg.content.push_str(
-                    "\n\nYou have tools available. If a user asks you to perform actions, \
-                     call the matching tool directly — do not claim tools are unavailable.",
-                );
-            }
-
-            // Inject router context hint into system prompt for GuidedLLM path
-            if let Some(hint) = overrides
-                .routing_policy
-                .as_ref()
-                .and_then(|p| p.context_hint.as_ref())
-                && let Some(system_msg) = messages.first_mut()
-            {
-                use std::fmt::Write;
-                // Cap context hint to prevent excessive token usage
-                let capped = if hint.len() > 1000 {
-                    &hint[..hint.floor_char_boundary(1000)]
-                } else {
-                    hint.as_str()
-                };
-                let _ = write!(system_msg.content, "\n\n## Active Interaction\n\n{capped}");
-            }
-
-            // Append cognitive routines to system prompt when enabled
-            if self.cognitive_config.enabled
-                && let Some(system_msg) = messages.first_mut()
-            {
-                system_msg.content.push_str(
-                    "\n\n## Cognitive Routines\n\n\
-                     When working on complex tasks with many tool calls:\n\
-                     - Periodically summarize your progress in your responses\n\
-                     - If you receive a checkpoint hint, briefly note: what's done, \
-                     what's in progress, what's next\n\
-                     - Keep track of your overall plan and remaining steps",
-                );
-            }
-
-            let wrapup_threshold =
-                (effective_max_iterations as f64 * WRAPUP_THRESHOLD_RATIO).ceil() as usize;
-            // Ensure wrapup doesn't fire on the very first iteration
-            let wrapup_threshold = wrapup_threshold.max(MIN_WRAPUP_ITERATION);
-            // Ensure at least 1 iteration remains after wrapup for the LLM to act on it
-            let wrapup_threshold = if wrapup_threshold >= effective_max_iterations {
-                effective_max_iterations.saturating_sub(1).max(1)
-            } else {
-                wrapup_threshold
-            };
+            let wrapup_threshold = Self::compute_wrapup_threshold(effective_max_iterations);
 
             for iteration in 1..=effective_max_iterations {
             // Inject wrap-up hint when approaching iteration limit
@@ -209,28 +125,7 @@ impl AgentLoop {
 
             // Record token usage off the async runtime (fire-and-forget)
             let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
-            {
-                let db = self.memory.db();
-                let model = cost_model.to_string();
-                let input = response.input_tokens.unwrap_or(0);
-                let output = response.output_tokens.unwrap_or(0);
-                let cache_create = response.cache_creation_input_tokens.unwrap_or(0);
-                let cache_read = response.cache_read_input_tokens.unwrap_or(0);
-                let req_id = overrides.request_id.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.record_tokens(
-                        &model,
-                        input,
-                        output,
-                        cache_create,
-                        cache_read,
-                        "main",
-                        req_id.as_deref(),
-                    ) {
-                        warn!("failed to record token usage: {}", e);
-                    }
-                });
-            }
+            self.record_tokens_background(&response, cost_model, overrides.request_id.as_deref());
 
             if response.has_tool_calls() {
                 any_tools_called = true;
@@ -284,31 +179,12 @@ impl AgentLoop {
                         let new_count = current.len() - activated_snapshot.len();
                         debug!("tool_search activated {new_count} new deferred tool(s)");
                         activated_snapshot = current;
-                        tools_defs = self
-                            .tools
-                            .get_tool_definitions_with_activated(&activated_snapshot);
-                        // Re-apply exfiltration guard
-                        if self.exfiltration_guard.enabled {
-                            let allowed = &self.exfiltration_guard.allow_tools;
-                            tools_defs.retain(|td| {
-                                let is_network = self
-                                    .tools
-                                    .get(&td.name)
-                                    .is_some_and(|t| t.capabilities().network_outbound);
-                                !is_network || allowed.allows(&td.name)
-                            });
-                        }
-                        // Re-apply tool filter (GuidedLLM constraint)
-                        if let Some(policy) = overrides.routing_policy.as_ref() {
-                            tools_defs.retain(|td| {
-                                policy.allowed_tools.contains(&td.name)
-                                    || activated_snapshot.contains(&td.name)
-                                    || td.name == "add_buttons"
-                                    || td.name == "tool_search"
-                            });
-                        }
-                        tool_names = tools_defs.iter().map(|td| td.name.clone()).collect();
-                        tools_arc = Arc::new(tools_defs);
+                        let (rebuilt_names, rebuilt_arc) = self.prepare_tool_definitions(
+                            &activated_snapshot,
+                            overrides.routing_policy.as_ref(),
+                        );
+                        tool_names = rebuilt_names;
+                        tools_arc = rebuilt_arc;
                     }
                 }
             } else if let Some(content) = response.content {
@@ -445,6 +321,120 @@ impl AgentLoop {
         self.tool_search_activated.clear(&activation_scope).await;
         self.pending_buttons.clear(&activation_scope);
         result
+    }
+
+    /// Build filtered tool definitions, names, and Arc for the agent loop.
+    fn prepare_tool_definitions(
+        &self,
+        activated: &std::collections::HashSet<String>,
+        routing_policy: Option<&crate::router::RoutingPolicy>,
+    ) -> (
+        Vec<String>,
+        Arc<Vec<crate::providers::base::ToolDefinition>>,
+    ) {
+        let mut defs = self.tools.get_tool_definitions_with_activated(activated);
+        Self::apply_tool_definition_filters(
+            &mut defs,
+            &self.exfiltration_guard,
+            &self.tools,
+            routing_policy,
+            activated,
+        );
+        if let Some(policy) = routing_policy {
+            debug!(
+                "router policy active: reason={} tools={}",
+                policy.reason,
+                defs.len()
+            );
+        }
+        let names: Vec<String> = defs.iter().map(|td| td.name.clone()).collect();
+        (names, Arc::new(defs))
+    }
+
+    /// Augment the system prompt with tool awareness, router hint, and
+    /// cognitive routines.
+    fn augment_system_prompt(
+        &self,
+        messages: &mut [Message],
+        tool_names: &[String],
+        routing_policy: Option<&crate::router::RoutingPolicy>,
+    ) {
+        if !tool_names.is_empty()
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\nYou have tools available. If a user asks you to perform actions, \
+                 call the matching tool directly — do not claim tools are unavailable.",
+            );
+        }
+
+        if let Some(hint) = routing_policy.and_then(|p| p.context_hint.as_ref())
+            && let Some(system_msg) = messages.first_mut()
+        {
+            use std::fmt::Write;
+            let capped = if hint.len() > 1000 {
+                &hint[..hint.floor_char_boundary(1000)]
+            } else {
+                hint.as_str()
+            };
+            let _ = write!(system_msg.content, "\n\n## Active Interaction\n\n{capped}");
+        }
+
+        if self.cognitive_config.enabled
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\n## Cognitive Routines\n\n\
+                 When working on complex tasks with many tool calls:\n\
+                 - Periodically summarize your progress in your responses\n\
+                 - If you receive a checkpoint hint, briefly note: what's done, \
+                 what's in progress, what's next\n\
+                 - Keep track of your overall plan and remaining steps",
+            );
+        }
+    }
+
+    /// Compute the iteration at which a wrap-up hint should be injected.
+    fn compute_wrapup_threshold(max_iterations: usize) -> usize {
+        let threshold = (max_iterations as f64 * WRAPUP_THRESHOLD_RATIO).ceil() as usize;
+        let threshold = threshold.max(MIN_WRAPUP_ITERATION);
+        if threshold >= max_iterations {
+            max_iterations.saturating_sub(1).max(1)
+        } else {
+            threshold
+        }
+    }
+
+    /// Apply exfiltration guard and router policy filters to tool definitions.
+    ///
+    /// Shared between initial setup and post-tool_search activation rebuild.
+    fn apply_tool_definition_filters(
+        tool_defs: &mut Vec<crate::providers::base::ToolDefinition>,
+        exfil_guard: &crate::config::ExfiltrationGuardConfig,
+        tools: &crate::agent::tools::ToolRegistry,
+        routing_policy: Option<&crate::router::RoutingPolicy>,
+        activated: &std::collections::HashSet<String>,
+    ) {
+        // Exfiltration guard: hide network-outbound tools from the LLM
+        if exfil_guard.enabled {
+            let allowed = &exfil_guard.allow_tools;
+            tool_defs.retain(|td| {
+                let is_network = tools
+                    .get(&td.name)
+                    .is_some_and(|t| t.capabilities().network_outbound);
+                !is_network || allowed.allows(&td.name)
+            });
+        }
+
+        // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
+        if let Some(policy) = routing_policy {
+            tool_defs.retain(|td| {
+                policy.allowed_tools.contains(&td.name)
+                    || activated.contains(&td.name)
+                    || td.name == "add_buttons"
+                    || td.name == "tool_search"
+            });
+        }
     }
 
     /// Execute tool calls — single-tool fast-path or parallel `spawn`+`join_all`.
@@ -714,6 +704,35 @@ impl AgentLoop {
         meta
     }
 
+    /// Fire-and-forget token recording on a blocking thread.
+    fn record_tokens_background(
+        &self,
+        response: &crate::providers::base::LLMResponse,
+        model: &str,
+        request_id: Option<&str>,
+    ) {
+        let db = self.memory.db();
+        let model = model.to_string();
+        let input = response.input_tokens.unwrap_or(0);
+        let output = response.output_tokens.unwrap_or(0);
+        let cache_create = response.cache_creation_input_tokens.unwrap_or(0);
+        let cache_read = response.cache_read_input_tokens.unwrap_or(0);
+        let req_id = request_id.map(str::to_string);
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = db.record_tokens(
+                &model,
+                input,
+                output,
+                cache_create,
+                cache_read,
+                "main",
+                req_id.as_deref(),
+            ) {
+                warn!("failed to record token usage: {}", e);
+            }
+        });
+    }
+
     /// Post-loop LLM call with no tools to force a text summary when the loop
     /// ended after tool calls without producing a final text response.
     async fn generate_post_loop_summary(
@@ -738,30 +757,8 @@ impl AgentLoop {
         .await
         {
             Ok(response) => {
-                let cost_model = response
-                    .actual_model
-                    .as_deref()
-                    .unwrap_or(effective_model)
-                    .to_string();
-                let db = self.memory.db();
-                let input = response.input_tokens.unwrap_or(0);
-                let output = response.output_tokens.unwrap_or(0);
-                let cache_create = response.cache_creation_input_tokens.unwrap_or(0);
-                let cache_read = response.cache_read_input_tokens.unwrap_or(0);
-                let req_id = request_id.map(str::to_string);
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.record_tokens(
-                        &cost_model,
-                        input,
-                        output,
-                        cache_create,
-                        cache_read,
-                        "main",
-                        req_id.as_deref(),
-                    ) {
-                        warn!("failed to record token usage: {}", e);
-                    }
-                });
+                let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
+                self.record_tokens_background(&response, cost_model, request_id);
                 Ok(response.content)
             }
             Err(e) => {

@@ -1,3 +1,4 @@
+use crate::API_URL_ANTHROPIC;
 use crate::anthropic_common;
 use crate::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
@@ -13,7 +14,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 /// Default `expires_in` when the OAuth response omits the field (1 hour).
@@ -60,11 +60,7 @@ impl AnthropicOAuthProvider {
         credentials_path: Option<PathBuf>,
         db: Option<Arc<dyn OAuthTokenStore>>,
     ) -> Result<Self> {
-        let client = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_mins(2))
-            .build()
-            .context("Failed to create HTTP client for AnthropicOAuthProvider")?;
+        let client = crate::provider_http_client();
 
         let provider = Self {
             access_token: Arc::new(Mutex::new(access_token)),
@@ -295,13 +291,13 @@ impl AnthropicOAuthProvider {
     async fn send_chat_request(&self, token: &str, payload: &Value) -> Result<reqwest::Response> {
         let mut request = self
             .client
-            .post(API_URL)
+            .post(API_URL_ANTHROPIC)
             .header("Authorization", format!("Bearer {token}"));
 
-        request = request.header("x-session-affinity", crate::session_affinity_id());
         for (key, value) in claude_code_headers() {
             request = request.header(key, value);
         }
+        request = request.header("x-session-affinity", crate::session_affinity_id());
 
         request
             .json(payload)
@@ -550,68 +546,24 @@ impl AnthropicOAuthProvider {
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
     async fn chat(&self, req: &ChatRequest) -> Result<LLMResponse> {
-        let model = req.model.as_deref().map(|m| {
-            // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
-            if m.contains('/') {
-                m.split_once('/').map_or(m, |x| x.1)
-            } else {
-                m
-            }
-        });
-        let model = model.unwrap_or(self.default_model.as_str());
-
-        let token = self.ensure_valid_token().await?;
-
-        let json_mode_hint = match &req.response_format {
-            Some(oxicrab_core::providers::base::ResponseFormat::JsonObject) => {
-                Some("\n\nIMPORTANT: You must respond with valid JSON only. No other text.")
-            }
-            Some(oxicrab_core::providers::base::ResponseFormat::JsonSchema { schema, .. }) => {
-                debug!(
-                    "anthropic-oauth: JsonSchema requested, using system prompt hint (schema: {})",
-                    schema
-                );
-                Some(
-                    "\n\nIMPORTANT: You must respond with valid JSON only matching the requested schema. No other text.",
-                )
-            }
-            None => None,
+        // Strip provider prefix for API usage (e.g. "anthropic/claude-opus-4-6")
+        let stripped_req;
+        let effective_req = if req.model.as_deref().is_some_and(|m| m.contains('/')) {
+            stripped_req = ChatRequest {
+                model: req
+                    .model
+                    .as_deref()
+                    .map(|m| m.split_once('/').map_or(m, |x| x.1).to_string()),
+                ..req.clone()
+            };
+            &stripped_req
+        } else {
+            req
         };
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(&req.messages);
-
-        let mut payload = json!({
-            "model": model,
-            "messages": anthropic_messages,
-            "max_tokens": req.max_tokens,
-        });
-        if let Some(temp) = req.temperature {
-            payload["temperature"] = json!(temp);
-        }
-
-        if let Some(system) = system {
-            let system_with_hint = if let Some(hint) = json_mode_hint {
-                format!("{system}{hint}")
-            } else {
-                system
-            };
-            payload["system"] = anthropic_common::system_to_content_blocks(&system_with_hint);
-        } else if let Some(hint) = json_mode_hint {
-            payload["system"] =
-                anthropic_common::system_to_content_blocks(hint.trim_start_matches("\n\n"));
-        }
-
-        if let Some(ref tools) = req.tools {
-            payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
-            match req.tool_choice.as_deref().unwrap_or("auto") {
-                v @ ("auto" | "any" | "none") => {
-                    payload["tool_choice"] = json!({"type": v});
-                }
-                tool_name => {
-                    payload["tool_choice"] = json!({"type": "tool", "name": tool_name});
-                }
-            };
-        }
+        let token = self.ensure_valid_token().await?;
+        let payload =
+            anthropic_common::build_anthropic_chat_payload(effective_req, &self.default_model);
 
         // Try the request, and on 401 refresh the token and retry once.
         // This handles clock skew and stale expires_at timestamps that
@@ -661,7 +613,7 @@ impl LLMProvider for AnthropicOAuthProvider {
         });
         let mut warmup_req = self
             .client
-            .post(API_URL)
+            .post(API_URL_ANTHROPIC)
             .header("Authorization", format!("Bearer {token}"))
             .header("x-session-affinity", crate::session_affinity_id())
             .timeout(std::time::Duration::from_secs(15));

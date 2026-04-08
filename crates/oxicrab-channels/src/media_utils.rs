@@ -31,6 +31,27 @@ pub fn safe_filename(name: &str) -> String {
         .collect()
 }
 
+/// Map a MIME type to a file extension.
+///
+/// Covers common image, audio, video, and document types used across channels.
+pub fn mime_to_extension(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "audio/ogg" | "audio/ogg; codecs=opus" => "ogg",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/mp4" | "audio/m4a" => "m4a",
+        "audio/webm" | "video/webm" => "webm",
+        "audio/flac" => "flac",
+        "video/mp4" => "mp4",
+        "application/pdf" => "pdf",
+        _ => "bin",
+    }
+}
+
 /// Check if bytes start with known image magic bytes.
 pub fn is_image_magic_bytes(data: &[u8]) -> bool {
     if data.len() < 4 {

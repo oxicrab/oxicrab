@@ -1,7 +1,9 @@
-use oxicrab_core::providers::base::{LLMResponse, Message, ToolCallRequest, ToolDefinition};
+use oxicrab_core::providers::base::{
+    ChatRequest, LLMResponse, Message, ResponseFormat, ToolCallRequest, ToolDefinition,
+};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[derive(Debug, Serialize)]
 pub struct AnthropicMessage {
@@ -201,6 +203,65 @@ pub fn system_to_content_blocks(system: &str) -> Value {
         "text": system,
         "cache_control": {"type": "ephemeral"}
     }])
+}
+
+/// Build the JSON payload for an Anthropic API chat request.
+///
+/// Handles system prompt assembly (with JSON mode hints), temperature,
+/// tool definitions, and tool_choice. Used by both the API-key and OAuth
+/// Anthropic providers.
+pub fn build_anthropic_chat_payload(req: &ChatRequest, default_model: &str) -> Value {
+    let json_mode_hint = match &req.response_format {
+        Some(ResponseFormat::JsonObject) => {
+            Some("\n\nIMPORTANT: You must respond with valid JSON only. No other text.")
+        }
+        Some(ResponseFormat::JsonSchema { schema, .. }) => {
+            debug!(
+                "anthropic: JsonSchema requested, using system prompt hint (schema: {})",
+                schema
+            );
+            Some(
+                "\n\nIMPORTANT: You must respond with valid JSON only matching the requested schema. No other text.",
+            )
+        }
+        None => None,
+    };
+
+    let (system, anthropic_messages) = convert_messages(&req.messages);
+
+    let mut payload = json!({
+        "model": req.model.as_deref().unwrap_or(default_model),
+        "messages": anthropic_messages,
+        "max_tokens": req.max_tokens,
+    });
+    if let Some(temp) = req.temperature {
+        payload["temperature"] = json!(temp);
+    }
+
+    if let Some(system) = system {
+        let system_with_hint = if let Some(hint) = json_mode_hint {
+            format!("{system}{hint}")
+        } else {
+            system
+        };
+        payload["system"] = system_to_content_blocks(&system_with_hint);
+    } else if let Some(hint) = json_mode_hint {
+        payload["system"] = system_to_content_blocks(hint.trim_start_matches("\n\n"));
+    }
+
+    if let Some(ref tools) = req.tools {
+        payload["tools"] = Value::Array(convert_tools(tools));
+        match req.tool_choice.as_deref().unwrap_or("auto") {
+            v @ ("auto" | "any" | "none") => {
+                payload["tool_choice"] = json!({"type": v});
+            }
+            tool_name => {
+                payload["tool_choice"] = json!({"type": "tool", "name": tool_name});
+            }
+        };
+    }
+
+    payload
 }
 
 /// Parse an Anthropic API response into a generic [`LLMResponse`].

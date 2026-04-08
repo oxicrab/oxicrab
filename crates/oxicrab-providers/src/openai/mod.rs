@@ -1,14 +1,11 @@
 use crate::errors::ProviderErrorHandler;
-use crate::provider_http_client;
+use crate::{API_URL_OPENAI, provider_http_client};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use oxicrab_core::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use reqwest::Client;
 use serde_json::{Value, json};
-use std::time::Duration;
-use tracing::{debug, info, warn};
-
-const API_URL: &str = "https://api.openai.com/v1/chat/completions";
+use tracing::{debug, warn};
 
 pub struct OpenAIProvider {
     api_key: String,
@@ -24,7 +21,7 @@ impl OpenAIProvider {
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
-            base_url: API_URL.to_string(),
+            base_url: API_URL_OPENAI.to_string(),
             provider_name: "OpenAI".to_string(),
             client: provider_http_client(),
             custom_headers: std::collections::HashMap::new(),
@@ -291,15 +288,12 @@ impl LLMProvider for OpenAIProvider {
             }
         }
 
-        let mut req = self
+        let req = self
             .client
             .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json");
-        req = req.header("x-session-affinity", crate::session_affinity_id());
-        for (k, v) in &self.custom_headers {
-            req = req.header(k.as_str(), v.as_str());
-        }
+        let req = crate::apply_custom_headers(req, &self.custom_headers);
         let provider_name = &self.provider_name;
         let resp = req
             .json(&payload)
@@ -322,41 +316,26 @@ impl LLMProvider for OpenAIProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
-        let start = std::time::Instant::now();
         let payload = json!({
             "model": self.default_model,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         });
-        let mut req = self
-            .client
-            .post(&self.base_url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .timeout(Duration::from_secs(15));
-        req = req.header("x-session-affinity", crate::session_affinity_id());
+        let mut headers = vec![
+            ("Authorization", format!("Bearer {}", self.api_key)),
+            ("Content-Type", "application/json".to_string()),
+        ];
         for (k, v) in &self.custom_headers {
-            req = req.header(k.as_str(), v.as_str());
+            headers.push((k.as_str(), v.clone()));
         }
-        let result = req.json(&payload).send().await;
-        match result {
-            Ok(resp) if !resp.status().is_success() => {
-                warn!(
-                    "{} warmup got HTTP {} (non-fatal)",
-                    self.provider_name,
-                    resp.status()
-                );
-            }
-            Ok(_) => info!(
-                "{} provider warmed up in {}ms",
-                self.provider_name,
-                start.elapsed().as_millis()
-            ),
-            Err(e) => warn!(
-                "{} warmup request failed (non-fatal): {}",
-                self.provider_name, e
-            ),
-        }
+        crate::warmup_provider(
+            &self.client,
+            &self.base_url,
+            headers,
+            payload,
+            &self.provider_name,
+        )
+        .await?;
         Ok(())
     }
 }

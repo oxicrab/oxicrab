@@ -321,9 +321,11 @@ impl MemoryDB {
             return Ok(0);
         }
         let conn = self.lock_conn()?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let deleted = conn.execute(
-            "DELETE FROM intent_metrics WHERE timestamp < datetime('now', ?1)",
-            params![format!("-{days} days")],
+            "DELETE FROM intent_metrics WHERE timestamp < ?",
+            [&cutoff_str],
         )?;
         Ok(deleted)
     }

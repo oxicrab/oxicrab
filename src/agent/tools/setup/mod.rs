@@ -128,24 +128,18 @@ pub async fn register_all_tools(
         )
         .collect();
 
-    let shared_tool_index = if tools.deferred_count() > 0 {
+    if tools.deferred_count() > 0 {
         info!(
             "Registering tool_search with {} deferred tools",
             tools.deferred_count()
         );
-        let search_tool =
-            crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone());
-        let shared_idx = search_tool.shared_index();
-        tools.register(Arc::new(search_tool));
-        Some(shared_idx)
-    } else {
-        // Register tool_search unconditionally so collections can add to it later
-        let search_tool =
-            crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone());
-        let shared_idx = search_tool.shared_index();
-        tools.register(Arc::new(search_tool));
-        Some(shared_idx)
-    };
+    }
+    // Register tool_search unconditionally so collections can add to it later
+    let search_tool =
+        crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone());
+    let shared_tool_index = search_tool.shared_index();
+    tools.register(Arc::new(search_tool));
+    let shared_tool_index = Some(shared_tool_index);
 
     // Register collection tools (management + per-collection data tools)
     let collections_registry_handle =

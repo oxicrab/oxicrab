@@ -211,28 +211,10 @@ pub fn exponential_backoff_delay(attempt: u32, base_delay_secs: u64, max_delay_s
     feature = "channel-twilio",
 ))]
 fn get_memory_db_path() -> anyhow::Result<std::path::PathBuf> {
-    Ok(get_oxicrab_home()?
+    Ok(crate::media_utils::get_oxicrab_home()?
         .join("workspace")
         .join("memory")
         .join("memory.sqlite3"))
-}
-
-/// Get the oxicrab home directory.
-#[cfg(any(
-    feature = "channel-telegram",
-    feature = "channel-discord",
-    feature = "channel-slack",
-    feature = "channel-whatsapp",
-    feature = "channel-twilio",
-))]
-fn get_oxicrab_home() -> anyhow::Result<std::path::PathBuf> {
-    use anyhow::Context;
-    if let Some(home) = std::env::var_os("OXICRAB_HOME") {
-        return Ok(std::path::PathBuf::from(home));
-    }
-    Ok(dirs::home_dir()
-        .context("Could not determine home directory")?
-        .join(".oxicrab"))
 }
 
 #[cfg(test)]

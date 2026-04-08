@@ -1,3 +1,4 @@
+use crate::{API_URL_ANTHROPIC, API_URL_OPENAI, BASE_URL_GEMINI};
 use oxicrab_core::config::schema::{
     AnthropicOAuthConfig, ProviderConfig, ProvidersConfig, normalize_provider,
 };
@@ -8,13 +9,6 @@ use oxicrab_core::credential_store::OAuthTokenStore;
 use oxicrab_core::providers::base::LLMProvider;
 use std::sync::Arc;
 use tracing::info;
-
-/// Default API URL for first-party `Anthropic` provider.
-const API_URL_ANTHROPIC: &str = "https://api.anthropic.com/v1/messages";
-/// Default API URL for first-party `OpenAI` provider.
-const API_URL_OPENAI: &str = "https://api.openai.com/v1/chat/completions";
-/// Default base URL for first-party `Gemini` provider.
-const BASE_URL_GEMINI: &str = "https://generativelanguage.googleapis.com/v1";
 
 /// Default base URLs for OpenAI-compatible providers.
 const OPENAI_COMPAT_URLS: &[(&str, &str)] = &[

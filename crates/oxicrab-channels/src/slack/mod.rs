@@ -309,16 +309,33 @@ impl SlackChannel {
         Ok(json)
     }
 
-    /// Retry wrapper for Slack API calls. Retries up to 3 times for transient
-    /// (5xx) errors and rate limits (429) with Retry-After backoff.
+    /// Retry wrapper for form-encoded Slack API calls. Retries up to 3 times
+    /// for transient (5xx) errors and rate limits (429) with Retry-After backoff.
     async fn send_slack_api_with_retry(
         &self,
         method: &str,
         params: &HashMap<&str, Value>,
     ) -> Result<Value> {
+        self.slack_api_with_retry(method, || self.send_slack_api(method, params))
+            .await
+    }
+
+    /// Retry wrapper for JSON-body Slack API calls.
+    async fn send_slack_api_json_with_retry(&self, method: &str, body: &Value) -> Result<Value> {
+        self.slack_api_with_retry(method, || self.send_slack_api_json(method, body))
+            .await
+    }
+
+    /// Generic retry logic for Slack API calls. Classifies errors, applies
+    /// backoff for rate limits and server errors, and logs non-retryable failures.
+    async fn slack_api_with_retry<F, Fut>(&self, method: &str, make_request: F) -> Result<Value>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<Value>>,
+    {
         let mut last_err = None;
         for attempt in 0..3u32 {
-            match self.send_slack_api(method, params).await {
+            match make_request().await {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let err_str = e.to_string();
@@ -327,7 +344,6 @@ impl SlackChannel {
                         .strip_prefix("Slack API error: ")
                         .map(|s| s.split(" [status=").next().unwrap_or(s));
                     let mut classified = classify_slack_error(http_status, error_field);
-                    // Override retry_after_secs with the parsed Retry-After header value
                     if let (SlackApiError::RateLimited { retry_after_secs }, Some(parsed)) =
                         (&mut classified, retry_after)
                     {
@@ -369,43 +385,103 @@ impl SlackChannel {
         Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Slack API retry exhausted")))
     }
 
-    /// Retry wrapper for JSON-body Slack API calls.
-    async fn send_slack_api_json_with_retry(&self, method: &str, body: &Value) -> Result<Value> {
-        let mut last_err = None;
-        for attempt in 0..3u32 {
-            match self.send_slack_api_json(method, body).await {
-                Ok(json) => return Ok(json),
-                Err(e) => {
-                    let err_str = e.to_string();
-                    let (http_status, retry_after) = parse_error_metadata(&err_str);
-                    let error_field = err_str
-                        .strip_prefix("Slack API error: ")
-                        .map(|s| s.split(" [status=").next().unwrap_or(s));
-                    let mut classified = classify_slack_error(http_status, error_field);
-                    if let (SlackApiError::RateLimited { retry_after_secs }, Some(parsed)) =
-                        (&mut classified, retry_after)
-                    {
-                        *retry_after_secs = parsed;
-                    }
-                    if !is_retryable(&classified) {
-                        return Err(e);
-                    }
-                    let delay = match &classified {
-                        SlackApiError::RateLimited { retry_after_secs } => {
-                            u64::from(*retry_after_secs)
-                        }
-                        _ => 1u64 << attempt,
-                    };
-                    warn!(
-                        "slack: retryable error on {method} (attempt {}): {err_str}, retrying in {delay}s",
-                        attempt + 1
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-                    last_err = Some(e);
-                }
+    /// Shared implementation for sending a Slack message.
+    /// Handles media uploads, message splitting, buttons, and threading.
+    /// Returns the `ts` of the last message sent, if any.
+    async fn send_message_impl(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        // Upload media attachments first
+        for path in &msg.media {
+            if let Err(e) = self.upload_file(&msg.chat_id, path).await {
+                warn!("slack: failed to upload file {}: {}", path, e);
             }
         }
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Slack API retry exhausted")))
+
+        let content = Self::format_for_slack(&msg.content);
+        let buttons = convert_buttons_to_blocks(&msg.metadata);
+
+        // Thread replies: use reply_to or inbound ts metadata for threading
+        let thread_ts = msg.reply_to.as_deref().or_else(|| {
+            msg.metadata
+                .get(oxicrab_core::bus::events::meta::TS)
+                .and_then(|v| v.as_str())
+        });
+        let chunks = split_message(&content, 4000);
+        let chunk_count = chunks.len();
+        let mut last_ts = None;
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunk_count - 1;
+
+            // Attach buttons (Block Kit) to the last chunk via JSON body
+            let response = if is_last && !buttons.is_empty() {
+                // Block Kit section.text has a 3000-char limit
+                let block_text = if chunk.len() > 3000 {
+                    let boundary = chunk.floor_char_boundary(2997);
+                    format!("{}...", &chunk[..boundary])
+                } else {
+                    chunk.clone()
+                };
+                let mut body = serde_json::json!({
+                    "channel": msg.chat_id,
+                    "text": chunk,
+                    "mrkdwn": true,
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": block_text}},
+                    ],
+                });
+                let blocks = body["blocks"].as_array_mut().unwrap();
+                blocks.extend(buttons.clone());
+                if let Some(ts) = thread_ts {
+                    body["thread_ts"] = Value::String(ts.to_string());
+                }
+                self.send_slack_api_json_with_retry("chat.postMessage", &body)
+                    .await
+                    .map_err(|e| {
+                        error!("Error sending Slack message with blocks: {}", e);
+                        anyhow::anyhow!("Slack send error: {e}")
+                    })?
+            } else {
+                let mut params = HashMap::new();
+                params.insert("channel", Value::String(msg.chat_id.clone()));
+                params.insert("text", Value::String(chunk.clone()));
+                params.insert("mrkdwn", Value::Bool(true));
+                if let Some(ts) = thread_ts {
+                    params.insert("thread_ts", Value::String(ts.to_string()));
+                }
+                self.send_slack_api_with_retry("chat.postMessage", &params)
+                    .await
+                    .map_err(|e| {
+                        error!("Error sending Slack message: {}", e);
+                        anyhow::anyhow!("Slack send error: {e}")
+                    })?
+            };
+            if let Some(ts) = response.get("ts").and_then(Value::as_str) {
+                last_ts = Some(ts.to_string());
+            }
+        }
+
+        // If no text chunks but we have buttons, send buttons standalone
+        if chunks.is_empty() && !buttons.is_empty() {
+            let mut body = serde_json::json!({
+                "channel": msg.chat_id,
+                "text": " ",
+                "blocks": buttons,
+            });
+            if let Some(ts) = thread_ts {
+                body["thread_ts"] = Value::String(ts.to_string());
+            }
+            let response = self
+                .send_slack_api_json_with_retry("chat.postMessage", &body)
+                .await
+                .map_err(|e| {
+                    error!("Error sending Slack buttons-only message: {}", e);
+                    anyhow::anyhow!("Slack send error: {e}")
+                })?;
+            if let Some(ts) = response.get("ts").and_then(Value::as_str) {
+                last_ts = Some(ts.to_string());
+            }
+        }
+
+        Ok(last_ts)
     }
 }
 
@@ -864,95 +940,7 @@ impl BaseChannel for SlackChannel {
         if msg.channel != "slack" {
             return Ok(());
         }
-
-        // Upload media attachments first
-        for path in &msg.media {
-            if let Err(e) = self.upload_file(&msg.chat_id, path).await {
-                warn!("slack: failed to upload file {}: {}", path, e);
-            }
-        }
-
-        let content = Self::format_for_slack(&msg.content);
-        let buttons = convert_buttons_to_blocks(&msg.metadata);
-
-        // Split long messages (Slack limit is ~40k but 4000 is more readable)
-        // Thread replies: use reply_to or inbound ts metadata for threading
-        let thread_ts = msg.reply_to.as_deref().or_else(|| {
-            msg.metadata
-                .get(oxicrab_core::bus::events::meta::TS)
-                .and_then(|v| v.as_str())
-        });
-        let chunks = split_message(&content, 4000);
-        let chunk_count = chunks.len();
-        for (i, chunk) in chunks.iter().enumerate() {
-            let is_last = i == chunk_count - 1;
-
-            // Attach buttons (Block Kit) to the last chunk via JSON body
-            if is_last && !buttons.is_empty() {
-                // Block Kit section.text has a 3000-char limit
-                let block_text = if chunk.len() > 3000 {
-                    let boundary = chunk.floor_char_boundary(2997);
-                    format!("{}...", &chunk[..boundary])
-                } else {
-                    chunk.clone()
-                };
-                let mut body = serde_json::json!({
-                    "channel": msg.chat_id,
-                    "text": chunk,  // fallback text (no limit)
-                    "mrkdwn": true,
-                    "blocks": [
-                        {"type": "section", "text": {"type": "mrkdwn", "text": block_text}},
-                    ],
-                });
-                // Append button action rows to blocks
-                let blocks = body["blocks"].as_array_mut().unwrap();
-                blocks.extend(buttons.clone());
-                if let Some(ts) = thread_ts {
-                    body["thread_ts"] = Value::String(ts.to_string());
-                }
-                if let Err(e) = self
-                    .send_slack_api_json_with_retry("chat.postMessage", &body)
-                    .await
-                {
-                    error!("Error sending Slack message with blocks: {}", e);
-                    return Err(anyhow::anyhow!("Slack send error: {e}"));
-                }
-            } else {
-                let mut params = HashMap::new();
-                params.insert("channel", Value::String(msg.chat_id.clone()));
-                params.insert("text", Value::String(chunk.clone()));
-                params.insert("mrkdwn", Value::Bool(true));
-                if let Some(ts) = thread_ts {
-                    params.insert("thread_ts", Value::String(ts.to_string()));
-                }
-                if let Err(e) = self
-                    .send_slack_api_with_retry("chat.postMessage", &params)
-                    .await
-                {
-                    error!("Error sending Slack message: {}", e);
-                    return Err(anyhow::anyhow!("Slack send error: {e}"));
-                }
-            }
-        }
-
-        // If no text chunks but we have buttons, send buttons standalone
-        if chunks.is_empty() && !buttons.is_empty() {
-            let mut body = serde_json::json!({
-                "channel": msg.chat_id,
-                "text": " ",
-                "blocks": buttons,
-            });
-            if let Some(ts) = thread_ts {
-                body["thread_ts"] = Value::String(ts.to_string());
-            }
-            if let Err(e) = self
-                .send_slack_api_json_with_retry("chat.postMessage", &body)
-                .await
-            {
-                error!("Error sending Slack buttons-only message: {}", e);
-                return Err(anyhow::anyhow!("Slack send error: {e}"));
-            }
-        }
+        self.send_message_impl(msg).await?;
 
         // Swap thinking → done reaction (fire-and-forget)
         if let Some(ts) = msg
@@ -999,18 +987,7 @@ impl BaseChannel for SlackChannel {
         if msg.channel != "slack" {
             return Ok(None);
         }
-        let content = Self::format_for_slack(&msg.content);
-        let mut params = HashMap::new();
-        params.insert("channel", Value::String(msg.chat_id.clone()));
-        params.insert("text", Value::String(content));
-        params.insert("mrkdwn", Value::Bool(true));
-        let response = self
-            .send_slack_api_with_retry("chat.postMessage", &params)
-            .await?;
-        Ok(response
-            .get("ts")
-            .and_then(Value::as_str)
-            .map(ToString::to_string))
+        self.send_message_impl(msg).await
     }
 
     async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {
@@ -1519,13 +1496,8 @@ async fn handle_slack_event(
                         file.get("url_private_download").and_then(Value::as_str),
                         file.get("id").and_then(Value::as_str),
                     ) {
-                        let ext = match mimetype {
-                            "image/jpeg" => ".jpg",
-                            "image/png" => ".png",
-                            "image/gif" => ".gif",
-                            "image/webp" => ".webp",
-                            _ => ".bin",
-                        };
+                        let ext_no_dot = crate::media_utils::mime_to_extension(mimetype);
+                        let ext = &format!(".{ext_no_dot}");
                         let Ok(media_dir) = crate::media_utils::media_dir() else {
                             warn!("Failed to create media directory");
                             continue;
@@ -1575,14 +1547,8 @@ async fn handle_slack_event(
                         file.get("url_private_download").and_then(Value::as_str),
                         file.get("id").and_then(Value::as_str),
                     ) {
-                        let ext = match mimetype {
-                            "audio/mpeg" => ".mp3",
-                            "audio/wav" => ".wav",
-                            "audio/webm" | "video/webm" => ".webm",
-                            "audio/mp4" | "video/mp4" => ".mp4",
-                            "audio/flac" => ".flac",
-                            _ => ".ogg",
-                        };
+                        let ext_no_dot = crate::media_utils::mime_to_extension(mimetype);
+                        let ext = &format!(".{ext_no_dot}");
                         let Ok(media_dir) = crate::media_utils::media_dir() else {
                             warn!("Failed to create media directory");
                             continue;

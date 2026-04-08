@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::config::schema::default_true;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum CronSchedule {
@@ -111,10 +113,6 @@ pub struct CronJob {
         skip_serializing_if = "Option::is_none"
     )]
     pub max_concurrent: Option<u32>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 impl CronSchedule {

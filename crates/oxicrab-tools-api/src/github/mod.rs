@@ -80,6 +80,7 @@ impl GitHubTool {
     }
 
     /// Send a request, check rate limits, and parse the JSON response.
+    /// Retries once on 5xx server errors after a 2s delay.
     async fn api_send(&self, req: reqwest::RequestBuilder) -> Result<Value> {
         let resp = req.send().await?;
         let status = resp.status();
@@ -94,87 +95,107 @@ impl GitHubTool {
         Ok(body)
     }
 
-    async fn api_get_inner(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
-        let req = self.github_headers(
-            self.client
-                .get(format!("{}{}", self.base_url, path))
-                .query(query),
-        );
-        self.api_send(req).await
+    /// Build a request, send it via `api_send`, and retry once on 5xx errors.
+    async fn api_call<F>(&self, build_request: F) -> Result<Value>
+    where
+        F: Fn(&Self) -> reqwest::RequestBuilder,
+    {
+        match self.api_send(build_request(self)).await {
+            Ok(v) => Ok(v),
+            Err(e) if e.to_string().contains("GitHub API 5") => {
+                debug!("GitHub API server error, retrying once after 2s");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                self.api_send(build_request(self)).await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
-        match self.api_get_inner(path, query).await {
-            Ok(v) => Ok(v),
-            Err(e) if e.to_string().contains("GitHub API 5") => {
-                debug!("GitHub API server error, retrying once after 2s");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                self.api_get_inner(path, query).await
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn api_post_inner(&self, path: &str, body: &Value) -> Result<Value> {
-        let req = self.github_headers(
-            self.client
-                .post(format!("{}{}", self.base_url, path))
-                .json(body),
-        );
-        self.api_send(req).await
+        let path = path.to_string();
+        let query: Vec<(String, String)> = query
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        self.api_call(|s| {
+            let q: Vec<(&str, &str)> = query
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            s.github_headers(s.client.get(format!("{}{}", s.base_url, path)).query(&q))
+        })
+        .await
     }
 
     async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
-        match self.api_post_inner(path, body).await {
-            Ok(v) => Ok(v),
-            Err(e) if e.to_string().contains("GitHub API 5") => {
-                debug!("GitHub API server error, retrying once after 2s");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                self.api_post_inner(path, body).await
-            }
-            Err(e) => Err(e),
-        }
+        let path = path.to_string();
+        let body = body.clone();
+        self.api_call(|s| {
+            s.github_headers(s.client.post(format!("{}{}", s.base_url, path)).json(&body))
+        })
+        .await
     }
 
     async fn api_patch(&self, path: &str, body: &Value) -> Result<Value> {
-        let req = self.github_headers(
-            self.client
-                .patch(format!("{}{}", self.base_url, path))
-                .json(body),
-        );
-        self.api_send(req).await
+        let path = path.to_string();
+        let body = body.clone();
+        self.api_call(|s| {
+            s.github_headers(
+                s.client
+                    .patch(format!("{}{}", s.base_url, path))
+                    .json(&body),
+            )
+        })
+        .await
     }
 
     async fn api_put(&self, path: &str, body: &Value) -> Result<Value> {
-        let req = self.github_headers(
-            self.client
-                .put(format!("{}{}", self.base_url, path))
-                .json(body),
-        );
-        self.api_send(req).await
+        let path = path.to_string();
+        let body = body.clone();
+        self.api_call(|s| {
+            s.github_headers(s.client.put(format!("{}{}", s.base_url, path)).json(&body))
+        })
+        .await
     }
 
     async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
-        let req = self.github_headers(
-            self.client
-                .post(format!("{}{}", self.base_url, path))
-                .json(body),
-        );
-        let resp = req.send().await?;
-        let status = resp.status();
-        Self::check_rate_limit(&resp);
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            anyhow::bail!("GitHub API rate limit exceeded, try again later");
+        let path = path.to_string();
+        let body = body.clone();
+        // Use api_call for retry, then discard the response value.
+        // api_send handles 204 by returning an empty JSON, but
+        // api_post_no_content historically returned the raw response.
+        // Re-implement with direct send + retry to handle non-JSON 2xx.
+        let send = |s: &Self| {
+            s.github_headers(s.client.post(format!("{}{}", s.base_url, path)).json(&body))
+        };
+
+        let do_send = |req: reqwest::RequestBuilder| async {
+            let resp = req.send().await?;
+            let status = resp.status();
+            Self::check_rate_limit(&resp);
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                anyhow::bail!("GitHub API rate limit exceeded, try again later");
+            }
+            if !status.is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                let msg = serde_json::from_str::<Value>(&text).map_or_else(
+                    |_| "Unknown error".to_string(),
+                    |v| Self::sanitize_api_error(&v),
+                );
+                anyhow::bail!("GitHub API {status}: {msg}");
+            }
+            Ok(())
+        };
+
+        match do_send(send(self)).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.to_string().contains("GitHub API 5") => {
+                debug!("GitHub API server error, retrying once after 2s");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                do_send(send(self)).await
+            }
+            Err(e) => Err(e),
         }
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            let msg = serde_json::from_str::<Value>(&text).map_or_else(
-                |_| "Unknown error".to_string(),
-                |v| Self::sanitize_api_error(&v),
-            );
-            anyhow::bail!("GitHub API {status}: {msg}");
-        }
-        Ok(())
     }
 
     async fn list_issues(

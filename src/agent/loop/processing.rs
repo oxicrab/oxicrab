@@ -15,6 +15,18 @@ use uuid::Uuid;
 const REQUEST_ID_META_KEY: &str = "request_id";
 const SESSION_KEY_META_KEY: &str = "session_key";
 
+/// Result of executing a dispatched tool call (shared between dispatch paths).
+struct DispatchResult {
+    /// Tool output after secret redaction.
+    result_content: String,
+    /// User-facing display text (from tool metadata), if any.
+    display_text: Option<String>,
+    /// Suggested buttons from tool metadata.
+    suggested_buttons: HashMap<String, Value>,
+    /// Raw tool metadata for router context updates.
+    tool_metadata: Option<HashMap<String, Value>>,
+}
+
 impl AgentLoop {
     pub(super) async fn process_message_unlocked(
         &self,
@@ -733,7 +745,6 @@ impl AgentLoop {
         session_key: &str,
     ) -> Result<Option<String>> {
         use crate::agent::memory::quality::{QualityVerdict, check_quality};
-        use crate::agent::memory::remember::is_duplicate_of_entries;
 
         // Quality gate: reject low-signal content
         let response = match check_quality(content) {
@@ -749,87 +760,9 @@ impl AgentLoop {
                     .to_string()
             }
             QualityVerdict::Reframed(reframed) => {
-                let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
-                if is_duplicate_of_entries(&reframed, &recent) {
-                    metrics::counter!(
-                        "oxicrab_memory_remember_write_total",
-                        "path" => "fast",
-                        "outcome" => "duplicate"
-                    )
-                    .increment(1);
-                    info!("remember fast path: duplicate detected, skipping write");
-                    "I already have that noted.".to_string()
-                } else if self.memory.is_semantically_duplicate(&reframed, 0.85) {
-                    metrics::counter!(
-                        "oxicrab_memory_remember_write_total",
-                        "path" => "fast",
-                        "outcome" => "duplicate"
-                    )
-                    .increment(1);
-                    debug!("remember fast path: semantic duplicate detected");
-                    info!("remember fast path: duplicate detected, skipping write");
-                    "I already have that noted.".to_string()
-                } else {
-                    let scan = oxicrab_safety::scan_memory_content(&reframed, &self.leak_detector);
-                    if scan.content.trim().is_empty() {
-                        "That content was flagged and not stored.".to_string()
-                    } else {
-                        self.memory.append_today(&scan.content)?;
-                        metrics::counter!(
-                            "oxicrab_memory_remember_write_total",
-                            "path" => "fast",
-                            "outcome" => "written_reframed"
-                        )
-                        .increment(1);
-                        info!(
-                            "remember fast path: wrote {} chars to daily notes (reframed)",
-                            scan.content.len()
-                        );
-                        format!("Noted (reframed for accuracy): {}", scan.content)
-                    }
-                }
+                self.write_memory_entry(&reframed, "written_reframed")?
             }
-            QualityVerdict::Pass => {
-                let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
-                if is_duplicate_of_entries(content, &recent) {
-                    metrics::counter!(
-                        "oxicrab_memory_remember_write_total",
-                        "path" => "fast",
-                        "outcome" => "duplicate"
-                    )
-                    .increment(1);
-                    info!("remember fast path: duplicate detected, skipping write");
-                    "I already have that noted.".to_string()
-                } else if self.memory.is_semantically_duplicate(content, 0.85) {
-                    metrics::counter!(
-                        "oxicrab_memory_remember_write_total",
-                        "path" => "fast",
-                        "outcome" => "duplicate"
-                    )
-                    .increment(1);
-                    debug!("remember fast path: semantic duplicate detected");
-                    info!("remember fast path: duplicate detected, skipping write");
-                    "I already have that noted.".to_string()
-                } else {
-                    let scan = oxicrab_safety::scan_memory_content(content, &self.leak_detector);
-                    if scan.content.trim().is_empty() {
-                        "That content was flagged and not stored.".to_string()
-                    } else {
-                        self.memory.append_today(&scan.content)?;
-                        metrics::counter!(
-                            "oxicrab_memory_remember_write_total",
-                            "path" => "fast",
-                            "outcome" => "written"
-                        )
-                        .increment(1);
-                        info!(
-                            "remember fast path: wrote {} chars to daily notes",
-                            scan.content.len()
-                        );
-                        format!("Noted! I'll remember: {}", scan.content)
-                    }
-                }
-            }
+            QualityVerdict::Pass => self.write_memory_entry(content, "written")?,
         };
 
         // Single session load + save for all branches
@@ -844,6 +777,60 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         Ok(Some(response))
+    }
+
+    /// Deduplicate, scan, and write a memory entry for the remember fast path.
+    /// Returns the user-facing response message.
+    fn write_memory_entry(&self, content: &str, metric_label: &'static str) -> Result<String> {
+        use crate::agent::memory::remember::is_duplicate_of_entries;
+
+        let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
+        if is_duplicate_of_entries(content, &recent) {
+            metrics::counter!(
+                "oxicrab_memory_remember_write_total",
+                "path" => "fast",
+                "outcome" => "duplicate"
+            )
+            .increment(1);
+            info!("remember fast path: duplicate detected, skipping write");
+            return Ok("I already have that noted.".to_string());
+        }
+        if self.memory.is_semantically_duplicate(content, 0.85) {
+            metrics::counter!(
+                "oxicrab_memory_remember_write_total",
+                "path" => "fast",
+                "outcome" => "duplicate"
+            )
+            .increment(1);
+            debug!("remember fast path: semantic duplicate detected");
+            info!("remember fast path: duplicate detected, skipping write");
+            return Ok("I already have that noted.".to_string());
+        }
+        let scan = oxicrab_safety::scan_memory_content(content, &self.leak_detector);
+        if scan.content.trim().is_empty() {
+            return Ok("That content was flagged and not stored.".to_string());
+        }
+        self.memory.append_today(&scan.content)?;
+        metrics::counter!(
+            "oxicrab_memory_remember_write_total",
+            "path" => "fast",
+            "outcome" => metric_label
+        )
+        .increment(1);
+        let is_reframed = metric_label.contains("reframed");
+        if is_reframed {
+            info!(
+                "remember fast path: wrote {} chars to daily notes (reframed)",
+                scan.content.len()
+            );
+            Ok(format!("Noted (reframed for accuracy): {}", scan.content))
+        } else {
+            info!(
+                "remember fast path: wrote {} chars to daily notes",
+                scan.content.len()
+            );
+            Ok(format!("Noted! I'll remember: {}", scan.content))
+        }
     }
 
     /// Run `get_compacted_history` with timing instrumentation.
@@ -1040,6 +1027,121 @@ impl AgentLoop {
         hasher.finish()
     }
 
+    /// Validate, execute, and post-process a dispatched tool call.
+    ///
+    /// Shared between `handle_direct_dispatch` (channel messages) and
+    /// `process_direct_with_overrides` (cron/subagent action dispatch).
+    /// Callers handle session saving, router context, and response wrapping.
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_dispatch_tool(
+        &self,
+        tool: &str,
+        params: serde_json::Value,
+        channel: &str,
+        chat_id: &str,
+        metadata: HashMap<String, Value>,
+        context_summary: Option<String>,
+        session_key: &str,
+        request_id: &str,
+    ) -> Result<DispatchResult, String> {
+        // Validate tool exists
+        let tool_ref = self
+            .tools
+            .get(tool)
+            .ok_or_else(|| format!("Action failed: tool '{tool}' is not available."))?;
+
+        // Reject approval-required tools (per-action check)
+        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        if tool_ref.requires_approval_for_action(action) {
+            return Err(format!("Action failed: tool '{tool}' requires approval."));
+        }
+
+        // Check interactive approval config
+        if self
+            .approval_config
+            .covers(tool, action, &tool_ref.capabilities().actions)
+        {
+            return Err(format!(
+                "Action failed: tool '{tool}' action '{action}' requires operator approval \
+                 and cannot be invoked via direct dispatch."
+            ));
+        }
+
+        // Secret-scan params
+        let params = redact_dispatch_params(&self.leak_detector, params)?;
+
+        let ctx = Self::build_execution_context_with_metadata(
+            channel,
+            chat_id,
+            context_summary,
+            metadata,
+            request_id,
+            session_key,
+        );
+
+        let available_tools = self.tools.tool_names();
+        let result = execute_tool_call(
+            &self.tools,
+            tool,
+            &params,
+            &available_tools,
+            &ctx,
+            None,
+            Some(self.workspace.as_path()),
+            None, // direct dispatch: skip interactive approval
+        )
+        .await;
+
+        // Secret-scan tool result output
+        let result_content = self.leak_detector.redact(&result.content);
+        if result_content != result.content {
+            warn!("dispatch: secrets detected in tool '{tool}' output — redacting");
+        }
+
+        // Extract display_text with prompt guard scan
+        let display_text = if let Some(ref meta) = result.metadata
+            && let Some(display) = meta.get("display_text").and_then(|v| v.as_str())
+        {
+            let mut redacted = self.leak_detector.redact(display);
+            if matches!(
+                check_prompt_guard(
+                    self.prompt_guard.as_ref(),
+                    &self.prompt_guard_config,
+                    &redacted,
+                    "dispatch display_text",
+                ),
+                PromptGuardVerdict::Blocked
+            ) {
+                warn!(
+                    "security: display_text blocked by prompt guard, falling back to tool result"
+                );
+                redacted.clone_from(&result_content);
+            }
+            if result_content.is_empty() || result_content.contains("shown to user") {
+                Some(redacted)
+            } else {
+                Some(format!("{redacted}\n\n{result_content}"))
+            }
+        } else {
+            None
+        };
+
+        // Extract suggested buttons
+        let mut suggested_buttons = HashMap::new();
+        if let Some(ref meta) = result.metadata
+            && let Some(buttons) = meta.get(crate::bus::meta::SUGGESTED_BUTTONS)
+        {
+            suggested_buttons.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
+        }
+
+        Ok(DispatchResult {
+            result_content,
+            display_text,
+            suggested_buttons,
+            tool_metadata: result.metadata,
+        })
+    }
+
     /// Execute a tool directly without LLM involvement (buttons, directives,
     /// static rules, config commands, remember fast path).
     #[allow(clippy::too_many_arguments)]
@@ -1125,92 +1227,27 @@ impl AgentLoop {
             ));
         }
 
-        // Validate tool exists
-        let Some(tool_ref) = self.tools.get(&tool) else {
-            return Ok(Some(
-                OutboundMessage::from_inbound(
-                    msg.clone(),
-                    format!("Action failed: tool '{tool}' is not available."),
-                )
-                .build(),
-            ));
-        };
-
-        // Reject approval-required tools in direct dispatch (per-action check)
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
-        if tool_ref.requires_approval_for_action(action) {
-            return Ok(Some(
-                OutboundMessage::from_inbound(
-                    msg.clone(),
-                    format!("Action failed: tool '{tool}' requires approval."),
-                )
-                .build(),
-            ));
-        }
-
-        // Also check interactive approval config — direct dispatch must not
-        // bypass operator-configured approval requirements.
-        if self
-            .approval_config
-            .covers(&tool, action, &tool_ref.capabilities().actions)
+        let request_id = format!("req-{}", Uuid::new_v4());
+        let dispatch = match self
+            .execute_dispatch_tool(
+                &tool,
+                params,
+                &msg.channel,
+                &msg.chat_id,
+                msg.metadata.clone(),
+                context_summary,
+                session_key,
+                &request_id,
+            )
+            .await
         {
-            return Ok(Some(
-                OutboundMessage::from_inbound(
-                    msg.clone(),
-                    format!(
-                        "Action failed: tool '{tool}' action '{action}' requires operator approval \
-                         and cannot be invoked via direct dispatch."
-                    ),
-                )
-                .build(),
-            ));
-        }
-
-        // Secret-scan params
-        let params = match redact_dispatch_params(&self.leak_detector, params) {
-            Ok(p) => p,
-            Err(msg_text) => {
+            Ok(d) => d,
+            Err(err_msg) => {
                 return Ok(Some(
-                    OutboundMessage::from_inbound(msg.clone(), msg_text).build(),
+                    OutboundMessage::from_inbound(msg.clone(), err_msg).build(),
                 ));
             }
         };
-
-        // Build execution context from message metadata (context_summary was
-        // extracted from the session that the caller already loaded)
-        let request_id = format!("req-{}", Uuid::new_v4());
-        let ctx = Self::build_execution_context_with_metadata(
-            &msg.channel,
-            &msg.chat_id,
-            context_summary,
-            msg.metadata.clone(),
-            &request_id,
-            session_key,
-        );
-
-        // Execute via the same gateway used by LLM tool calls so direct
-        // dispatch enforces schema/security contracts consistently.
-        let available_tools = self.tools.tool_names();
-        let result = execute_tool_call(
-            &self.tools,
-            &tool,
-            &params,
-            &available_tools,
-            &ctx,
-            None,
-            Some(self.workspace.as_path()),
-            None, // direct dispatch: skip interactive approval
-        )
-        .await;
-
-        // Secret-scan tool result output
-        let result_content = self.leak_detector.redact(&result.content);
-        if result_content != result.content {
-            warn!(
-                "direct dispatch: secrets detected in tool '{}' output — redacting",
-                tool
-            );
-        }
 
         // Consume single-use directive BEFORE updating context (which may replace
         // the directives vector via install_directives(), invalidating the index)
@@ -1224,7 +1261,7 @@ impl AgentLoop {
         }
 
         // Extract directives from result metadata (may replace directives vector)
-        if let Some(ref meta) = result.metadata {
+        if let Some(ref meta) = dispatch.tool_metadata {
             Self::update_router_context(router_context, meta, &tool);
         }
 
@@ -1236,55 +1273,18 @@ impl AgentLoop {
             format!("[action: {tool} via {source_label}]"),
             HashMap::new(),
         );
-        session.add_message("assistant", &result_content, HashMap::new());
+        session.add_message("assistant", &dispatch.result_content, HashMap::new());
         if let Err(e) = self.sessions.save(&session).await {
             warn!("failed to save session after direct dispatch: {e}");
         }
 
-        // Extract display_text from tool metadata (direct-to-user passthrough)
-        let final_content = if let Some(ref meta) = result.metadata
-            && let Some(display) = meta.get("display_text").and_then(|v| v.as_str())
-        {
-            // display_text replaces the LLM-facing content for the user
-            let mut redacted = self.leak_detector.redact(display);
-
-            // Prompt guard scan: display_text is tool output shown directly to the
-            // user without LLM mediation, so it must be checked for injection.
-            if matches!(
-                check_prompt_guard(
-                    self.prompt_guard.as_ref(),
-                    &self.prompt_guard_config,
-                    &redacted,
-                    "direct dispatch display_text",
-                ),
-                PromptGuardVerdict::Blocked
-            ) {
-                warn!(
-                    "security: display_text blocked by prompt guard, falling back to tool result"
-                );
-                redacted.clone_from(&result_content);
-            }
-
-            if result_content.is_empty() || result_content.contains("shown to user") {
-                redacted
-            } else {
-                format!("{redacted}\n\n{result_content}")
-            }
-        } else {
-            result_content.clone()
-        };
-
-        // Build outbound with buttons from tool metadata
-        let mut metadata = HashMap::new();
-        if let Some(ref meta) = result.metadata
-            && let Some(buttons) = meta.get(crate::bus::meta::SUGGESTED_BUTTONS)
-        {
-            metadata.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
-        }
+        let final_content = dispatch
+            .display_text
+            .unwrap_or_else(|| dispatch.result_content.clone());
 
         let mut builder =
             OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), final_content)
-                .metadata(metadata);
+                .metadata(dispatch.suggested_buttons);
         let reply_to = msg
             .metadata
             .get(crate::bus::meta::TS)
@@ -1529,55 +1529,6 @@ impl AgentLoop {
                 });
             }
 
-            // Validate tool exists
-            let Some(tool_ref) = self.tools.get(&dispatch.tool) else {
-                return Ok(super::config::DirectResult {
-                    content: format!("Action failed: tool '{}' is not available.", dispatch.tool),
-                    metadata: HashMap::new(),
-                });
-            };
-
-            // Reject approval-required tools in action dispatch (per-action check)
-            let action = dispatch
-                .params
-                .get("action")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if tool_ref.requires_approval_for_action(action) {
-                return Ok(super::config::DirectResult {
-                    content: format!("Action failed: tool '{}' requires approval.", dispatch.tool),
-                    metadata: HashMap::new(),
-                });
-            }
-
-            // Also check interactive approval config — direct dispatch must not
-            // bypass operator-configured approval requirements.
-            if self
-                .approval_config
-                .covers(&dispatch.tool, action, &tool_ref.capabilities().actions)
-            {
-                return Ok(super::config::DirectResult {
-                    content: format!(
-                        "Action failed: tool '{}' action '{}' requires operator approval \
-                         and cannot be invoked via direct dispatch.",
-                        dispatch.tool, action
-                    ),
-                    metadata: HashMap::new(),
-                });
-            }
-
-            // Secret-scan params
-            let params = match redact_dispatch_params(&self.leak_detector, dispatch.params.clone())
-            {
-                Ok(p) => p,
-                Err(msg_text) => {
-                    return Ok(super::config::DirectResult {
-                        content: msg_text,
-                        metadata: HashMap::new(),
-                    });
-                }
-            };
-
             let request_id = overrides
                 .request_id
                 .clone()
@@ -1590,34 +1541,28 @@ impl AgentLoop {
                 .get("compaction_summary")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            let ctx = Self::build_execution_context_with_metadata(
-                channel,
-                chat_id,
-                context_summary,
-                overrides.metadata.clone(),
-                &request_id,
-                &format!("{channel}:{chat_id}"),
-            );
-            let available_tools = self.tools.tool_names();
-            let result = execute_tool_call(
-                &self.tools,
-                &dispatch.tool,
-                &params,
-                &available_tools,
-                &ctx,
-                None,
-                Some(self.workspace.as_path()),
-                None, // process_direct_with_overrides: skip interactive approval
-            )
-            .await;
-            // Secret-scan tool result output
-            let result_content = self.leak_detector.redact(&result.content);
-            if result_content != result.content {
-                warn!(
-                    "direct call action dispatch: secrets detected in tool '{}' output — redacting",
-                    dispatch.tool
-                );
-            }
+
+            let dispatch_result = match self
+                .execute_dispatch_tool(
+                    &dispatch.tool,
+                    dispatch.params.clone(),
+                    channel,
+                    chat_id,
+                    overrides.metadata.clone(),
+                    context_summary,
+                    &format!("{channel}:{chat_id}"),
+                    &request_id,
+                )
+                .await
+            {
+                Ok(d) => d,
+                Err(err_msg) => {
+                    return Ok(super::config::DirectResult {
+                        content: err_msg,
+                        metadata: HashMap::new(),
+                    });
+                }
+            };
 
             // Save session history
             let mut session = self.sessions.get_or_create(session_key).await?;
@@ -1630,48 +1575,18 @@ impl AgentLoop {
                 ),
                 HashMap::new(),
             );
-            session.add_message("assistant", &result_content, HashMap::new());
+            session.add_message("assistant", &dispatch_result.result_content, HashMap::new());
             if let Err(e) = self.sessions.save(&session).await {
                 warn!("failed to save session after direct dispatch: {e}");
             }
 
-            // Extract display_text from tool metadata (matching handle_direct_dispatch)
-            let final_content = if let Some(ref rm) = result.metadata
-                && let Some(display) = rm.get("display_text").and_then(|v| v.as_str())
-            {
-                let mut redacted = self.leak_detector.redact(display);
-                if matches!(
-                    check_prompt_guard(
-                        self.prompt_guard.as_ref(),
-                        &self.prompt_guard_config,
-                        &redacted,
-                        "direct call display_text",
-                    ),
-                    PromptGuardVerdict::Blocked
-                ) {
-                    warn!(
-                        "security: display_text blocked by prompt guard, falling back to tool result"
-                    );
-                    redacted.clone_from(&result_content);
-                }
-                if result_content.is_empty() || result_content.contains("shown to user") {
-                    redacted
-                } else {
-                    format!("{redacted}\n\n{result_content}")
-                }
-            } else {
-                result_content
-            };
+            let final_content = dispatch_result
+                .display_text
+                .unwrap_or(dispatch_result.result_content);
 
-            let mut meta = HashMap::new();
-            if let Some(ref rm) = result.metadata
-                && let Some(buttons) = rm.get(crate::bus::meta::SUGGESTED_BUTTONS)
-            {
-                meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
-            }
             return Ok(super::config::DirectResult {
                 content: final_content,
-                metadata: meta,
+                metadata: dispatch_result.suggested_buttons,
             });
         }
 

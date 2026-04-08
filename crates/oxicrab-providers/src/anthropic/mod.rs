@@ -1,15 +1,13 @@
 use crate::anthropic_common;
 use crate::errors::ProviderErrorHandler;
-use crate::{PROVIDER_REQUEST_TIMEOUT_SECS, provider_http_client};
+use crate::{API_URL_ANTHROPIC, PROVIDER_REQUEST_TIMEOUT_SECS, provider_http_client};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use oxicrab_core::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
-use tracing::{debug, info};
-
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
+use tracing::debug;
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -25,7 +23,7 @@ impl AnthropicProvider {
             api_key,
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
-            base_url: API_URL.to_string(),
+            base_url: API_URL_ANTHROPIC.to_string(),
             client: provider_http_client(),
             custom_headers: std::collections::HashMap::new(),
         }
@@ -70,67 +68,15 @@ impl LLMProvider for AnthropicProvider {
             "anthropic chat: model={}",
             req.model.as_deref().unwrap_or(&self.default_model)
         );
-        let json_mode_hint = match &req.response_format {
-            Some(oxicrab_core::providers::base::ResponseFormat::JsonObject) => {
-                Some("\n\nIMPORTANT: You must respond with valid JSON only. No other text.")
-            }
-            Some(oxicrab_core::providers::base::ResponseFormat::JsonSchema { schema, .. }) => {
-                debug!(
-                    "anthropic: JsonSchema requested, using system prompt hint (schema: {})",
-                    schema
-                );
-                Some(
-                    "\n\nIMPORTANT: You must respond with valid JSON only matching the requested schema. No other text.",
-                )
-            }
-            None => None,
-        };
+        let payload = anthropic_common::build_anthropic_chat_payload(req, &self.default_model);
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(&req.messages);
-
-        let mut payload = json!({
-            "model": req.model.as_deref().unwrap_or(&self.default_model),
-            "messages": anthropic_messages,
-            "max_tokens": req.max_tokens,
-        });
-        if let Some(temp) = req.temperature {
-            payload["temperature"] = json!(temp);
-        }
-
-        if let Some(system) = system {
-            let system_with_hint = if let Some(hint) = json_mode_hint {
-                format!("{system}{hint}")
-            } else {
-                system
-            };
-            payload["system"] = anthropic_common::system_to_content_blocks(&system_with_hint);
-        } else if let Some(hint) = json_mode_hint {
-            payload["system"] =
-                anthropic_common::system_to_content_blocks(hint.trim_start_matches("\n\n"));
-        }
-
-        if let Some(ref tools) = req.tools {
-            payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
-            match req.tool_choice.as_deref().unwrap_or("auto") {
-                v @ ("auto" | "any" | "none") => {
-                    payload["tool_choice"] = json!({"type": v});
-                }
-                tool_name => {
-                    payload["tool_choice"] = json!({"type": "tool", "name": tool_name});
-                }
-            };
-        }
-
-        let mut req_builder = self
+        let req_builder = self
             .client
             .post(&self.base_url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("anthropic-beta", "claude-code-20250219");
-        req_builder = req_builder.header("x-session-affinity", crate::session_affinity_id());
-        for (k, v) in &self.custom_headers {
-            req_builder = req_builder.header(k.as_str(), v.as_str());
-        }
+        let req_builder = crate::apply_custom_headers(req_builder, &self.custom_headers);
         let resp = req_builder
             .json(&payload)
             .timeout(Duration::from_secs(PROVIDER_REQUEST_TIMEOUT_SECS))
@@ -153,35 +99,21 @@ impl LLMProvider for AnthropicProvider {
     }
 
     async fn warmup(&self) -> Result<()> {
-        let start = std::time::Instant::now();
         let payload = json!({
             "model": self.default_model,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         });
-        let mut req_builder = self
-            .client
-            .post(&self.base_url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("anthropic-beta", "claude-code-20250219")
-            .header("content-type", "application/json")
-            .timeout(Duration::from_secs(15));
-        req_builder = req_builder.header("x-session-affinity", crate::session_affinity_id());
+        let mut headers = vec![
+            ("x-api-key", self.api_key.clone()),
+            ("anthropic-version", "2023-06-01".to_string()),
+            ("anthropic-beta", "claude-code-20250219".to_string()),
+            ("content-type", "application/json".to_string()),
+        ];
         for (k, v) in &self.custom_headers {
-            req_builder = req_builder.header(k.as_str(), v.as_str());
+            headers.push((k.as_str(), v.clone()));
         }
-        let result = req_builder.json(&payload).send().await;
-        match result {
-            Ok(resp) if !resp.status().is_success() => {
-                tracing::warn!("anthropic warmup got HTTP {} (non-fatal)", resp.status());
-            }
-            Ok(_) => info!(
-                "anthropic provider warmed up in {}ms",
-                start.elapsed().as_millis()
-            ),
-            Err(e) => tracing::warn!("anthropic warmup request failed (non-fatal): {}", e),
-        }
+        crate::warmup_provider(&self.client, &self.base_url, headers, payload, "anthropic").await?;
         Ok(())
     }
 }

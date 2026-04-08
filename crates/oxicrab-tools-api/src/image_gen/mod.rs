@@ -93,11 +93,7 @@ impl ImageGenTool {
             let has_google = self.google_api_key.is_some();
             if self.default_provider == ImageGenProvider::Openai && has_openai {
                 Ok("openai")
-            } else if matches!(
-                self.default_provider,
-                ImageGenProvider::Google | ImageGenProvider::Gemini
-            ) && has_google
-            {
+            } else if self.default_provider == ImageGenProvider::Gemini && has_google {
                 Ok("google")
             } else if has_openai {
                 Ok("openai")

@@ -28,7 +28,8 @@ impl OxicrabError {
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Provider { retryable, .. } => *retryable,
-            Self::RateLimit { .. } | Self::Internal(_) => true,
+            Self::RateLimit { .. } => true,
+            Self::Internal(_) => false,
             Self::Auth(_) | Self::Config(_) => false,
         }
     }

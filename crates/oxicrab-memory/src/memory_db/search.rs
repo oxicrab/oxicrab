@@ -333,17 +333,8 @@ impl MemoryDB {
         }
 
         // Fallback: LIKE search
-        let escaped: String = query_text
-            .trim()
-            .chars()
-            .take(200)
-            .flat_map(|c| match c {
-                '%' => vec!['\\', '%'],
-                '_' => vec!['\\', '_'],
-                '\\' => vec!['\\', '\\'],
-                other => vec![other],
-            })
-            .collect();
+        let truncated: String = query_text.trim().chars().take(200).collect();
+        let escaped = super::escape_like(&truncated);
         let like = format!("%{escaped}%");
         let mut stmt = conn.prepare(
             "SELECT source_key, content

@@ -329,6 +329,27 @@ pub struct ProvidersConfig {
 }
 
 impl ProvidersConfig {
+    /// All provider configs as `(name, config)` pairs.
+    ///
+    /// Central source of truth for iterating over providers. Used by
+    /// key lookup, temperature resolution, validation, and secret collection.
+    pub fn all_providers(&self) -> Vec<(&str, &ProviderConfig)> {
+        vec![
+            ("anthropic", &self.anthropic),
+            ("openai", &self.openai),
+            ("openrouter", &self.openrouter),
+            ("deepseek", &self.deepseek),
+            ("groq", &self.groq),
+            ("gemini", &self.gemini),
+            ("moonshot", &self.moonshot),
+            ("zhipu", &self.zhipu),
+            ("dashscope", &self.dashscope),
+            ("minimax", &self.minimax),
+            ("vllm", &self.vllm.base),
+            ("ollama", &self.ollama.base),
+        ]
+    }
+
     /// Get the API key for a given model by resolving the provider name.
     ///
     /// Uses the same 2-tier resolution as `ProviderFactory`: prefix notation,
@@ -353,26 +374,16 @@ impl ProvidersConfig {
     /// Get the API key for a specific provider by canonical name.
     pub fn get_api_key_for_provider(&self, provider: &str) -> Option<&str> {
         let normalized = normalize_provider(provider);
-        let config = match normalized.as_ref() {
-            "anthropic" => &self.anthropic,
-            "openai" => &self.openai,
-            "gemini" => &self.gemini,
-            "openrouter" => &self.openrouter,
-            "deepseek" => &self.deepseek,
-            "groq" => &self.groq,
-            "minimax" => &self.minimax,
-            "moonshot" => &self.moonshot,
-            "zhipu" => &self.zhipu,
-            "dashscope" => &self.dashscope,
-            "vllm" => &self.vllm.base,
-            "ollama" => &self.ollama.base,
-            _ => return None,
-        };
-        if config.api_key.is_empty() {
-            None
-        } else {
-            Some(&config.api_key)
-        }
+        self.all_providers()
+            .into_iter()
+            .find(|(name, _)| *name == normalized.as_ref())
+            .and_then(|(_, cfg)| {
+                if cfg.api_key.is_empty() {
+                    None
+                } else {
+                    Some(cfg.api_key.as_str())
+                }
+            })
     }
 
     /// Get the per-provider temperature override for a given model.
@@ -387,22 +398,11 @@ impl ProvidersConfig {
 
         if let Some(name) = provider_name {
             let normalized = normalize_provider(name);
-            let config = match normalized.as_ref() {
-                "anthropic" => Some(&self.anthropic),
-                "openai" => Some(&self.openai),
-                "gemini" => Some(&self.gemini),
-                "openrouter" => Some(&self.openrouter),
-                "deepseek" => Some(&self.deepseek),
-                "groq" => Some(&self.groq),
-                "minimax" => Some(&self.minimax),
-                "moonshot" => Some(&self.moonshot),
-                "zhipu" => Some(&self.zhipu),
-                "dashscope" => Some(&self.dashscope),
-                "vllm" => Some(&self.vllm.base),
-                "ollama" => Some(&self.ollama.base),
-                _ => None,
-            };
-            if let Some(cfg) = config {
+            if let Some((_, cfg)) = self
+                .all_providers()
+                .into_iter()
+                .find(|(n, _)| *n == normalized.as_ref())
+            {
                 return cfg.temperature;
             }
         }
@@ -412,12 +412,7 @@ impl ProvidersConfig {
 
     /// Return the first available API key across all providers.
     fn first_available_key(&self) -> Option<&str> {
-        for config in [
-            &self.openrouter,
-            &self.anthropic,
-            &self.openai,
-            &self.gemini,
-        ] {
+        for (_, config) in self.all_providers() {
             if !config.api_key.is_empty() {
                 return Some(&config.api_key);
             }

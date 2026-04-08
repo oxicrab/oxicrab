@@ -568,30 +568,17 @@ async fn handle_message(
     if let Some(photos) = msg.photo()
         && let Some(photo) = photos.last()
     {
-        let text = msg.caption().unwrap_or_default().to_string();
-        let mut media_paths = Vec::new();
-        let mut content = text;
-
-        match bot.get_file(photo.file.id.clone()).await {
-            Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
-                warn!("telegram photo too large ({} bytes), skipping", file.size);
-            }
-            Ok(file) => {
-                // Fix #12: use file extension from Telegram path
-                let ext = extension_from_tg_path(&file.path, "jpg");
-                if let Some(path_str) =
-                    download_file(&bot, &file.path, &photo.file.unique_id.0, &ext, "photo").await
-                {
-                    media_paths.push(path_str.clone());
-                    content = format!("{content}\n[image: {path_str}]");
-                }
-            }
-            Err(e) => {
-                warn!("failed to get Telegram file info: {}", e);
-            }
-        }
-
-        if !content.trim().is_empty() || !media_paths.is_empty() {
+        if let Some((content, media_paths)) = handle_media_attachment(
+            &bot,
+            msg.caption(),
+            photo.file.id.to_string(),
+            &photo.file.unique_id.0,
+            "jpg",
+            "image",
+            "photo",
+        )
+        .await
+        {
             let inbound_msg = build_msg(sender_id, content, media_paths).build();
             if let Err(e) = inbound_tx.send(inbound_msg).await {
                 error!("failed to send Telegram inbound message: {}", e);
@@ -602,28 +589,17 @@ async fn handle_message(
 
     // Handle voice messages
     if let Some(voice) = msg.voice() {
-        let text = msg.caption().unwrap_or_default().to_string();
-        let mut media_paths = Vec::new();
-        let mut content = text;
-
-        match bot.get_file(voice.file.id.clone()).await {
-            Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
-                warn!("telegram voice too large ({} bytes), skipping", file.size);
-            }
-            Ok(file) => {
-                if let Some(path_str) =
-                    download_file(&bot, &file.path, &voice.file.unique_id.0, "ogg", "voice").await
-                {
-                    media_paths.push(path_str.clone());
-                    content = format!("{content}\n[audio: {path_str}]");
-                }
-            }
-            Err(e) => {
-                warn!("failed to get Telegram voice file info: {}", e);
-            }
-        }
-
-        if !content.trim().is_empty() || !media_paths.is_empty() {
+        if let Some((content, media_paths)) = handle_media_attachment(
+            &bot,
+            msg.caption(),
+            voice.file.id.to_string(),
+            &voice.file.unique_id.0,
+            "ogg",
+            "audio",
+            "voice",
+        )
+        .await
+        {
             let inbound_msg = build_msg(sender_id, content, media_paths).build();
             if let Err(e) = inbound_tx.send(inbound_msg).await {
                 error!("failed to send Telegram inbound message: {}", e);
@@ -632,31 +608,19 @@ async fn handle_message(
         return Ok(());
     }
 
-    // Fix #10: handle video messages
+    // Handle video messages
     if let Some(video) = msg.video() {
-        let text = msg.caption().unwrap_or_default().to_string();
-        let mut media_paths = Vec::new();
-        let mut content = text;
-
-        match bot.get_file(video.file.id.clone()).await {
-            Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
-                warn!("telegram video too large ({} bytes), skipping", file.size);
-            }
-            Ok(file) => {
-                let ext = extension_from_tg_path(&file.path, "mp4");
-                if let Some(path_str) =
-                    download_file(&bot, &file.path, &video.file.unique_id.0, &ext, "video").await
-                {
-                    media_paths.push(path_str.clone());
-                    content = format!("{content}\n[video: {path_str}]");
-                }
-            }
-            Err(e) => {
-                warn!("failed to get Telegram video file info: {}", e);
-            }
-        }
-
-        if !content.trim().is_empty() || !media_paths.is_empty() {
+        if let Some((content, media_paths)) = handle_media_attachment(
+            &bot,
+            msg.caption(),
+            video.file.id.to_string(),
+            &video.file.unique_id.0,
+            "mp4",
+            "video",
+            "video",
+        )
+        .await
+        {
             let inbound_msg = build_msg(sender_id, content, media_paths).build();
             if let Err(e) = inbound_tx.send(inbound_msg).await {
                 error!("failed to send Telegram inbound message: {}", e);
@@ -665,40 +629,19 @@ async fn handle_message(
         return Ok(());
     }
 
-    // Fix #10: handle animation (GIF) messages
+    // Handle animation (GIF) messages
     if let Some(animation) = msg.animation() {
-        let text = msg.caption().unwrap_or_default().to_string();
-        let mut media_paths = Vec::new();
-        let mut content = text;
-
-        match bot.get_file(animation.file.id.clone()).await {
-            Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
-                warn!(
-                    "telegram animation too large ({} bytes), skipping",
-                    file.size
-                );
-            }
-            Ok(file) => {
-                let ext = extension_from_tg_path(&file.path, "mp4");
-                if let Some(path_str) = download_file(
-                    &bot,
-                    &file.path,
-                    &animation.file.unique_id.0,
-                    &ext,
-                    "animation",
-                )
-                .await
-                {
-                    media_paths.push(path_str.clone());
-                    content = format!("{content}\n[image: {path_str}]");
-                }
-            }
-            Err(e) => {
-                warn!("failed to get Telegram animation file info: {}", e);
-            }
-        }
-
-        if !content.trim().is_empty() || !media_paths.is_empty() {
+        if let Some((content, media_paths)) = handle_media_attachment(
+            &bot,
+            msg.caption(),
+            animation.file.id.to_string(),
+            &animation.file.unique_id.0,
+            "mp4",
+            "image",
+            "animation",
+        )
+        .await
+        {
             let inbound_msg = build_msg(sender_id, content, media_paths).build();
             if let Err(e) = inbound_tx.send(inbound_msg).await {
                 error!("failed to send Telegram inbound message: {}", e);
@@ -707,31 +650,19 @@ async fn handle_message(
         return Ok(());
     }
 
-    // Fix #10: handle audio messages
+    // Handle audio messages
     if let Some(audio) = msg.audio() {
-        let text = msg.caption().unwrap_or_default().to_string();
-        let mut media_paths = Vec::new();
-        let mut content = text;
-
-        match bot.get_file(audio.file.id.clone()).await {
-            Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
-                warn!("telegram audio too large ({} bytes), skipping", file.size);
-            }
-            Ok(file) => {
-                let ext = extension_from_tg_path(&file.path, "mp3");
-                if let Some(path_str) =
-                    download_file(&bot, &file.path, &audio.file.unique_id.0, &ext, "audio").await
-                {
-                    media_paths.push(path_str.clone());
-                    content = format!("{content}\n[audio: {path_str}]");
-                }
-            }
-            Err(e) => {
-                warn!("failed to get Telegram audio file info: {}", e);
-            }
-        }
-
-        if !content.trim().is_empty() || !media_paths.is_empty() {
+        if let Some((content, media_paths)) = handle_media_attachment(
+            &bot,
+            msg.caption(),
+            audio.file.id.to_string(),
+            &audio.file.unique_id.0,
+            "mp3",
+            "audio",
+            "audio",
+        )
+        .await
+        {
             let inbound_msg = build_msg(sender_id, content, media_paths).build();
             if let Err(e) = inbound_tx.send(inbound_msg).await {
                 error!("failed to send Telegram inbound message: {}", e);
@@ -962,6 +893,45 @@ async fn is_bot_mentioned(
     }
 
     false
+}
+
+/// Download and process a media attachment from Telegram.
+///
+/// Handles the common pattern of: get file info, check size, determine extension,
+/// download, and build content string with media tag. Returns `(content, media_paths)`
+/// if the attachment was processed, or `None` if it was skipped/failed.
+async fn handle_media_attachment(
+    bot: &Bot,
+    caption: Option<&str>,
+    file_id: String,
+    unique_id: &str,
+    default_ext: &str,
+    tag: &str,
+    label: &str,
+) -> Option<(String, Vec<String>)> {
+    let mut content = caption.unwrap_or_default().to_string();
+    let mut media_paths = Vec::new();
+
+    match bot.get_file(teloxide::types::FileId(file_id)).await {
+        Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+            warn!("telegram {label} too large ({} bytes), skipping", file.size);
+        }
+        Ok(file) => {
+            let ext = extension_from_tg_path(&file.path, default_ext);
+            if let Some(path_str) = download_file(bot, &file.path, unique_id, &ext, label).await {
+                media_paths.push(path_str.clone());
+                content = format!("{content}\n[{tag}: {path_str}]");
+            }
+        }
+        Err(e) => {
+            warn!("failed to get Telegram {label} file info: {e}");
+        }
+    }
+
+    if content.trim().is_empty() && media_paths.is_empty() {
+        return None;
+    }
+    Some((content, media_paths))
 }
 
 /// Download a Telegram file to the media directory.

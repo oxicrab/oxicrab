@@ -30,21 +30,7 @@ impl Default for RedditTool {
 }
 
 impl RedditTool {
-    pub fn new() -> Self {
-        Self {
-            base_url: REDDIT_BASE.to_string(),
-            client: Client::builder()
-                .user_agent("oxicrab/1.0")
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(15))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_else(|_| Client::new()),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_base_url(base_url: String) -> Self {
+    fn build(base_url: String) -> Self {
         Self {
             base_url,
             client: Client::builder()
@@ -55,6 +41,15 @@ impl RedditTool {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }
+    }
+
+    pub fn new() -> Self {
+        Self::build(REDDIT_BASE.to_string())
+    }
+
+    #[cfg(test)]
+    fn with_base_url(base_url: String) -> Self {
+        Self::build(base_url)
     }
 
     async fn fetch_listing(

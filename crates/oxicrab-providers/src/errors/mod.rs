@@ -2,16 +2,14 @@ use oxicrab_core::errors::OxicrabError;
 use serde_json::Value;
 use tracing::{error, warn};
 
-/// Common error handling utilities for LLM providers
+/// Common error handling utilities for LLM providers.
 ///
-/// This module provides standardized error handling patterns for LLM providers.
-/// Functions are designed to be used as static methods.
+/// Free functions for standardized error handling across all providers.
 pub struct ProviderErrorHandler;
 
 impl ProviderErrorHandler {
-    /// Parse API error response and return a typed error
-    pub fn parse_api_error(status: u16, error_text: &str) -> Result<(), OxicrabError> {
-        // Try to parse error JSON if possible to provide better error messages
+    /// Parse API error response and return a typed error.
+    pub fn parse_api_error(status: u16, error_text: &str) -> OxicrabError {
         if let Ok(error_json) = serde_json::from_str::<Value>(error_text)
             && let Some(err) = error_json.get("error")
         {
@@ -24,10 +22,9 @@ impl ProviderErrorHandler {
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
 
-            // Provide helpful message for model not found errors
             if error_type == "not_found_error" && error_msg.contains("model:") {
                 let model_name = error_msg.replace("model: ", "").trim().to_string();
-                return Err(OxicrabError::Provider {
+                return OxicrabError::Provider {
                     message: format!(
                         "Model '{model_name}' not found. This model may be deprecated or incorrect.\n\
                             Please update your config file (~/.oxicrab/config.toml) to use a valid model:\n\
@@ -38,22 +35,20 @@ impl ProviderErrorHandler {
                             Or remove the 'model' field from your config to use the default."
                     ),
                     retryable: false,
-                });
+                };
             }
 
-            let retryable = status == 402
-                || status == 429
+            let retryable = status == 429
                 || status == 500
                 || status == 502
                 || status == 503
                 || status == 504
                 || status == 529;
-            // Truncate error message to prevent leaking request content back to the LLM
             let safe_msg: String = error_msg.chars().take(500).collect();
-            return Err(OxicrabError::Provider {
+            return OxicrabError::Provider {
                 message: format!("API error ({error_type}): {safe_msg}"),
                 retryable,
-            });
+            };
         }
 
         let retryable = status == 429
@@ -63,13 +58,13 @@ impl ProviderErrorHandler {
             || status == 504
             || status == 529;
         let safe_text: String = error_text.chars().take(500).collect();
-        Err(OxicrabError::Provider {
+        OxicrabError::Provider {
             message: format!("API error ({status}): {safe_text}"),
             retryable,
-        })
+        }
     }
 
-    /// Log and handle provider errors consistently
+    /// Log a provider error consistently.
     pub fn log_and_handle_error(e: &anyhow::Error, provider_name: &str, operation: &str) {
         error!(
             "{} provider error during {}: {}",
@@ -77,22 +72,22 @@ impl ProviderErrorHandler {
         );
     }
 
-    /// Handle rate limiting errors
-    pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> Result<(), OxicrabError> {
+    /// Handle rate limiting errors.
+    pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> OxicrabError {
         if let Some(seconds) = retry_after {
             warn!("Rate limit hit. Retry after {} seconds", seconds);
         } else {
             warn!("Rate limit hit (status: {})", status);
         }
-        Err(OxicrabError::RateLimit { retry_after })
+        OxicrabError::RateLimit { retry_after }
     }
 
-    /// Handle authentication errors
-    pub fn handle_auth_error(status: u16, error_text: &str) -> Result<(), OxicrabError> {
+    /// Handle authentication errors.
+    pub fn handle_auth_error(status: u16, error_text: &str) -> OxicrabError {
         warn!("Authentication error (status: {}): {}", status, error_text);
-        Err(OxicrabError::Auth(format!(
+        OxicrabError::Auth(format!(
             "Authentication failed. Please check your API key or credentials. Error: {error_text}"
-        )))
+        ))
     }
 
     /// Check HTTP status and return a typed error if the response is not successful.
@@ -120,22 +115,16 @@ impl ProviderErrorHandler {
 
         if status == 429 || status == 529 {
             Self::log_and_handle_error(&anyhow::anyhow!("Rate limit exceeded"), provider, "chat");
-            return Err(Self::handle_rate_limit(status.as_u16(), retry_after)
-                .unwrap_err()
-                .into());
+            return Err(Self::handle_rate_limit(status.as_u16(), retry_after).into());
         }
 
         if status == 401 || status == 403 {
             Self::log_and_handle_error(&anyhow::anyhow!("Authentication failed"), provider, "chat");
-            return Err(Self::handle_auth_error(status.as_u16(), &error_text)
-                .unwrap_err()
-                .into());
+            return Err(Self::handle_auth_error(status.as_u16(), &error_text).into());
         }
 
         Self::log_and_handle_error(&anyhow::anyhow!("API error"), provider, "chat");
-        Err(Self::parse_api_error(status.as_u16(), &error_text)
-            .unwrap_err()
-            .into())
+        Err(Self::parse_api_error(status.as_u16(), &error_text).into())
     }
 
     /// Check an HTTP response for errors (rate limit, auth, generic API errors).
@@ -151,12 +140,11 @@ impl ProviderErrorHandler {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to parse {provider} API response: {e}"))?;
 
-        // Check for API-level errors in the JSON body
         if let Some(error_val) = json.get("error") {
             let error_text =
                 serde_json::to_string(error_val).unwrap_or_else(|_| "Unknown error".to_string());
             Self::log_and_handle_error(&anyhow::anyhow!("API error in response"), provider, "chat");
-            return Err(Self::parse_api_error(200, &error_text).unwrap_err().into());
+            return Err(Self::parse_api_error(200, &error_text).into());
         }
 
         Ok(json)

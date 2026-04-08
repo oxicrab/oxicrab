@@ -95,17 +95,7 @@ async fn download_mms_media(
     index: u32,
     message_sid: &str,
 ) -> Option<String> {
-    let ext = match content_type {
-        "image/jpeg" => "jpg",
-        "image/png" => "png",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "video/mp4" => "mp4",
-        "audio/mpeg" | "audio/mp3" => "mp3",
-        "audio/ogg" => "ogg",
-        "application/pdf" => "pdf",
-        _ => "bin",
-    };
+    let ext = crate::media_utils::mime_to_extension(content_type);
 
     let media_dir = match crate::media_utils::media_dir() {
         Ok(d) => d,
@@ -174,8 +164,8 @@ async fn webhook_handler(
     };
     let signature = signature.to_string();
 
-    // Parse form-encoded body for validation
-    let sig_params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
+    // Parse form-encoded body (used for both signature validation and message extraction)
+    let params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
 
@@ -183,20 +173,10 @@ async fn webhook_handler(
     // This is standard for Twilio integrations behind reverse proxies — the URL
     // must match what Twilio was configured to call. If validation fails, check
     // that the webhookUrl config matches the URL configured in Twilio's console.
-    if !validate_twilio_signature(
-        &state.auth_token,
-        &signature,
-        &state.webhook_url,
-        &sig_params,
-    ) {
+    if !validate_twilio_signature(&state.auth_token, &signature, &state.webhook_url, &params) {
         warn!("twilio webhook: invalid signature");
         return StatusCode::FORBIDDEN.into_response();
     }
-
-    // Parse form-encoded body
-    let params: HashMap<String, String> = form_urlencoded::parse(body.as_bytes())
-        .map(|(k, v)| (k.into_owned(), v.into_owned()))
-        .collect();
 
     // Detect format: SMS webhook has "From"/"To"/"MessageSid",
     // Conversations webhook has "EventType"/"Author"/"ConversationSid"

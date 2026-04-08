@@ -40,6 +40,35 @@ impl TodoistTool {
         format!("Bearer {}", self.token)
     }
 
+    /// Send a Todoist API request and parse the JSON response.
+    /// For endpoints that may return empty bodies (204), returns `Value::Null`.
+    async fn api_request(&self, req: reqwest::RequestBuilder) -> Result<Value> {
+        let resp = req
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Todoist API request failed: {e}"))?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NO_CONTENT {
+            return Ok(Value::Null);
+        }
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            let safe: String = text.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
+        }
+        if text.is_empty() {
+            return Ok(Value::Null);
+        }
+        serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid JSON from Todoist: {} (body: {})",
+                e,
+                &text[..text.floor_char_boundary(200)]
+            )
+        })
+    }
+
     /// Fetch all pages from a paginated v1 endpoint.
     async fn paginated_get(&self, url: &str, base_query: &[(&str, &str)]) -> Result<Vec<Value>> {
         const MAX_PAGES: usize = 10; // Safety limit
@@ -191,28 +220,12 @@ impl TodoistTool {
             );
         }
 
-        let resp = self
+        let req = self
             .client
             .post(format!("{}/tasks", self.base_url))
             .json(&payload)
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            let safe: String = text.chars().take(200).collect();
-            anyhow::bail!("Todoist API {status}: {safe}");
-        }
-        let body: Value = serde_json::from_str(&text).map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid JSON from Todoist: {} (body: {})",
-                e,
-                &text[..text.floor_char_boundary(200)]
-            )
-        })?;
+            .header("Authorization", self.auth_header());
+        let body = self.api_request(req).await?;
 
         let id = body["id"].as_str().unwrap_or("?");
         // v1 API removed url from response; construct it per migration guide
@@ -221,26 +234,16 @@ impl TodoistTool {
     }
 
     async fn complete_task(&self, task_id: &str) -> Result<String> {
-        let resp = self
+        let req = self
             .client
             .post(format!(
                 "{}/tasks/{}/close",
                 self.base_url,
                 urlencoding::encode(task_id)
             ))
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
-        if resp.status().is_success() {
-            Ok(format!("Task {task_id} completed."))
-        } else {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            let safe: String = body.chars().take(200).collect();
-            anyhow::bail!("Todoist API {status}: {safe}");
-        }
+            .header("Authorization", self.auth_header());
+        self.api_request(req).await?;
+        Ok(format!("Task {task_id} completed."))
     }
 
     async fn list_projects(&self) -> Result<String> {
@@ -271,31 +274,15 @@ impl TodoistTool {
     }
 
     async fn get_task(&self, task_id: &str) -> Result<(String, Value)> {
-        let resp = self
+        let req = self
             .client
             .get(format!(
                 "{}/tasks/{}",
                 self.base_url,
                 urlencoding::encode(task_id)
             ))
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            let safe: String = text.chars().take(200).collect();
-            anyhow::bail!("Todoist API {status}: {safe}");
-        }
-        let t: Value = serde_json::from_str(&text).map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid JSON from Todoist: {} (body: {})",
-                e,
-                &text[..text.floor_char_boundary(200)]
-            )
-        })?;
+            .header("Authorization", self.auth_header());
+        let t = self.api_request(req).await?;
 
         let id = t["id"].as_str().unwrap_or("?");
         let content = t["content"].as_str().unwrap_or_default();
@@ -364,7 +351,7 @@ impl TodoistTool {
             );
         }
 
-        let resp = self
+        let req = self
             .client
             .post(format!(
                 "{}/tasks/{}",
@@ -372,42 +359,26 @@ impl TodoistTool {
                 urlencoding::encode(task_id)
             ))
             .json(&payload)
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
+            .header("Authorization", self.auth_header());
+        self.api_request(req).await?;
 
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            let safe: String = text.chars().take(200).collect();
-            anyhow::bail!("Todoist API {status}: {safe}");
-        }
-
-        Ok(format!("Task updated\nChanges: {}", changes.join(", ")))
+        Ok(format!(
+            "Task {task_id} updated\nChanges: {}",
+            changes.join(", ")
+        ))
     }
 
     async fn delete_task(&self, task_id: &str) -> Result<String> {
-        let resp = self
+        let req = self
             .client
             .delete(format!(
                 "{}/tasks/{}",
                 self.base_url,
                 urlencoding::encode(task_id)
             ))
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
-        if resp.status().is_success() {
-            Ok(format!("Task {task_id} deleted."))
-        } else {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            let safe: String = body.chars().take(200).collect();
-            anyhow::bail!("Todoist API {status}: {safe}");
-        }
+            .header("Authorization", self.auth_header());
+        self.api_request(req).await?;
+        Ok(format!("Task {task_id} deleted."))
     }
 
     async fn add_comment(&self, task_id: &str, content: &str) -> Result<String> {
@@ -416,28 +387,12 @@ impl TodoistTool {
             "content": content,
         });
 
-        let resp = self
+        let req = self
             .client
             .post(format!("{}/comments", self.base_url))
             .json(&payload)
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            let safe: String = text.chars().take(200).collect();
-            anyhow::bail!("Todoist API {status}: {safe}");
-        }
-        let body: Value = serde_json::from_str(&text).map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid JSON from Todoist: {} (body: {})",
-                e,
-                &text[..text.floor_char_boundary(200)]
-            )
-        })?;
+            .header("Authorization", self.auth_header());
+        let body = self.api_request(req).await?;
 
         let id = body["id"].as_str().unwrap_or("?");
         Ok(format!("Comment ({id}) added to task {task_id}."))

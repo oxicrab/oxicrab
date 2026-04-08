@@ -1,4 +1,5 @@
 use super::MemoryDB;
+use super::escape_like;
 use anyhow::Result;
 use rusqlite::params;
 use std::fmt::Write as _;
@@ -15,6 +16,21 @@ pub struct WorkspaceFileEntry {
     pub created_at: String,
     pub accessed_at: Option<String>,
     pub session_key: Option<String>,
+}
+
+fn row_to_workspace_entry(row: &rusqlite::Row) -> rusqlite::Result<WorkspaceFileEntry> {
+    Ok(WorkspaceFileEntry {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        category: row.get(2)?,
+        original_name: row.get(3)?,
+        size_bytes: row.get(4)?,
+        source_tool: row.get(5)?,
+        tags: row.get(6)?,
+        created_at: row.get(7)?,
+        accessed_at: row.get(8)?,
+        session_key: row.get(9)?,
+    })
 }
 
 impl MemoryDB {
@@ -117,15 +133,7 @@ impl MemoryDB {
             param_values.push(Box::new(cat.to_string()));
         }
         if let Some(d) = date {
-            let escaped_date: String = d
-                .chars()
-                .flat_map(|c| match c {
-                    '\\' => vec!['\\', '\\'],
-                    '%' => vec!['\\', '%'],
-                    '_' => vec!['\\', '_'],
-                    other => vec![other],
-                })
-                .collect();
+            let escaped_date = escape_like(d);
             let _ = write!(
                 sql,
                 " AND created_at LIKE ?{} ESCAPE '\\'",
@@ -134,15 +142,7 @@ impl MemoryDB {
             param_values.push(Box::new(format!("{escaped_date}%")));
         }
         if let Some(t) = tag {
-            let escaped_tag: String = t
-                .chars()
-                .flat_map(|c| match c {
-                    '\\' => vec!['\\', '\\'],
-                    '%' => vec!['\\', '%'],
-                    '_' => vec!['\\', '_'],
-                    other => vec![other],
-                })
-                .collect();
+            let escaped_tag = escape_like(t);
             let _ = write!(
                 sql,
                 " AND (',' || tags || ',' LIKE '%,' || ?{} || ',%' ESCAPE '\\')",
@@ -156,20 +156,7 @@ impl MemoryDB {
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(AsRef::as_ref).collect();
         let rows = stmt
-            .query_map(params_ref.as_slice(), |row| {
-                Ok(WorkspaceFileEntry {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    category: row.get(2)?,
-                    original_name: row.get(3)?,
-                    size_bytes: row.get(4)?,
-                    source_tool: row.get(5)?,
-                    tags: row.get(6)?,
-                    created_at: row.get(7)?,
-                    accessed_at: row.get(8)?,
-                    session_key: row.get(9)?,
-                })
-            })?
+            .query_map(params_ref.as_slice(), row_to_workspace_entry)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(rows)
@@ -178,15 +165,7 @@ impl MemoryDB {
     /// Search workspace files by path or original name.
     pub fn search_workspace_files(&self, query: &str) -> Result<Vec<WorkspaceFileEntry>> {
         let conn = self.lock_conn()?;
-        let escaped: String = query
-            .chars()
-            .flat_map(|c| match c {
-                '\\' => vec!['\\', '\\'],
-                '%' => vec!['\\', '%'],
-                '_' => vec!['\\', '_'],
-                other => vec![other],
-            })
-            .collect();
+        let escaped = escape_like(query);
         let pattern = format!("%{escaped}%");
         let mut stmt = conn.prepare(
             "SELECT id, path, category, original_name, size_bytes, source_tool, tags, created_at, accessed_at, session_key
@@ -195,20 +174,7 @@ impl MemoryDB {
              ORDER BY created_at DESC",
         )?;
         let rows = stmt
-            .query_map(params![pattern], |row| {
-                Ok(WorkspaceFileEntry {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    category: row.get(2)?,
-                    original_name: row.get(3)?,
-                    size_bytes: row.get(4)?,
-                    source_tool: row.get(5)?,
-                    tags: row.get(6)?,
-                    created_at: row.get(7)?,
-                    accessed_at: row.get(8)?,
-                    session_key: row.get(9)?,
-                })
-            })?
+            .query_map(params![pattern], row_to_workspace_entry)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(rows)
@@ -249,20 +215,7 @@ impl MemoryDB {
              ORDER BY created_at ASC",
         )?;
         let rows = stmt
-            .query_map(params![category, modifier], |row| {
-                Ok(WorkspaceFileEntry {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    category: row.get(2)?,
-                    original_name: row.get(3)?,
-                    size_bytes: row.get(4)?,
-                    source_tool: row.get(5)?,
-                    tags: row.get(6)?,
-                    created_at: row.get(7)?,
-                    accessed_at: row.get(8)?,
-                    session_key: row.get(9)?,
-                })
-            })?
+            .query_map(params![category, modifier], row_to_workspace_entry)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(rows)

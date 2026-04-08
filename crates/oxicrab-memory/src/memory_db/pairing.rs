@@ -112,10 +112,7 @@ impl MemoryDB {
     /// The caller does constant-time code comparison in Rust.
     pub fn get_all_pending(&self, ttl_secs: u64) -> Result<Vec<DbPendingRequest>> {
         let conn = self.lock_conn()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = super::unix_now();
         let cutoff = now.saturating_sub(ttl_secs) as i64;
 
         let mut stmt = conn.prepare(
@@ -143,10 +140,7 @@ impl MemoryDB {
         ttl_secs: u64,
     ) -> Result<Option<DbPendingRequest>> {
         let conn = self.lock_conn()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = super::unix_now();
         let cutoff = now.saturating_sub(ttl_secs) as i64;
 
         let mut stmt = conn.prepare(
@@ -169,10 +163,7 @@ impl MemoryDB {
     /// Count non-expired pending requests for a channel.
     pub fn count_pending_for_channel(&self, channel: &str, ttl_secs: u64) -> Result<usize> {
         let conn = self.lock_conn()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = super::unix_now();
         let cutoff = now.saturating_sub(ttl_secs) as i64;
 
         let count: i64 = conn.query_row(
@@ -193,10 +184,7 @@ impl MemoryDB {
     /// Clean up expired pending requests. Returns count removed.
     pub fn cleanup_expired_pending(&self, ttl_secs: u64) -> Result<usize> {
         let conn = self.lock_conn()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = super::unix_now();
         let cutoff = now.saturating_sub(ttl_secs) as i64;
 
         let deleted = conn.execute(
@@ -219,10 +207,7 @@ impl MemoryDB {
     /// Count recent failed attempts for a client within a time window.
     pub fn count_recent_failed_attempts(&self, client_id: &str, window_secs: u64) -> Result<usize> {
         let conn = self.lock_conn()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = super::unix_now();
         let cutoff = now.saturating_sub(window_secs) as i64;
 
         let count: i64 = conn.query_row(
@@ -237,10 +222,7 @@ impl MemoryDB {
     /// Clean up old failed attempts outside the window. Returns count removed.
     pub fn cleanup_old_failed_attempts(&self, window_secs: u64) -> Result<usize> {
         let conn = self.lock_conn()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = super::unix_now();
         let cutoff = now.saturating_sub(window_secs) as i64;
 
         let deleted = conn.execute(

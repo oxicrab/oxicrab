@@ -85,6 +85,85 @@ fn schedule_columns(schedule: &CronSchedule) -> ScheduleColumns<'_> {
     }
 }
 
+const CRON_JOB_COLUMNS: &str = "\
+    id, name, enabled, schedule_type, \
+    at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel, \
+    payload_kind, payload_message, agent_echo, \
+    next_run_at_ms, last_run_at_ms, last_status, last_error, \
+    run_count, last_fired_at_ms, \
+    created_at_ms, updated_at_ms, delete_after_run, \
+    expires_at_ms, max_runs, cooldown_secs, max_concurrent";
+
+fn row_to_cron_job_row(row: &rusqlite::Row) -> rusqlite::Result<CronJobRow> {
+    Ok(CronJobRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        enabled: row.get(2)?,
+        schedule_type: row.get(3)?,
+        at_ms: row.get(4)?,
+        every_ms: row.get(5)?,
+        cron_expr: row.get(6)?,
+        cron_tz: row.get(7)?,
+        event_pattern: row.get(8)?,
+        event_channel: row.get(9)?,
+        payload_kind: row.get(10)?,
+        payload_message: row.get(11)?,
+        agent_echo: row.get(12)?,
+        next_run_at_ms: row.get(13)?,
+        last_run_at_ms: row.get(14)?,
+        last_status: row.get(15)?,
+        last_error: row.get(16)?,
+        run_count: row.get(17)?,
+        last_fired_at_ms: row.get(18)?,
+        created_at_ms: row.get(19)?,
+        updated_at_ms: row.get(20)?,
+        delete_after_run: row.get(21)?,
+        expires_at_ms: row.get(22)?,
+        max_runs: row.get(23)?,
+        cooldown_secs: row.get(24)?,
+        max_concurrent: row.get(25)?,
+    })
+}
+
+fn cron_job_row_to_job(r: CronJobRow, targets: Vec<CronTarget>) -> Result<CronJob> {
+    let schedule = schedule_from_row(
+        &r.schedule_type,
+        r.at_ms,
+        r.every_ms,
+        r.cron_expr,
+        r.cron_tz,
+        r.event_pattern,
+        r.event_channel,
+    )?;
+    Ok(CronJob {
+        id: r.id,
+        name: r.name,
+        enabled: r.enabled,
+        schedule,
+        payload: CronPayload {
+            kind: r.payload_kind,
+            message: r.payload_message,
+            agent_echo: r.agent_echo,
+            targets,
+        },
+        state: CronJobState {
+            next_run_at_ms: r.next_run_at_ms,
+            last_run_at_ms: r.last_run_at_ms,
+            last_status: r.last_status,
+            last_error: r.last_error,
+            run_count: r.run_count,
+            last_fired_at_ms: r.last_fired_at_ms,
+        },
+        created_at_ms: r.created_at_ms,
+        updated_at_ms: r.updated_at_ms,
+        delete_after_run: r.delete_after_run,
+        expires_at_ms: r.expires_at_ms,
+        max_runs: r.max_runs,
+        cooldown_secs: r.cooldown_secs.map(|v| v.max(0) as u64),
+        max_concurrent: r.max_concurrent,
+    })
+}
+
 impl MemoryDB {
     pub fn insert_cron_job(&self, job: &CronJob) -> Result<()> {
         let mut conn = self.lock_conn()?;
@@ -161,23 +240,12 @@ impl MemoryDB {
         let conn = self.lock_conn()?;
 
         let sql = if include_disabled {
-            "SELECT id, name, enabled, schedule_type,
-                    at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel,
-                    payload_kind, payload_message, agent_echo,
-                    next_run_at_ms, last_run_at_ms, last_status, last_error,
-                    run_count, last_fired_at_ms,
-                    created_at_ms, updated_at_ms, delete_after_run,
-                    expires_at_ms, max_runs, cooldown_secs, max_concurrent
-             FROM cron_jobs ORDER BY created_at_ms"
+            format!("SELECT {CRON_JOB_COLUMNS} FROM cron_jobs ORDER BY created_at_ms")
         } else {
-            "SELECT id, name, enabled, schedule_type,
-                    at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel,
-                    payload_kind, payload_message, agent_echo,
-                    next_run_at_ms, last_run_at_ms, last_status, last_error,
-                    run_count, last_fired_at_ms,
-                    created_at_ms, updated_at_ms, delete_after_run,
-                    expires_at_ms, max_runs, cooldown_secs, max_concurrent
-             FROM cron_jobs WHERE enabled = 1 ORDER BY created_at_ms"
+            format!(
+                "SELECT {CRON_JOB_COLUMNS} FROM cron_jobs \
+                 WHERE enabled = 1 ORDER BY created_at_ms"
+            )
         };
 
         // Load targets only for jobs matching the filter
@@ -207,79 +275,16 @@ impl MemoryDB {
             }
         }
 
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([], |row| {
-            Ok(CronJobRow {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                enabled: row.get(2)?,
-                schedule_type: row.get(3)?,
-                at_ms: row.get(4)?,
-                every_ms: row.get(5)?,
-                cron_expr: row.get(6)?,
-                cron_tz: row.get(7)?,
-                event_pattern: row.get(8)?,
-                event_channel: row.get(9)?,
-                payload_kind: row.get(10)?,
-                payload_message: row.get(11)?,
-                agent_echo: row.get(12)?,
-                next_run_at_ms: row.get(13)?,
-                last_run_at_ms: row.get(14)?,
-                last_status: row.get(15)?,
-                last_error: row.get(16)?,
-                run_count: row.get(17)?,
-                last_fired_at_ms: row.get(18)?,
-                created_at_ms: row.get(19)?,
-                updated_at_ms: row.get(20)?,
-                delete_after_run: row.get(21)?,
-                expires_at_ms: row.get(22)?,
-                max_runs: row.get(23)?,
-                cooldown_secs: row.get(24)?,
-                max_concurrent: row.get(25)?,
-            })
-        })?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], row_to_cron_job_row)?;
 
         let mut jobs = Vec::new();
         for row in rows {
             let r = row?;
-            let schedule = schedule_from_row(
-                &r.schedule_type,
-                r.at_ms,
-                r.every_ms,
-                r.cron_expr,
-                r.cron_tz,
-                r.event_pattern,
-                r.event_channel,
-            )
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
             let targets = target_map.remove(&r.id).unwrap_or_default();
-            jobs.push(CronJob {
-                id: r.id,
-                name: r.name,
-                enabled: r.enabled,
-                schedule,
-                payload: CronPayload {
-                    kind: r.payload_kind,
-                    message: r.payload_message,
-                    agent_echo: r.agent_echo,
-                    targets,
-                },
-                state: CronJobState {
-                    next_run_at_ms: r.next_run_at_ms,
-                    last_run_at_ms: r.last_run_at_ms,
-                    last_status: r.last_status,
-                    last_error: r.last_error,
-                    run_count: r.run_count,
-                    last_fired_at_ms: r.last_fired_at_ms,
-                },
-                created_at_ms: r.created_at_ms,
-                updated_at_ms: r.updated_at_ms,
-                delete_after_run: r.delete_after_run,
-                expires_at_ms: r.expires_at_ms,
-                max_runs: r.max_runs,
-                cooldown_secs: r.cooldown_secs.map(|v| v.max(0) as u64),
-                max_concurrent: r.max_concurrent,
-            });
+            let job = cron_job_row_to_job(r, targets)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
+            jobs.push(job);
         }
 
         Ok(jobs)
@@ -288,76 +293,29 @@ impl MemoryDB {
     pub fn get_cron_job(&self, id: &str) -> Result<Option<CronJob>> {
         let conn = self.lock_conn()?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, name, enabled, schedule_type,
-                    at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel,
-                    payload_kind, payload_message, agent_echo,
-                    next_run_at_ms, last_run_at_ms, last_status, last_error,
-                    run_count, last_fired_at_ms,
-                    created_at_ms, updated_at_ms, delete_after_run,
-                    expires_at_ms, max_runs, cooldown_secs, max_concurrent
-             FROM cron_jobs WHERE id = ?1",
-        )?;
+        let sql = format!("SELECT {CRON_JOB_COLUMNS} FROM cron_jobs WHERE id = ?1");
+        let mut stmt = conn.prepare(&sql)?;
 
-        let mut rows = stmt.query(params![id])?;
-        let Some(row) = rows.next()? else {
+        let mut result_rows = stmt.query_map(params![id], row_to_cron_job_row)?;
+        let Some(row_result) = result_rows.next() else {
             return Ok(None);
         };
-
-        let schedule_type: String = row.get(3)?;
-        let schedule = schedule_from_row(
-            &schedule_type,
-            row.get(4)?,
-            row.get(5)?,
-            row.get(6)?,
-            row.get(7)?,
-            row.get(8)?,
-            row.get(9)?,
-        )?;
-
-        let job_id: String = row.get(0)?;
+        let r = row_result?;
 
         // Load targets for this job
         let mut target_stmt = conn.prepare(
             "SELECT channel, target FROM cron_job_targets WHERE job_id = ?1 ORDER BY rowid",
         )?;
         let targets = target_stmt
-            .query_map(params![job_id], |r| {
+            .query_map(params![r.id], |row| {
                 Ok(CronTarget {
-                    channel: r.get(0)?,
-                    to: r.get(1)?,
+                    channel: row.get(0)?,
+                    to: row.get(1)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        let cooldown_secs: Option<i64> = row.get(24)?;
-        Ok(Some(CronJob {
-            id: job_id,
-            name: row.get(1)?,
-            enabled: row.get(2)?,
-            schedule,
-            payload: CronPayload {
-                kind: row.get(10)?,
-                message: row.get(11)?,
-                agent_echo: row.get(12)?,
-                targets,
-            },
-            state: CronJobState {
-                next_run_at_ms: row.get(13)?,
-                last_run_at_ms: row.get(14)?,
-                last_status: row.get(15)?,
-                last_error: row.get(16)?,
-                run_count: row.get(17)?,
-                last_fired_at_ms: row.get(18)?,
-            },
-            created_at_ms: row.get(19)?,
-            updated_at_ms: row.get(20)?,
-            delete_after_run: row.get(21)?,
-            expires_at_ms: row.get(22)?,
-            max_runs: row.get(23)?,
-            cooldown_secs: cooldown_secs.map(|v| v.max(0) as u64),
-            max_concurrent: row.get(25)?,
-        }))
+        Ok(Some(cron_job_row_to_job(r, targets)?))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -573,10 +531,7 @@ impl MemoryDB {
 
         // Fetch all existing names that match the base or the "{base} (N)" pattern.
         // Escape SQL LIKE wildcards in the base name to prevent false matches.
-        let escaped = base_lower
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
+        let escaped = super::escape_like(&base_lower);
         let pattern = format!("{escaped}%");
         let mut stmt = conn
             .prepare("SELECT LOWER(name) FROM cron_jobs WHERE LOWER(name) LIKE ?1 ESCAPE '\\'")?;

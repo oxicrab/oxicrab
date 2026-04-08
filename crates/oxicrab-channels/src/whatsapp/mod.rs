@@ -631,30 +631,32 @@ async fn download_whatsapp_media(
 ) -> Result<String> {
     let media_dir = crate::media_utils::media_dir()?;
 
-    // Infer extension from mimetype
+    // Infer extension from mimetype, falling back to WhatsApp-specific types
     let ext = match mimetype {
-        Some("image/png") => "png",
-        Some("image/webp") => "webp",
-        Some("image/gif") => "gif",
-        Some("image/jpeg" | "image/jpg") => "jpg",
-        Some("audio/ogg") => "ogg",
-        Some("audio/mpeg") => "mp3",
-        Some("audio/mp4") => "m4a",
-        Some("audio/wav") => "wav",
-        Some("audio/webm" | "video/webm") => "webm",
-        Some("audio/flac") => "flac",
-        Some("video/mp4") => "mp4",
         Some("video/3gpp") => "3gp",
-        Some("application/pdf") => "pdf",
         Some("application/zip") => "zip",
         Some("text/plain") => "txt",
-        Some(m) if m.starts_with("image/") => m.strip_prefix("image/").unwrap_or("bin"),
-        Some(m) if m.starts_with("audio/") => m.strip_prefix("audio/").unwrap_or("ogg"),
-        Some(m) if m.starts_with("video/") => m.strip_prefix("video/").unwrap_or("mp4"),
-        _ if media_type == "audio" => "ogg",
-        _ if media_type == "video" => "mp4",
-        _ if media_type == "document" => "bin",
-        _ => "jpg",
+        Some(m) => {
+            let shared = crate::media_utils::mime_to_extension(m);
+            if shared == "bin" {
+                // Fallback: extract subtype from MIME for unknown types
+                if m.starts_with("image/") {
+                    m.strip_prefix("image/").unwrap_or("bin")
+                } else if m.starts_with("audio/") {
+                    m.strip_prefix("audio/").unwrap_or("ogg")
+                } else if m.starts_with("video/") {
+                    m.strip_prefix("video/").unwrap_or("mp4")
+                } else {
+                    "bin"
+                }
+            } else {
+                shared
+            }
+        }
+        None if media_type == "audio" => "ogg",
+        None if media_type == "video" => "mp4",
+        None if media_type == "document" => "bin",
+        None => "jpg",
     };
     let file_path = media_dir.join(format!(
         "whatsapp_{}.{}",

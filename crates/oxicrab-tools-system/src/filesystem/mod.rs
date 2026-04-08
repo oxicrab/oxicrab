@@ -25,6 +25,7 @@ fn resolve_path(file_path: &Path) -> PathBuf {
     })
 }
 
+#[cfg(test)]
 fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
         let resolved = resolve_path(file_path);
@@ -82,6 +83,19 @@ fn open_confined(target: &Path, allowed_roots: &[PathBuf]) -> Result<(cap_std::f
 
 fn sanitize_err(msg: &str, workspace: Option<&Path>) -> String {
     sanitize_error_message(msg, workspace)
+}
+
+async fn expand_path(file_path: &Path) -> anyhow::Result<PathBuf> {
+    tokio::fs::canonicalize(file_path).await.or_else(|_| {
+        if file_path.starts_with("~") {
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+            let stripped = file_path.strip_prefix("~").unwrap_or(file_path);
+            Ok(home.join(stripped))
+        } else {
+            Ok(lexical_normalize(file_path))
+        }
+    })
 }
 
 const MAX_BACKUPS: usize = 14;
@@ -207,16 +221,7 @@ impl Tool for ReadFileTool {
         let path_str = require_param!(params, "path");
 
         let file_path = PathBuf::from(path_str);
-        let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
-            if file_path.starts_with("~") {
-                let home = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            } else {
-                Ok(lexical_normalize(&file_path))
-            }
-        })?;
+        let expanded = expand_path(&file_path).await?;
 
         let ws = self.workspace.as_deref();
 
@@ -262,10 +267,6 @@ impl Tool for ReadFileTool {
             })
             .await?
         } else {
-            if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-                return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
-            }
-
             match tokio::fs::metadata(&expanded).await {
                 Ok(meta) if meta.is_dir() => {
                     return Ok(ToolResult::error(format!(
@@ -376,16 +377,7 @@ impl Tool for WriteFileTool {
         let content = require_param!(params, "content");
 
         let file_path = PathBuf::from(path_str);
-        let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
-            if file_path.starts_with("~") {
-                let home = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            } else {
-                Ok(lexical_normalize(&file_path))
-            }
-        })?;
+        let expanded = expand_path(&file_path).await?;
 
         let ws = self.workspace.as_deref();
 
@@ -420,10 +412,6 @@ impl Tool for WriteFileTool {
             })
             .await?
         } else {
-            if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-                return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
-            }
-
             if let Some(ref backup_dir) = self.backup_dir {
                 backup_file(&expanded, backup_dir).await;
             }
@@ -521,16 +509,7 @@ impl Tool for EditFileTool {
         let new_text = require_param!(params, "new_text");
 
         let file_path = PathBuf::from(path_str);
-        let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
-            if file_path.starts_with("~") {
-                let home = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            } else {
-                Ok(lexical_normalize(&file_path))
-            }
-        })?;
+        let expanded = expand_path(&file_path).await?;
 
         let ws = self.workspace.as_deref();
 
@@ -596,10 +575,6 @@ impl Tool for EditFileTool {
                 }
             })
             .await?;
-        }
-
-        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
         }
 
         match tokio::fs::metadata(&expanded).await {
@@ -703,16 +678,7 @@ impl Tool for ListDirTool {
         let path_str = require_param!(params, "path");
 
         let dir_path = PathBuf::from(path_str);
-        let expanded = tokio::fs::canonicalize(&dir_path).await.or_else(|_| {
-            if dir_path.starts_with("~") {
-                let home = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-                let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            } else {
-                Ok(lexical_normalize(&dir_path))
-            }
-        })?;
+        let expanded = expand_path(&dir_path).await?;
 
         let ws = self.workspace.as_deref();
 
@@ -763,10 +729,6 @@ impl Tool for ListDirTool {
                 }
             })
             .await?;
-        }
-
-        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
         }
 
         match tokio::fs::metadata(&expanded).await {

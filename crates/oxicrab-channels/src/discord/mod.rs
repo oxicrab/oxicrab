@@ -317,30 +317,13 @@ impl EventHandler for Handler {
             if !is_image && !is_audio && !is_pdf {
                 continue;
             }
-            let (ext, tag) = if is_image {
-                (
-                    match content_type {
-                        "image/jpeg" => "jpg",
-                        "image/png" => "png",
-                        "image/gif" => "gif",
-                        "image/webp" => "webp",
-                        _ => "bin",
-                    },
-                    "image",
-                )
+            let ext = crate::media_utils::mime_to_extension(content_type);
+            let tag = if is_image {
+                "image"
             } else if is_pdf {
-                ("pdf", "document")
+                "document"
             } else {
-                (
-                    match content_type {
-                        "audio/mpeg" => "mp3",
-                        "audio/wav" => "wav",
-                        "audio/webm" => "webm",
-                        "audio/mp4" => "m4a",
-                        _ => "ogg",
-                    },
-                    "audio",
-                )
+                "audio"
             };
             let Ok(media_dir) = crate::media_utils::media_dir() else {
                 warn!("Failed to create media directory");
@@ -640,6 +623,11 @@ impl BaseChannel for DiscordChannel {
 
         let handle = tokio::spawn(async move {
             let mut reconnect_attempt = 0u32;
+            let handler_http_client = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
             loop {
                 if !*running.lock().await {
                     info!("Discord channel stopped, exiting retry loop");
@@ -651,11 +639,7 @@ impl BaseChannel for DiscordChannel {
                     allow_list: allow_from.clone(),
                     allow_groups: allow_groups.clone(),
                     dm_policy: dm_policy.clone(),
-                    http_client: reqwest::Client::builder()
-                        .connect_timeout(std::time::Duration::from_secs(10))
-                        .timeout(std::time::Duration::from_secs(30))
-                        .build()
-                        .unwrap_or_else(|_| reqwest::Client::new()),
+                    http_client: handler_http_client.clone(),
                     commands: commands.clone(),
                     dispatch_store: dispatch_store.clone(),
                     mention_only,
@@ -777,97 +761,7 @@ impl BaseChannel for DiscordChannel {
             }
         }
 
-        // Regular channel message path
-        let id_val = msg.chat_id.parse::<u64>()?;
-        let chunks = split_message(&msg.content, 2000);
-        let http = &self.serenity_http;
-
-        // Check if chat_id is a user ID (from allow_from) — if so, open a DM channel
-        let is_user_id = self
-            .config
-            .allow_from
-            .entries()
-            .iter()
-            .any(|a| a.trim_start_matches('+') == msg.chat_id);
-
-        let target_channel_id = if is_user_id {
-            let mut cache = self.dm_channel_cache.lock().await;
-            if let Some(&cached_id) = cache.get(&id_val) {
-                cached_id
-            } else {
-                let user_id = serenity::model::id::UserId::new(id_val);
-                let dm_channel = user_id.create_dm_channel(&http).await?;
-                cache.insert(id_val, dm_channel.id);
-                dm_channel.id
-            }
-        } else {
-            serenity::model::id::ChannelId::new(id_val)
-        };
-
-        // Send media attachments first
-        for path in &msg.media {
-            let file_path = std::path::Path::new(path);
-            if !file_path.exists() {
-                warn!("discord: media file not found: {}", path);
-                continue;
-            }
-            match serenity::builder::CreateAttachment::path(file_path).await {
-                Ok(attachment) => {
-                    let builder = CreateMessage::new().add_file(attachment);
-                    match target_channel_id.send_message(&http, builder).await {
-                        Ok(_) => info!("discord: sent attachment '{}'", path),
-                        Err(e) => warn!("discord: failed to send attachment {}: {}", path, e),
-                    }
-                }
-                Err(e) => {
-                    warn!("discord: failed to read attachment {}: {}", path, e);
-                }
-            }
-        }
-
-        // Parse embeds and components from metadata
-        let embeds = parse_embeds_from_metadata(&msg.metadata);
-        let components = parse_components_from_metadata(&msg.metadata, Some(&self.dispatch_store));
-
-        // Send text content (attach embeds/components to the last chunk)
-        let chunk_count = chunks.len();
-        for (i, chunk) in chunks.iter().enumerate() {
-            let is_last = i == chunk_count - 1;
-            if is_last && (!embeds.is_empty() || !components.is_empty()) {
-                let mut builder = CreateMessage::new().content(chunk);
-                for embed in &embeds {
-                    builder = builder.embed(embed.clone());
-                }
-                if !components.is_empty() {
-                    builder = builder.components(components.clone());
-                }
-                target_channel_id
-                    .send_message(&http, builder)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
-            } else {
-                target_channel_id
-                    .say(&http, chunk)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
-            }
-        }
-
-        // If there was no text but we have embeds/components, send them standalone
-        if chunks.is_empty() && (!embeds.is_empty() || !components.is_empty()) {
-            let mut builder = CreateMessage::new();
-            for embed in &embeds {
-                builder = builder.embed(embed.clone());
-            }
-            if !components.is_empty() {
-                builder = builder.components(components);
-            }
-            target_channel_id
-                .send_message(&http, builder)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
-        }
-
+        self.send_channel_message(msg).await?;
         Ok(())
     }
 
@@ -875,55 +769,7 @@ impl BaseChannel for DiscordChannel {
         if msg.channel != "discord" {
             return Ok(None);
         }
-        let id_val = msg.chat_id.parse::<u64>()?;
-        // Resolve DM channel for user IDs (same logic as send())
-        let is_user_id = self
-            .config
-            .allow_from
-            .entries()
-            .iter()
-            .any(|a| a.trim_start_matches('+') == msg.chat_id);
-        let target = if is_user_id {
-            let mut cache = self.dm_channel_cache.lock().await;
-            if let Some(&cached_id) = cache.get(&id_val) {
-                cached_id
-            } else {
-                let user_id = serenity::model::id::UserId::new(id_val);
-                let dm_channel = user_id.create_dm_channel(&self.serenity_http).await?;
-                cache.insert(id_val, dm_channel.id);
-                dm_channel.id
-            }
-        } else {
-            serenity::model::id::ChannelId::new(id_val)
-        };
-        let chunks = split_message(&msg.content, 2000);
-        let embeds = parse_embeds_from_metadata(&msg.metadata);
-        let components = parse_components_from_metadata(&msg.metadata, Some(&self.dispatch_store));
-        let chunk_count = chunks.len();
-        let mut last_id = None;
-        for (i, chunk) in chunks.iter().enumerate() {
-            let is_last = i == chunk_count - 1;
-            let sent = if is_last && (!embeds.is_empty() || !components.is_empty()) {
-                let mut builder = CreateMessage::new().content(chunk);
-                for embed in &embeds {
-                    builder = builder.embed(embed.clone());
-                }
-                if !components.is_empty() {
-                    builder = builder.components(components.clone());
-                }
-                target
-                    .send_message(&self.serenity_http, builder)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?
-            } else {
-                target
-                    .say(&self.serenity_http, chunk)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?
-            };
-            last_id = Some(sent.id.to_string());
-        }
-        Ok(last_id)
+        self.send_channel_message(msg).await
     }
 
     async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {
@@ -965,6 +811,106 @@ impl BaseChannel for DiscordChannel {
 }
 
 impl DiscordChannel {
+    /// Shared implementation for regular channel messages (non-interaction path).
+    /// Handles DM channel resolution, media attachments, embeds, components,
+    /// and message chunking. Returns the last message ID if any were sent.
+    async fn send_channel_message(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        let id_val = msg.chat_id.parse::<u64>()?;
+        let chunks = split_message(&msg.content, 2000);
+        let http = &self.serenity_http;
+
+        // Check if chat_id is a user ID (from allow_from) — if so, open a DM channel
+        let is_user_id = self
+            .config
+            .allow_from
+            .entries()
+            .iter()
+            .any(|a| a.trim_start_matches('+') == msg.chat_id);
+
+        let target = if is_user_id {
+            let mut cache = self.dm_channel_cache.lock().await;
+            if let Some(&cached_id) = cache.get(&id_val) {
+                cached_id
+            } else {
+                let user_id = serenity::model::id::UserId::new(id_val);
+                let dm_channel = user_id.create_dm_channel(http).await?;
+                cache.insert(id_val, dm_channel.id);
+                dm_channel.id
+            }
+        } else {
+            serenity::model::id::ChannelId::new(id_val)
+        };
+
+        // Send media attachments first
+        for path in &msg.media {
+            let file_path = std::path::Path::new(path);
+            if !file_path.exists() {
+                warn!("discord: media file not found: {}", path);
+                continue;
+            }
+            match serenity::builder::CreateAttachment::path(file_path).await {
+                Ok(attachment) => {
+                    let builder = CreateMessage::new().add_file(attachment);
+                    match target.send_message(http, builder).await {
+                        Ok(_) => info!("discord: sent attachment '{}'", path),
+                        Err(e) => warn!("discord: failed to send attachment {}: {}", path, e),
+                    }
+                }
+                Err(e) => {
+                    warn!("discord: failed to read attachment {}: {}", path, e);
+                }
+            }
+        }
+
+        // Parse embeds and components from metadata
+        let embeds = parse_embeds_from_metadata(&msg.metadata);
+        let components = parse_components_from_metadata(&msg.metadata, Some(&self.dispatch_store));
+
+        // Send text content (attach embeds/components to the last chunk)
+        let chunk_count = chunks.len();
+        let mut last_id = None;
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunk_count - 1;
+            let sent = if is_last && (!embeds.is_empty() || !components.is_empty()) {
+                let mut builder = CreateMessage::new().content(chunk);
+                for embed in &embeds {
+                    builder = builder.embed(embed.clone());
+                }
+                if !components.is_empty() {
+                    builder = builder.components(components.clone());
+                }
+                target
+                    .send_message(http, builder)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?
+            } else {
+                target
+                    .say(http, chunk)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?
+            };
+            last_id = Some(sent.id.to_string());
+        }
+
+        // If there was no text but we have embeds/components, send them standalone
+        if chunks.is_empty() && (!embeds.is_empty() || !components.is_empty()) {
+            let mut builder = CreateMessage::new();
+            for embed in &embeds {
+                builder = builder.embed(embed.clone());
+            }
+            if !components.is_empty() {
+                builder = builder.components(components);
+            }
+            let sent = target
+                .send_message(http, builder)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
+            last_id = Some(sent.id.to_string());
+        }
+
+        Ok(last_id)
+    }
+
     async fn send_interaction_followup(
         &self,
         msg: &OutboundMessage,

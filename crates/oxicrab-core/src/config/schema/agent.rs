@@ -113,16 +113,12 @@ impl std::fmt::Display for PromptGuardAction {
     }
 }
 
-fn default_prompt_guard_action() -> PromptGuardAction {
-    PromptGuardAction::default()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptGuardConfig {
     #[serde(default = "super::default_true")]
     pub enabled: bool,
     /// Action on detection: `Warn` (log + continue) or `Block` (reject message)
-    #[serde(default = "default_prompt_guard_action")]
+    #[serde(default)]
     pub action: PromptGuardAction,
 }
 
@@ -137,7 +133,7 @@ impl Default for PromptGuardConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            action: default_prompt_guard_action(),
+            action: PromptGuardAction::default(),
         }
     }
 }

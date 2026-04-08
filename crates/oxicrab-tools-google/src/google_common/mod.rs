@@ -3,6 +3,7 @@ use anyhow::Result;
 use reqwest::Client;
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::info;
 
@@ -149,7 +150,7 @@ impl GoogleApiClient {
             request = request.json(body);
         }
 
-        Ok(request.send().await?)
+        Ok(request.timeout(Duration::from_secs(15)).send().await?)
     }
 }
 

@@ -69,7 +69,7 @@ fn test_auto_select_prefers_default() {
     let tool = ImageGenTool::new(
         Some("ok".into()),
         Some("gk".into()),
-        ImageGenProvider::Google,
+        ImageGenProvider::Gemini,
     );
     assert_eq!(tool.resolve_provider(None).unwrap(), "google");
 }
@@ -181,7 +181,7 @@ async fn test_google_success() {
     let tool = ImageGenTool::with_base_urls(
         None,
         Some("test_google_key".into()),
-        ImageGenProvider::Google,
+        ImageGenProvider::Gemini,
         String::new(),
         server.uri(),
     );
@@ -220,7 +220,7 @@ async fn test_google_api_error() {
     let tool = ImageGenTool::with_base_urls(
         None,
         Some("test_google_key".into()),
-        ImageGenProvider::Google,
+        ImageGenProvider::Gemini,
         String::new(),
         server.uri(),
     );
@@ -297,7 +297,7 @@ async fn test_google_with_aspect_ratio() {
     let tool = ImageGenTool::with_base_urls(
         None,
         Some("gk".into()),
-        ImageGenProvider::Google,
+        ImageGenProvider::Gemini,
         String::new(),
         server.uri(),
     );

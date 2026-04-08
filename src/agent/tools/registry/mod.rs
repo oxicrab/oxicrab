@@ -157,37 +157,26 @@ pub struct ToolRegistry {
 
 impl ToolRegistry {
     pub fn new() -> Self {
+        Self::build(Arc::new(TruncationMiddleware::new(
+            DEFAULT_MAX_RESULT_CHARS,
+        )))
+    }
+
+    /// Create a registry with a tool output stash for recovering truncated content.
+    pub fn with_stash(stash: Arc<crate::agent::tools::stash::ToolOutputStash>) -> Self {
+        Self::build(Arc::new(TruncationMiddleware::with_stash(
+            DEFAULT_MAX_RESULT_CHARS,
+            stash,
+        )))
+    }
+
+    fn build(truncation: Arc<TruncationMiddleware>) -> Self {
         Self {
             tools: HashMap::new(),
             middleware: vec![
                 // Order matters: truncation runs before cache in after_execute,
                 // so cached results are already truncated on cache hits.
-                Arc::new(TruncationMiddleware::new(DEFAULT_MAX_RESULT_CHARS)),
-                Arc::new(CacheMiddleware::new(
-                    DEFAULT_CACHE_MAX_ENTRIES,
-                    DEFAULT_CACHE_TTL_SECS,
-                )),
-                Arc::new(LoggingMiddleware),
-            ],
-            deferred: HashSet::new(),
-            definition_cache: HashMap::new(),
-            cached_definitions: std::sync::Mutex::new(None),
-            routing_rules: Vec::new(),
-            runtime_tools: std::sync::Mutex::new(HashMap::new()),
-            runtime_deferred: std::sync::Mutex::new(HashSet::new()),
-            runtime_definitions: std::sync::Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Create a registry with a tool output stash for recovering truncated content.
-    pub fn with_stash(stash: Arc<crate::agent::tools::stash::ToolOutputStash>) -> Self {
-        Self {
-            tools: HashMap::new(),
-            middleware: vec![
-                Arc::new(TruncationMiddleware::with_stash(
-                    DEFAULT_MAX_RESULT_CHARS,
-                    stash,
-                )),
+                truncation,
                 Arc::new(CacheMiddleware::new(
                     DEFAULT_CACHE_MAX_ENTRIES,
                     DEFAULT_CACHE_TTL_SECS,

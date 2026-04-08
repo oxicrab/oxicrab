@@ -1,14 +1,11 @@
 use crate::errors::ProviderErrorHandler;
-use crate::provider_http_client;
+use crate::{BASE_URL_GEMINI, provider_http_client};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use oxicrab_core::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use reqwest::Client;
 use serde_json::{Value, json};
-use std::time::Duration;
-use tracing::{debug, info, warn};
-
-const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1";
+use tracing::{debug, warn};
 
 pub struct GeminiProvider {
     api_key: String,
@@ -23,7 +20,7 @@ impl GeminiProvider {
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
-            base_url: BASE_URL.to_string(),
+            base_url: BASE_URL_GEMINI.to_string(),
             client: provider_http_client(),
             custom_headers: std::collections::HashMap::new(),
         }
@@ -330,14 +327,11 @@ impl LLMProvider for GeminiProvider {
         let encoded_model = urlencoding::encode(model_name);
         let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);
 
-        let mut req_builder = self
+        let req_builder = self
             .client
             .post(&url)
             .header("x-goog-api-key", &self.api_key);
-        req_builder = req_builder.header("x-session-affinity", crate::session_affinity_id());
-        for (k, v) in &self.custom_headers {
-            req_builder = req_builder.header(k.as_str(), v.as_str());
-        }
+        let req_builder = crate::apply_custom_headers(req_builder, &self.custom_headers);
         let resp = req_builder
             .json(&payload)
             .send()
@@ -359,35 +353,20 @@ impl LLMProvider for GeminiProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
-        use tracing::warn;
-        let start = std::time::Instant::now();
         let encoded_model = urlencoding::encode(&self.default_model);
         let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);
         let payload = json!({
             "contents": [{"parts": [{"text": "hi"}]}],
             "generationConfig": {"maxOutputTokens": 1}
         });
-        let mut req_builder = self
-            .client
-            .post(&url)
-            .header("x-goog-api-key", &self.api_key)
-            .header("Content-Type", "application/json")
-            .timeout(Duration::from_secs(15));
-        req_builder = req_builder.header("x-session-affinity", crate::session_affinity_id());
+        let mut headers = vec![
+            ("x-goog-api-key", self.api_key.clone()),
+            ("Content-Type", "application/json".to_string()),
+        ];
         for (k, v) in &self.custom_headers {
-            req_builder = req_builder.header(k.as_str(), v.as_str());
+            headers.push((k.as_str(), v.clone()));
         }
-        let result = req_builder.json(&payload).send().await;
-        match result {
-            Ok(resp) if !resp.status().is_success() => {
-                warn!("gemini warmup got HTTP {} (non-fatal)", resp.status());
-            }
-            Ok(_) => info!(
-                "gemini provider warmed up in {}ms",
-                start.elapsed().as_millis()
-            ),
-            Err(e) => warn!("gemini warmup request failed (non-fatal): {}", e),
-        }
+        crate::warmup_provider(&self.client, &url, headers, payload, "gemini").await?;
         Ok(())
     }
 }

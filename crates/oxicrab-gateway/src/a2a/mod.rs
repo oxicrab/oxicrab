@@ -83,14 +83,18 @@ impl A2aTaskStore {
             }
             true
         });
-        // Evict oldest task if at capacity
-        if tasks.len() >= MAX_A2A_TASKS
-            && let Some(oldest_id) = tasks
+        // Evict oldest completed/failed task if at capacity. Only evict
+        // active (Working) tasks as a last resort to avoid dropping in-flight work.
+        if tasks.len() >= MAX_A2A_TASKS {
+            let evict_id = tasks
                 .values()
+                .filter(|t| matches!(t.status, TaskStatus::Completed | TaskStatus::Failed))
                 .min_by_key(|t| &t.created_at)
-                .map(|t| t.id.clone())
-        {
-            tasks.remove(&oldest_id);
+                .or_else(|| tasks.values().min_by_key(|t| &t.created_at))
+                .map(|t| t.id.clone());
+            if let Some(id) = evict_id {
+                tasks.remove(&id);
+            }
         }
         tasks.insert(task.id.clone(), task);
     }

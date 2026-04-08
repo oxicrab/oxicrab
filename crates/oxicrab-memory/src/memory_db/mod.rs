@@ -39,6 +39,27 @@ pub use subagent_log::SubagentLogEntry;
 pub use traces::{CronTrace, TraceEvent, summarize_params, summarize_result};
 pub use workspace::WorkspaceFileEntry;
 
+/// Escape SQL LIKE wildcards (`%`, `_`, `\`) so they match literally.
+/// Use with `ESCAPE '\'` in the LIKE clause.
+pub(crate) fn escape_like(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| match c {
+            '%' => vec!['\\', '%'],
+            '_' => vec!['\\', '_'],
+            '\\' => vec!['\\', '\\'],
+            _ => vec![c],
+        })
+        .collect()
+}
+
+/// Return the current Unix timestamp in seconds.
+pub(crate) fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 use embeddings::CachedEmbedding;
 #[cfg(test)]
 use search::MAX_FTS_TERMS;
