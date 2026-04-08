@@ -1,4 +1,5 @@
 pub mod base;
+pub mod collections;
 pub mod cron;
 pub mod interactive;
 pub mod mcp;

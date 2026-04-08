@@ -112,6 +112,29 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         conn.execute("PRAGMA user_version = 6", [])?;
     }
 
+    if user_version(conn)? < 7 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS collections (
+                name         TEXT PRIMARY KEY,
+                description  TEXT NOT NULL DEFAULT '',
+                schema_json  TEXT NOT NULL,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS collection_records (
+                id              TEXT PRIMARY KEY,
+                collection_name TEXT NOT NULL REFERENCES collections(name) ON DELETE CASCADE,
+                data_json       TEXT NOT NULL,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_collection_records_name
+                ON collection_records(collection_name);",
+        )?;
+        conn.execute("PRAGMA user_version = 7", [])?;
+    }
+
     Ok(())
 }
 
@@ -217,7 +240,7 @@ mod tests {
         let v: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(v, 6);
+        assert_eq!(v, 7);
     }
 
     #[test]

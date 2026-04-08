@@ -1,6 +1,6 @@
 ---
 title: Tool Reference - oxicrab
-description: Complete reference for all 29 built-in tools in oxicrab, including setup instructions for configurable tools.
+description: Complete reference for all 30 built-in tools in oxicrab, including setup instructions for configurable tools.
 active: tools
 max_width: 820px
 ---
@@ -66,6 +66,7 @@ max_width: 820px
         <li><a href="#stash_retrieve">stash_retrieve</a></li>
         <li><a href="#tool_search">tool_search</a></li>
         <li><a href="#add_buttons">add_buttons</a></li>
+        <li><a href="#collections">collections</a></li>
       </ul>
     </div>
     <div class="toc-group">
@@ -439,6 +440,43 @@ hybridWeight = 0.5</code></pre>
         <tr><td>secondary</td><td>Grey (Secondary)</td><td>Default (no style)</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div id="collections" class="tool-section">
+    <h2>collections <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Manage structured data collections with typed schemas. Create collections, then use per-collection tools (registered dynamically and discoverable via <code>tool_search</code>) for CRUD and aggregation operations.</p>
+
+    <h3>Actions (collections tool)</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
+      <tbody>
+        <tr><td>create</td><td>Create a new collection with typed field schema</td><td>&mdash;</td></tr>
+        <tr><td>list</td><td>List all collections with record counts</td><td>&#x2713;</td></tr>
+        <tr><td>describe</td><td>Show full schema and metadata for a collection</td><td>&#x2713;</td></tr>
+        <tr><td>delete</td><td>Delete a collection and all its records</td><td>&mdash;</td></tr>
+        <tr><td>alter_schema</td><td>Add or remove fields from a collection schema</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Actions (per-collection data tools)</h3>
+    <p>Each collection gets its own tool named after the collection (e.g. <code>grocery_list</code>). Discover it via <code>tool_search</code>.</p>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
+      <tbody>
+        <tr><td>add</td><td>Insert a record with typed data</td><td>&mdash;</td></tr>
+        <tr><td>query</td><td>Search records with filters, pagination</td><td>&#x2713;</td></tr>
+        <tr><td>update</td><td>Update a record by ID</td><td>&mdash;</td></tr>
+        <tr><td>delete</td><td>Delete a record by ID</td><td>&mdash;</td></tr>
+        <tr><td>count</td><td>Count records matching optional filters</td><td>&#x2713;</td></tr>
+        <tr><td>aggregate</td><td>Run count/sum/avg/min/max with optional group_by</td><td>&#x2713;</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Field types</h3>
+    <p><code>text</code>, <code>number</code>, <code>bool</code>, <code>enum</code> (with allowed values), <code>date</code>, <code>datetime</code>. Collection names must be alphanumeric + underscore, 1&ndash;64 chars, starting with a letter.</p>
+
+    <h3>Dynamic registration</h3>
+    <p>Per-collection data tools are registered as deferred tools at startup and dynamically when new collections are created. Auto-generated skill files provide schema context to the LLM. Data is stored in SQLite tables (<code>collections</code>, <code>collection_records</code>) in the workspace memory database.</p>
   </div>
 
   <!-- ============ CONFIGURABLE TOOLS ============ -->

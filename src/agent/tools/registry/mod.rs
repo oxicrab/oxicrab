@@ -147,6 +147,12 @@ pub struct ToolRegistry {
     cached_definitions: std::sync::Mutex<Option<Vec<crate::providers::base::ToolDefinition>>>,
     /// Accumulated routing rules collected from all registered tools.
     routing_rules: Vec<crate::agent::tools::base::routing_types::StaticRule>,
+    /// Tools registered at runtime (e.g. per-collection data tools).
+    /// Behind a `std::sync::Mutex` so they can be added after initial setup
+    /// without requiring `&mut self`. Checked by `get()` and definition builders.
+    runtime_tools: std::sync::Mutex<HashMap<String, Arc<dyn Tool>>>,
+    runtime_deferred: std::sync::Mutex<HashSet<String>>,
+    runtime_definitions: std::sync::Mutex<HashMap<String, crate::providers::base::ToolDefinition>>,
 }
 
 impl ToolRegistry {
@@ -167,6 +173,9 @@ impl ToolRegistry {
             definition_cache: HashMap::new(),
             cached_definitions: std::sync::Mutex::new(None),
             routing_rules: Vec::new(),
+            runtime_tools: std::sync::Mutex::new(HashMap::new()),
+            runtime_deferred: std::sync::Mutex::new(HashSet::new()),
+            runtime_definitions: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -189,6 +198,9 @@ impl ToolRegistry {
             definition_cache: HashMap::new(),
             cached_definitions: std::sync::Mutex::new(None),
             routing_rules: Vec::new(),
+            runtime_tools: std::sync::Mutex::new(HashMap::new()),
+            runtime_deferred: std::sync::Mutex::new(HashSet::new()),
+            runtime_definitions: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -230,28 +242,59 @@ impl ToolRegistry {
         self.register(tool);
     }
 
+    /// Register a deferred tool at runtime (after initial setup).
+    /// Thread-safe: does not require &mut self.
+    pub fn register_runtime_deferred(&self, tool: Arc<dyn Tool>) {
+        let name = tool.name().to_string();
+        if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            warn!(
+                "runtime tool registry: rejecting tool with invalid name (len={})",
+                name.len(),
+            );
+            return;
+        }
+        let definition = Self::tool_to_definition(&tool);
+        self.runtime_definitions
+            .lock()
+            .unwrap()
+            .insert(name.clone(), definition);
+        self.runtime_deferred.lock().unwrap().insert(name.clone());
+        self.runtime_tools
+            .lock()
+            .unwrap()
+            .insert(name.clone(), tool);
+        // Invalidate cached definitions
+        self.cached_definitions.lock().unwrap().take();
+        info!("runtime-registered deferred tool '{name}'");
+    }
+
     /// Check if a tool is deferred (schema hidden from LLM by default).
     pub fn is_deferred(&self, name: &str) -> bool {
-        self.deferred.contains(name)
+        self.deferred.contains(name) || self.runtime_deferred.lock().unwrap().contains(name)
     }
 
     /// Number of deferred tools.
     pub fn deferred_count(&self) -> usize {
-        self.deferred.len()
+        self.deferred.len() + self.runtime_deferred.lock().unwrap().len()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        if let Some(tool) = self.tools.get(name) {
+            return Some(tool.clone());
+        }
+        self.runtime_tools.lock().unwrap().get(name).cloned()
     }
 
     /// Returns a sorted list of all registered tool names.
     pub fn tool_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.extend(self.runtime_tools.lock().unwrap().keys().cloned());
         names.sort();
         names
     }
 
-    /// Iterate over all registered tools.
+    /// Iterate over all registered tools (static only — runtime tools
+    /// are accessed via `get()` and included in definitions).
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Arc<dyn Tool>)> {
         self.tools.iter().map(|(k, v)| (k.as_str(), v))
     }
@@ -290,6 +333,16 @@ impl ToolRegistry {
             .filter(|name| !self.deferred.contains(*name) || activated.contains(*name))
             .filter_map(|name| self.definition_cache.get(name).cloned())
             .collect();
+
+        // Include runtime-registered tools (deferred unless activated)
+        let rt_deferred = self.runtime_deferred.lock().unwrap();
+        let rt_defs = self.runtime_definitions.lock().unwrap();
+        for (name, def) in rt_defs.iter() {
+            if !rt_deferred.contains(name) || activated.contains(name) {
+                defs.push(def.clone());
+            }
+        }
+
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs
     }
@@ -318,6 +371,22 @@ impl ToolRegistry {
             })
             .filter_map(|(name, _)| self.definition_cache.get(name).cloned())
             .collect();
+
+        // Include runtime-registered tools in matching categories
+        let rt_tools = self.runtime_tools.lock().unwrap();
+        let rt_deferred = self.runtime_deferred.lock().unwrap();
+        let rt_defs = self.runtime_definitions.lock().unwrap();
+        for (name, tool) in rt_tools.iter() {
+            let in_category = categories.contains(&tool.capabilities().category);
+            let visible = !rt_deferred.contains(name) || activated.contains(name);
+            if in_category
+                && visible
+                && let Some(def) = rt_defs.get(name)
+            {
+                defs.push(def.clone());
+            }
+        }
+
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs
     }
@@ -375,10 +444,8 @@ impl ToolRegistry {
         ctx: &ExecutionContext,
     ) -> Result<ToolResult> {
         let tool = self
-            .tools
             .get(name)
-            .ok_or_else(|| anyhow::anyhow!("Tool '{name}' not found"))?
-            .clone();
+            .ok_or_else(|| anyhow::anyhow!("Tool '{name}' not found"))?;
 
         // Phase 0: Coerce LLM params to match schema types
         let params = coerce_params_to_schema(params, &tool.parameters());

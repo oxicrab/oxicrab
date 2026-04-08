@@ -46,7 +46,7 @@ pub struct ToolBuildContext {
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
-/// Returns `(ToolRegistry, SubagentManager, Option<McpManager>, tool_search_activated)`.
+/// Returns `(ToolRegistry, SubagentManager, Option<McpManager>, tool_search_activated, shared_tool_index)`.
 /// The activation store is request-scoped, so deferred tool discovery stays isolated
 /// to the current agent run.
 pub async fn register_all_tools(
@@ -56,6 +56,8 @@ pub async fn register_all_tools(
     Arc<SubagentManager>,
     Option<McpManager>,
     crate::agent::tools::tool_search::ActivatedTools,
+    Option<crate::agent::tools::tool_search::SharedToolIndex>,
+    Option<crate::agent::tools::collections::RuntimeRegistry>,
 )> {
     // Tool output stash — shared between truncation middleware and stash_retrieve tool
     let stash = Arc::new(crate::agent::tools::stash::ToolOutputStash::new());
@@ -126,15 +128,28 @@ pub async fn register_all_tools(
         )
         .collect();
 
-    if tools.deferred_count() > 0 {
+    let shared_tool_index = if tools.deferred_count() > 0 {
         info!(
             "Registering tool_search with {} deferred tools",
             tools.deferred_count()
         );
-        tools.register(Arc::new(
-            crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone()),
-        ));
-    }
+        let search_tool =
+            crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone());
+        let shared_idx = search_tool.shared_index();
+        tools.register(Arc::new(search_tool));
+        Some(shared_idx)
+    } else {
+        // Register tool_search unconditionally so collections can add to it later
+        let search_tool =
+            crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone());
+        let shared_idx = search_tool.shared_index();
+        tools.register(Arc::new(search_tool));
+        Some(shared_idx)
+    };
+
+    // Register collection tools (management + per-collection data tools)
+    let collections_registry_handle =
+        register_collections(&mut tools, ctx, shared_tool_index.clone());
 
     info!(
         "tool registry ready: {} tools ({} deferred)",
@@ -142,7 +157,14 @@ pub async fn register_all_tools(
         tools.deferred_count()
     );
 
-    Ok((tools, subagents, mcp_manager, activated))
+    Ok((
+        tools,
+        subagents,
+        mcp_manager,
+        activated,
+        shared_tool_index,
+        collections_registry_handle,
+    ))
 }
 
 fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
@@ -411,6 +433,58 @@ fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         )));
         info!("Workspace tool registered");
     }
+}
+
+fn register_collections(
+    registry: &mut ToolRegistry,
+    ctx: &ToolBuildContext,
+    shared_tool_index: Option<crate::agent::tools::tool_search::SharedToolIndex>,
+) -> Option<crate::agent::tools::collections::RuntimeRegistry> {
+    let db = ctx.memory_db.as_ref()?;
+
+    // Load existing collections and register per-collection data tools as deferred
+    match db.list_collections() {
+        Ok(collections) => {
+            for collection in &collections {
+                let data_tool =
+                    Arc::new(crate::agent::tools::collections::CollectionDataTool::new(
+                        db.clone(),
+                        collection.name.clone(),
+                        collection.description.clone(),
+                        collection.schema.clone(),
+                    ));
+                registry.register_deferred(data_tool);
+
+                // Add to tool_search index
+                if let Some(ref idx) = shared_tool_index {
+                    idx.lock()
+                        .unwrap()
+                        .push(crate::agent::tools::tool_search::ToolIndexEntry {
+                            name: collection.name.clone(),
+                            description: format!(
+                                "Collection: {}. {}",
+                                collection.name, collection.description
+                            ),
+                            deferred: true,
+                        });
+                }
+            }
+            if !collections.is_empty() {
+                info!("registered {} collection data tool(s)", collections.len());
+            }
+        }
+        Err(e) => {
+            warn!("failed to load collections: {}", e);
+        }
+    }
+
+    // Register the collections management tool
+    let collections_tool =
+        crate::agent::tools::collections::CollectionsTool::new(db.clone(), shared_tool_index);
+    let registry_handle = collections_tool.registry_handle();
+    registry.register(Arc::new(collections_tool));
+
+    Some(registry_handle)
 }
 
 /// Check whether a tool name is safe for community-trust MCP servers.
