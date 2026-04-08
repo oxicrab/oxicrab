@@ -277,7 +277,7 @@ fn test_parse_response_multiple_function_calls() {
 }
 
 #[test]
-fn test_parse_response_function_call_no_name_fallback_id() {
+fn test_parse_response_function_call_no_name_skipped() {
     let json = json!({
         "candidates": [{
             "content": {
@@ -286,9 +286,8 @@ fn test_parse_response_function_call_no_name_fallback_id() {
         }]
     });
     let resp = GeminiProvider::parse_response(&json).unwrap();
-    assert_eq!(resp.tool_calls.len(), 1);
-    // Without a name, ID is still a unique generated value
-    assert!(resp.tool_calls[0].id.starts_with("gemini_"));
+    // functionCall without a name is skipped (logged as warning)
+    assert_eq!(resp.tool_calls.len(), 0);
 }
 
 #[tokio::test]
