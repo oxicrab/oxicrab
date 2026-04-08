@@ -127,6 +127,14 @@ async fn download_mms_media(
         return None;
     }
 
+    // Pre-download Content-Length check to avoid fetching oversized media
+    if let Some(len) = resp.content_length()
+        && len > MAX_MMS_DOWNLOAD as u64
+    {
+        warn!("twilio MMS media too large ({len} bytes), skipping");
+        return None;
+    }
+
     let bytes = match resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
@@ -276,6 +284,7 @@ async fn webhook_handler(
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(0);
 
+    let mut media_paths: Vec<String> = Vec::new();
     for i in 0..num_media {
         let url_key = format!("MediaUrl{i}");
         let type_key = format!("MediaContentType{i}");
@@ -301,6 +310,7 @@ async fn webhook_handler(
                     format!("\n[document: {path}]")
                 };
                 body_text.push_str(&tag);
+                media_paths.push(path);
             }
         }
     }
@@ -311,6 +321,7 @@ async fn webhook_handler(
     }
 
     let message = InboundMessage::builder("twilio", sender, chat_id, body_text)
+        .media(media_paths)
         .is_group(is_group)
         .build();
 

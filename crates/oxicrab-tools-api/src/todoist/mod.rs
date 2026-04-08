@@ -123,7 +123,10 @@ impl TodoistTool {
 
             match body["next_cursor"].as_str() {
                 Some(c) if !c.is_empty() => cursor = Some(c.to_string()),
-                _ => break,
+                _ => {
+                    cursor = None;
+                    break;
+                }
             }
         }
 

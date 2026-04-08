@@ -1005,7 +1005,8 @@ impl BaseChannel for SlackChannel {
         let mut params = HashMap::new();
         params.insert("channel", Value::String(chat_id.to_string()));
         params.insert("ts", Value::String(message_id.to_string()));
-        self.send_slack_api("chat.delete", &params).await?;
+        self.send_slack_api_with_retry("chat.delete", &params)
+            .await?;
         Ok(())
     }
 }
@@ -1038,6 +1039,7 @@ async fn download_slack_file(
     client: &reqwest::Client,
     bot_token: &str,
     initial_url: &str,
+    max_size: usize,
 ) -> Result<Vec<u8>> {
     let no_redirect_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -1099,10 +1101,10 @@ async fn download_slack_file(
 
         // Pre-check Content-Length before downloading the full body
         if let Some(len) = resp.content_length()
-            && len > MAX_AUDIO_DOWNLOAD as u64
+            && len > max_size as u64
         {
             return Err(anyhow::anyhow!(
-                "Slack file too large ({len} bytes, max {MAX_AUDIO_DOWNLOAD})"
+                "Slack file too large ({len} bytes, max {max_size})"
             ));
         }
 
@@ -1509,7 +1511,9 @@ async fn handle_slack_event(
                         // -> workspace.slack.com/?redir=... -> CDN). We follow
                         // each hop manually, re-adding auth and resolving
                         // Slack's ?redir= login-page URLs to direct file paths.
-                        match download_slack_file(client, bot_token, file_url).await {
+                        match download_slack_file(client, bot_token, file_url, MAX_IMAGE_DOWNLOAD)
+                            .await
+                        {
                             Ok(bytes) => {
                                 if bytes.len() > MAX_IMAGE_DOWNLOAD {
                                     warn!(
@@ -1555,7 +1559,9 @@ async fn handle_slack_event(
                         };
                         let file_path = media_dir.join(format!("slack_{file_id}{ext}"));
 
-                        match download_slack_file(client, bot_token, file_url).await {
+                        match download_slack_file(client, bot_token, file_url, MAX_AUDIO_DOWNLOAD)
+                            .await
+                        {
                             Ok(bytes) => {
                                 if bytes.len() > MAX_AUDIO_DOWNLOAD {
                                     warn!(

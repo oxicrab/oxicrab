@@ -37,7 +37,7 @@ impl RedditTool {
                 .user_agent("oxicrab/1.0")
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(15))
-                .redirect(reqwest::redirect::Policy::none())
+                .redirect(reqwest::redirect::Policy::limited(5))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }

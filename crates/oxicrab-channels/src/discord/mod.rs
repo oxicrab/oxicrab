@@ -576,10 +576,7 @@ async fn send_interaction_media_followup(
         if !retry_resp.status().is_success() {
             let status = retry_resp.status();
             let body = retry_resp.text().await.unwrap_or_default();
-            warn!(
-                "Discord webhook media followup failed ({}): {}",
-                status, body
-            );
+            anyhow::bail!("Discord webhook media followup failed after retry ({status}): {body}");
         }
         return Ok(());
     }
@@ -587,10 +584,7 @@ async fn send_interaction_media_followup(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        warn!(
-            "Discord webhook media followup failed ({}): {}",
-            status, body
-        );
+        anyhow::bail!("Discord webhook media followup failed ({status}): {body}");
     }
     Ok(())
 }

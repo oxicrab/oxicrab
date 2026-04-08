@@ -295,6 +295,23 @@ impl ToolRegistry {
         self.tools.iter().map(|(k, v)| (k.as_str(), v))
     }
 
+    /// Return all registered tools (both static and runtime).
+    ///
+    /// Unlike `iter()`, this includes runtime-registered tools (e.g.
+    /// per-collection data tools). Returns owned pairs since runtime
+    /// tools are behind a Mutex and cannot be borrowed.
+    pub fn all_tools(&self) -> Vec<(String, Arc<dyn Tool>)> {
+        let mut result: Vec<_> = self
+            .tools
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if let Ok(runtime) = self.runtime_tools.lock() {
+            result.extend(runtime.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        result
+    }
+
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
         self.get_tool_definitions_with_activated(&HashSet::new())
     }

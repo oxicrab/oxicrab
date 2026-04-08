@@ -1,8 +1,8 @@
 use super::AgentLoop;
 use super::config::AgentRunOverrides;
 use super::helpers::{
-    execute_tool_call, load_and_encode_images, strip_audio_tags, strip_document_tags,
-    strip_image_tags, transcribe_audio_tags,
+    execute_tool_call, extract_media_paths, load_and_encode_images, strip_audio_tags,
+    strip_document_tags, strip_image_tags, transcribe_audio_tags,
 };
 use crate::agent::tools::base::ExecutionContext;
 use crate::bus::{InboundMessage, OutboundMessage};
@@ -25,6 +25,8 @@ struct DispatchResult {
     suggested_buttons: HashMap<String, Value>,
     /// Raw tool metadata for router context updates.
     tool_metadata: Option<HashMap<String, Value>>,
+    /// Media paths extracted from tool result content.
+    media: Vec<String>,
 }
 
 impl AgentLoop {
@@ -1134,11 +1136,19 @@ impl AgentLoop {
             suggested_buttons.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
         }
 
+        // Extract media paths from tool result (screenshots, generated files, etc.)
+        let media = if result.is_error {
+            Vec::new()
+        } else {
+            extract_media_paths(&result_content)
+        };
+
         Ok(DispatchResult {
             result_content,
             display_text,
             suggested_buttons,
             tool_metadata: result.metadata,
+            media,
         })
     }
 
@@ -1282,18 +1292,12 @@ impl AgentLoop {
             .display_text
             .unwrap_or_else(|| dispatch.result_content.clone());
 
-        let mut builder =
-            OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), final_content)
-                .metadata(dispatch.suggested_buttons);
-        let reply_to = msg
-            .metadata
-            .get(crate::bus::meta::TS)
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty());
-        if let Some(id) = reply_to {
-            builder = builder.reply_to(id);
-        }
-        Ok(Some(builder.build()))
+        Ok(Some(
+            OutboundMessage::from_inbound(msg.clone(), final_content)
+                .media(dispatch.media)
+                .merge_metadata(dispatch.suggested_buttons)
+                .build(),
+        ))
     }
 
     /// Apply router metadata from a multi-tool turn.
@@ -1533,14 +1537,17 @@ impl AgentLoop {
                 .request_id
                 .clone()
                 .unwrap_or_else(|| format!("req-{}", Uuid::new_v4()));
-            // Extract context_summary from session so tools have compaction
-            // context, matching handle_direct_dispatch behavior.
+            // Extract context_summary and router context from session so tools
+            // have compaction context, matching handle_direct_dispatch behavior.
             let session = self.sessions.get_or_create(session_key).await?;
             let context_summary = session
                 .metadata
                 .get("compaction_summary")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let mut router_context =
+                crate::router::context::RouterContext::from_session_metadata(&session.metadata);
+            router_context.prune_expired(crate::router::now_ms());
 
             let dispatch_result = match self
                 .execute_dispatch_tool(
@@ -1550,7 +1557,7 @@ impl AgentLoop {
                     chat_id,
                     overrides.metadata.clone(),
                     context_summary,
-                    &format!("{channel}:{chat_id}"),
+                    session_key,
                     &request_id,
                 )
                 .await
@@ -1564,8 +1571,14 @@ impl AgentLoop {
                 }
             };
 
-            // Save session history
+            // Update router context from tool result metadata
+            if let Some(ref meta) = dispatch_result.tool_metadata {
+                Self::update_router_context(&mut router_context, meta, &dispatch.tool);
+            }
+
+            // Save router context and session history
             let mut session = self.sessions.get_or_create(session_key).await?;
+            router_context.to_session_metadata(&mut session.metadata);
             session.add_message(
                 "user",
                 format!(

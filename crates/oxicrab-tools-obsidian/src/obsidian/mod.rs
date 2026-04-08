@@ -213,6 +213,9 @@ impl Tool for ObsidianTool {
                     Some(p) if !p.is_empty() => p,
                     _ => return Ok(ToolResult::error("'path' is required for write")),
                 };
+                if path.contains("..") {
+                    return Ok(ToolResult::error("path traversal not allowed"));
+                }
                 let Some(content) = params["content"].as_str() else {
                     return Ok(ToolResult::error("'content' is required for write"));
                 };
@@ -233,6 +236,9 @@ impl Tool for ObsidianTool {
                     Some(p) if !p.is_empty() => p,
                     _ => return Ok(ToolResult::error("'path' is required for append")),
                 };
+                if path.contains("..") {
+                    return Ok(ToolResult::error("path traversal not allowed"));
+                }
                 let Some(content) = params["content"].as_str() else {
                     return Ok(ToolResult::error("'content' is required for append"));
                 };

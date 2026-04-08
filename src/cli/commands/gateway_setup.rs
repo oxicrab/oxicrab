@@ -193,8 +193,9 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 
     // Build status page state now that agent (and its tool registry) is ready
     let registry = agent.tool_registry();
+    let all = registry.all_tools();
     let tool_snap = crate::gateway::status::ToolSnapshot::from_tools(
-        registry.iter(),
+        all.iter().map(|(k, v)| (k.as_str(), v)),
         registry.deferred_count(),
     );
     let config_snap = crate::gateway::status::StatusConfigSnapshot::from_config(&config);

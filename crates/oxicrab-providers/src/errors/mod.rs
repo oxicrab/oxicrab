@@ -141,8 +141,8 @@ impl ProviderErrorHandler {
             .map_err(|e| anyhow::anyhow!("Failed to parse {provider} API response: {e}"))?;
 
         if let Some(error_val) = json.get("error") {
-            let error_text =
-                serde_json::to_string(error_val).unwrap_or_else(|_| "Unknown error".to_string());
+            let wrapper = serde_json::json!({"error": error_val});
+            let error_text = wrapper.to_string();
             Self::log_and_handle_error(&anyhow::anyhow!("API error in response"), provider, "chat");
             return Err(Self::parse_api_error(200, &error_text).into());
         }

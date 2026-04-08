@@ -496,8 +496,13 @@ impl BaseChannel for WhatsAppChannel {
             return Ok(None);
         }
 
-        let client_guard = self.client.lock().await;
-        if let Some(client) = client_guard.as_ref() {
+        // Clone the Arc<Client> out of the mutex, then release the lock
+        // before doing network I/O (same pattern as send())
+        let client_arc = {
+            let guard = self.client.lock().await;
+            guard.clone()
+        };
+        if let Some(client) = client_arc.as_ref() {
             Box::pin(send_whatsapp_message(client, msg)).await
         } else {
             warn!("WhatsApp client not available yet, queuing message");

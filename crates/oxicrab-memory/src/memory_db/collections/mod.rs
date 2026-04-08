@@ -122,6 +122,9 @@ fn validate_collection_name(name: &str) -> Result<()> {
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         bail!("collection name must contain only alphanumeric characters and underscores");
     }
+    if !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        bail!("collection name must start with a letter");
+    }
     Ok(())
 }
 
@@ -312,6 +315,26 @@ fn build_filter_clause(
             .ok_or_else(|| anyhow::anyhow!("filter field '{}' not in schema", filter.field))?;
 
         let json_path = format!("$.{}", filter.field);
+
+        // Handle NULL values: SQL `= NULL` is always false, use IS NULL / IS NOT NULL
+        if filter.value.is_null() {
+            match filter.op {
+                FilterOp::Eq => {
+                    clauses.push(format!("json_extract(data_json, '{json_path}') IS NULL"));
+                }
+                FilterOp::Neq => {
+                    clauses.push(format!(
+                        "json_extract(data_json, '{json_path}') IS NOT NULL"
+                    ));
+                }
+                _ => bail!(
+                    "NULL value only supported with eq/neq filters, not {:?}",
+                    filter.op
+                ),
+            }
+            continue;
+        }
+
         let idx = bind_values.len() + 1;
 
         match filter.op {

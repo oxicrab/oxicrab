@@ -62,7 +62,7 @@ async fn test_download_slack_file_success() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/files-pri/T1-F2/download/image.png", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_ok());
     let bytes = result.unwrap();
@@ -84,7 +84,7 @@ async fn test_download_slack_file_sends_auth_header() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/file.png", server.uri());
-    let result = download_slack_file(&client, "my-secret-token", &url).await;
+    let result = download_slack_file(&client, "my-secret-token", &url, MAX_IMAGE_DOWNLOAD).await;
     assert!(result.is_ok());
 }
 
@@ -101,7 +101,7 @@ async fn test_download_slack_file_error_status() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/file.png", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("403"));
@@ -120,7 +120,7 @@ async fn test_download_slack_file_empty_body_is_error() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/file.png", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("empty body"));
@@ -156,7 +156,7 @@ async fn test_download_slack_file_follows_single_redirect() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/start", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), jpeg_body);
@@ -197,7 +197,7 @@ async fn test_download_slack_file_follows_multiple_redirects() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/hop0", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), png_body);
@@ -231,7 +231,7 @@ async fn test_download_slack_file_redirect_preserves_auth_on_each_hop() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/hop0", server.uri());
-    let result = download_slack_file(&client, "xoxb-hop-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-hop-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_ok());
 }
@@ -251,7 +251,7 @@ async fn test_download_slack_file_redirect_loop_detection() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/loop", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -275,7 +275,7 @@ async fn test_download_slack_file_redirect_loop_mentions_files_read() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/loop", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     let err = result.unwrap_err().to_string();
     assert!(
@@ -303,7 +303,7 @@ async fn test_download_slack_file_exceeds_max_redirects() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/hop0", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("exceeded"));
@@ -322,7 +322,7 @@ async fn test_download_slack_file_500_error() {
 
     let client = reqwest::Client::new();
     let url = format!("{}/file.png", server.uri());
-    let result = download_slack_file(&client, "xoxb-test", &url).await;
+    let result = download_slack_file(&client, "xoxb-test", &url, MAX_IMAGE_DOWNLOAD).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("500"));

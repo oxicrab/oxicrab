@@ -309,7 +309,8 @@ fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
         .ok_or_else(|| anyhow::anyhow!("main_tools must be set before spawning subagents"))?;
 
     let mut tools = ToolRegistry::new();
-    for (name, tool) in main_tools.iter() {
+    for (name, tool) in main_tools.all_tools() {
+        let name = name.as_str();
         let caps = tool.capabilities();
         match caps.subagent_access {
             SubagentAccess::Full => {

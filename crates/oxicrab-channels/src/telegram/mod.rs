@@ -851,6 +851,17 @@ async fn handle_callback_query(
     Ok(())
 }
 
+/// Extract a substring using UTF-16 code unit offsets.
+///
+/// Telegram API returns entity offsets and lengths in UTF-16 code units,
+/// but Rust strings are UTF-8. This converts UTF-16 offsets to the correct
+/// substring.
+fn utf16_substr(text: &str, offset: usize, length: usize) -> Option<String> {
+    let utf16: Vec<u16> = text.encode_utf16().collect();
+    let slice = utf16.get(offset..offset + length)?;
+    String::from_utf16(slice).ok()
+}
+
 /// Check if the bot is mentioned in a group message (via @mention or reply).
 async fn is_bot_mentioned(
     msg: &TgMessage,
@@ -864,12 +875,13 @@ async fn is_bot_mentioned(
             for entity in entities {
                 if let MessageEntityKind::Mention = entity.kind {
                     // Extract the mention text from the message
+                    // Telegram uses UTF-16 offsets, not byte offsets
                     let text = msg.text().unwrap_or_default();
-                    if let Some(mention) = text.get(entity.offset..entity.offset + entity.length) {
+                    if let Some(mention) = utf16_substr(text, entity.offset, entity.length) {
                         // Telegram mentions include the @ prefix
                         if mention
                             .strip_prefix('@')
-                            .unwrap_or(mention)
+                            .unwrap_or(&mention)
                             .eq_ignore_ascii_case(bot_name)
                         {
                             return true;
@@ -1005,22 +1017,46 @@ fn markdown_to_telegram_html(text: &str) -> String {
         .replace_all(&html, r"<pre><code>$2</code></pre>")
         .to_string();
 
-    // Convert remaining markdown using shared regex patterns
-    html = RegexPatterns::markdown_bold()
-        .replace_all(&html, r"<b>$1</b>")
-        .to_string();
-    html = RegexPatterns::markdown_italic()
-        .replace_all(&html, r"<i>$1</i>")
-        .to_string();
-    // Fix #8: strikethrough ~~text~~ -> <s>text</s>
-    html = RegexPatterns::markdown_strike()
-        .replace_all(&html, r"<s>$1</s>")
-        .to_string();
-    html = RegexPatterns::markdown_code()
-        .replace_all(&html, r"<code>$1</code>")
-        .to_string();
+    // Split on <pre><code> / </code></pre> boundaries so formatting
+    // transforms only apply to segments outside code blocks.
+    let parts: Vec<&str> = html.split("<pre><code>").collect();
+    let mut result = String::with_capacity(html.len());
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            // First segment is always outside a code block
+            result.push_str(&apply_inline_formatting(part));
+        } else if let Some((code, rest)) = part.split_once("</code></pre>") {
+            // code is inside the block, rest is outside
+            result.push_str("<pre><code>");
+            result.push_str(code);
+            result.push_str("</code></pre>");
+            result.push_str(&apply_inline_formatting(rest));
+        } else {
+            // Unclosed code block — preserve as-is
+            result.push_str("<pre><code>");
+            result.push_str(part);
+        }
+    }
 
-    html
+    result
+}
+
+/// Apply inline markdown formatting (bold, italic, strikethrough, code)
+/// to a text segment that is known to be outside a fenced code block.
+fn apply_inline_formatting(text: &str) -> String {
+    let mut s = RegexPatterns::markdown_bold()
+        .replace_all(text, r"<b>$1</b>")
+        .to_string();
+    s = RegexPatterns::markdown_italic()
+        .replace_all(&s, r"<i>$1</i>")
+        .to_string();
+    s = RegexPatterns::markdown_strike()
+        .replace_all(&s, r"<s>$1</s>")
+        .to_string();
+    s = RegexPatterns::markdown_code()
+        .replace_all(&s, r"<code>$1</code>")
+        .to_string();
+    s
 }
 
 #[cfg(test)]

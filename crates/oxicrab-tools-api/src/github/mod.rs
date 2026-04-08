@@ -4,7 +4,7 @@ use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabiliti
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use oxicrab_core::utils::url_params::{validate_identifier, validate_url_segment};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::Engine;
 use reqwest::Client;
@@ -57,18 +57,14 @@ impl GitHubTool {
         }
     }
 
-    /// Extract error message from GitHub API response, sanitizing to prevent
-    /// token leakage if the API echoes back auth details.
-    fn sanitize_api_error(body: &Value) -> String {
-        let msg = body["message"].as_str().unwrap_or("unknown error");
-        // Don't include the raw message if it might contain auth details
-        if msg.to_lowercase().contains("bearer")
-            || msg.to_lowercase().contains("token")
-            || msg.to_lowercase().contains("credential")
-        {
+    /// Sanitize an API error message to prevent token leakage if the API
+    /// echoes back auth details. Accepts raw text (not necessarily JSON).
+    fn sanitize_api_error_text(text: &str) -> String {
+        let lower = text.to_lowercase();
+        if lower.contains("bearer") || lower.contains("token") || lower.contains("credential") {
             return "authentication error (check token)".to_string();
         }
-        msg.to_string()
+        text.chars().take(500).collect()
     }
 
     fn github_headers(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -88,10 +84,16 @@ impl GitHubTool {
         if status.as_u16() == 429 {
             anyhow::bail!("GitHub API rate limit exceeded, try again later");
         }
-        let body: Value = resp.json().await?;
+        let text = resp.text().await?;
         if !status.is_success() {
-            anyhow::bail!("GitHub API {}: {}", status, Self::sanitize_api_error(&body));
+            anyhow::bail!(
+                "GitHub API {}: {}",
+                status,
+                Self::sanitize_api_error_text(&text)
+            );
         }
+        let body: Value = serde_json::from_str(&text)
+            .with_context(|| format!("GitHub API returned invalid JSON ({status})"))?;
         Ok(body)
     }
 
@@ -178,11 +180,10 @@ impl GitHubTool {
             }
             if !status.is_success() {
                 let text = resp.text().await.unwrap_or_default();
-                let msg = serde_json::from_str::<Value>(&text).map_or_else(
-                    |_| "Unknown error".to_string(),
-                    |v| Self::sanitize_api_error(&v),
+                anyhow::bail!(
+                    "GitHub API {status}: {}",
+                    Self::sanitize_api_error_text(&text)
                 );
-                anyhow::bail!("GitHub API {status}: {msg}");
             }
             Ok(())
         };
