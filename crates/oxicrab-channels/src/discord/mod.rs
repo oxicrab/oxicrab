@@ -198,17 +198,23 @@ impl Handler {
 
         let custom_id = comp.data.custom_id.clone();
 
-        let dispatch = self.dispatch_store.get(&custom_id).map(|payload| {
-            oxicrab_core::dispatch::ActionDispatch {
-                tool: payload.tool,
-                params: payload.params,
-                source: oxicrab_core::dispatch::ActionSource::Button {
-                    action_id: custom_id.clone(),
-                },
-            }
+        let payload = self.dispatch_store.get(&custom_id);
+        if payload.is_none() {
+            warn!("button context expired for {custom_id}");
+        }
+        let dispatch = payload.map(|p| oxicrab_core::dispatch::ActionDispatch {
+            tool: p.tool,
+            params: p.params,
+            source: oxicrab_core::dispatch::ActionSource::Button {
+                action_id: custom_id.clone(),
+            },
         });
 
-        let content = format!("[button:{custom_id}]");
+        let content = if dispatch.is_some() {
+            format!("[button:{custom_id}]")
+        } else {
+            "This button has expired. Please run the command again.".to_string()
+        };
 
         let mut metadata = HashMap::new();
         metadata.insert(

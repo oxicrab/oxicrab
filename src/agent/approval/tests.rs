@@ -10,6 +10,7 @@ fn test_register_and_resolve() {
         action: "send".into(),
         requested_by: "user1".into(),
         operator_channel: "slack:C123".into(),
+        source_channel: "slack:D_USER".into(),
     };
     store.register("appr-abc123", entry);
     let result = store.resolve("appr-abc123", "slack:C123", ApprovalDecision::Approved);
@@ -35,6 +36,7 @@ fn test_resolve_wrong_channel() {
         action: "send".into(),
         requested_by: "user1".into(),
         operator_channel: "slack:C123".into(),
+        source_channel: "slack:D_USER".into(),
     };
     store.register("appr-abc123", entry);
     let result = store.resolve("appr-abc123", "slack:CWRONG", ApprovalDecision::Approved);
@@ -51,6 +53,7 @@ fn test_double_resolve() {
         action: "send".into(),
         requested_by: "user1".into(),
         operator_channel: "slack:C123".into(),
+        source_channel: "slack:D_USER".into(),
     };
     store.register("appr-abc123", entry);
     assert!(
@@ -68,7 +71,7 @@ fn test_double_resolve() {
 }
 
 #[test]
-fn test_self_approval_empty_channel() {
+fn test_self_approval_same_channel() {
     let store = ApprovalStore::new();
     let (tx, mut rx) = oneshot::channel();
     let entry = ApprovalEntry {
@@ -77,12 +80,31 @@ fn test_self_approval_empty_channel() {
         action: "send".into(),
         requested_by: "user1".into(),
         operator_channel: String::new(), // self-approval
+        source_channel: "slack:D_USER".into(),
     };
     store.register("appr-abc123", entry);
-    // Any source channel is accepted when operator_channel is empty
-    let result = store.resolve("appr-abc123", "slack:U12345", ApprovalDecision::Approved);
+    // Self-approval must come from the same channel as the original request
+    let result = store.resolve("appr-abc123", "slack:D_USER", ApprovalDecision::Approved);
     assert!(result.is_ok());
     assert!(rx.try_recv().is_ok());
+}
+
+#[test]
+fn test_self_approval_rejects_other_channel() {
+    let store = ApprovalStore::new();
+    let (tx, _rx) = oneshot::channel();
+    let entry = ApprovalEntry {
+        sender: tx,
+        tool_name: "gmail".into(),
+        action: "send".into(),
+        requested_by: "user1".into(),
+        operator_channel: String::new(), // self-approval
+        source_channel: "slack:D_USER".into(),
+    };
+    store.register("appr-abc123", entry);
+    // Different channel should be rejected even in self-approval mode
+    let result = store.resolve("appr-abc123", "discord:OTHER", ApprovalDecision::Approved);
+    assert!(result.is_err());
 }
 
 #[test]
@@ -95,6 +117,7 @@ fn test_resolve_after_receiver_dropped_returns_error() {
         action: "send".into(),
         requested_by: "user1".into(),
         operator_channel: "slack:C123".into(),
+        source_channel: "slack:D_USER".into(),
     };
     store.register("appr-abc123", entry);
     // Simulate timeout — drop the receiver

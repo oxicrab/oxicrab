@@ -13,6 +13,8 @@ pub enum ViolationKind {
     DangerousRedirection,
     DangerousPipeTarget,
     FunctionDefinition,
+    ArithmeticEvaluation,
+    DangerousPattern,
     Unparseable,
 }
 
@@ -154,7 +156,12 @@ fn walk_compound_command(compound: &ast::CompoundCommand, violations: &mut Vec<A
         ast::CompoundCommand::ArithmeticForClause(afc) => {
             walk_compound_list(&afc.body.list, violations);
         }
-        ast::CompoundCommand::Arithmetic(_) => {}
+        ast::CompoundCommand::Arithmetic(_) => {
+            violations.push(AstViolation {
+                kind: ViolationKind::ArithmeticEvaluation,
+                description: "arithmetic evaluation $(( )) can execute code".into(),
+            });
+        }
     }
 }
 
@@ -275,6 +282,15 @@ fn check_word_for_substitution(word: &ast::Word, violations: &mut Vec<AstViolati
         violations.push(AstViolation {
             kind: ViolationKind::CommandSubstitution,
             description: "backtick command substitution can execute hidden commands".to_string(),
+        });
+    }
+    // Detect brace expansion patterns that could generate large argument lists
+    // e.g. {1..1000000}, {a,b,c}, /dev/sd{a..z}
+    if value.contains("..") && value.contains('{') && value.contains('}') {
+        violations.push(AstViolation {
+            kind: ViolationKind::DangerousPattern,
+            description: "brace expansion with range (..) can generate large argument lists"
+                .to_string(),
         });
     }
 }

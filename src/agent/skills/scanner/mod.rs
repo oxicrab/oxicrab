@@ -177,7 +177,7 @@ pub fn scan_skill(content: &str) -> SkillScanResult {
 
     // Multi-line sliding window: join adjacent lines to catch split evasion
     // (e.g., "ignore all previous\ninstructions and rules")
-    for window_size in [2, 3] {
+    for window_size in [2, 3, 4, 5] {
         if lines.len() < window_size {
             continue;
         }

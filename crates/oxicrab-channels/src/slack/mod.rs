@@ -1295,7 +1295,10 @@ async fn handle_interactive_payload(
 
     // Try to parse button context as ActionDispatchPayload for direct dispatch
     let (content, dispatch) = if action_value.is_empty() {
-        (format!("[button:{action_id}]"), None)
+        (
+            "This button has expired. Please run the command again.".to_string(),
+            None,
+        )
     } else if let Ok(payload) =
         serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(action_value)
     {

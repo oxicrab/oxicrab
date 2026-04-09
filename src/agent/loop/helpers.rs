@@ -263,6 +263,7 @@ async fn await_approval(
             action: display_action.clone(),
             requested_by: approval.sender_id.to_string(),
             operator_channel: operator_channel_key,
+            source_channel: format!("{}:{}", approval.channel, approval.chat_id),
         },
     );
 

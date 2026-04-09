@@ -67,7 +67,7 @@ pub fn jaccard_similarity(a: &str, b: &str) -> f64 {
 
 /// Check if content is a near-duplicate of any recent DB entries.
 pub fn is_duplicate_of_entries(content: &str, entries: &[String]) -> bool {
-    let threshold = 0.7;
+    let threshold = 0.55;
     for entry in entries {
         let entry = entry.trim();
         if entry.is_empty() {

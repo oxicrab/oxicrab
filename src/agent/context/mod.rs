@@ -178,7 +178,16 @@ impl ContextBuilder {
             }
         }
 
-        Ok(parts.join("\n\n---\n\n"))
+        let prompt = parts.join("\n\n---\n\n");
+        let prompt_chars = prompt.chars().count();
+        if prompt_chars > 20_000 {
+            warn!(
+                "system prompt is large ({} chars / ~{} tokens) — may crowd out conversation history",
+                prompt_chars,
+                prompt_chars / 4
+            );
+        }
+        Ok(prompt)
     }
 
     fn get_identity(&self) -> String {

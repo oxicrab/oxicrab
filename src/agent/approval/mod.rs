@@ -14,6 +14,8 @@ pub(crate) struct ApprovalEntry {
     pub action: String,
     pub requested_by: String,
     pub operator_channel: String,
+    /// Channel the original request came from (for self-approval isolation).
+    pub source_channel: String,
 }
 
 pub struct ApprovalStore {
@@ -57,8 +59,15 @@ impl ApprovalStore {
             return Err("this approval request has already been resolved or expired".into());
         };
 
-        // Validate source channel (empty operator_channel = self-approval, accept any source)
-        if !entry.operator_channel.is_empty() && source_channel != entry.operator_channel {
+        // Validate source channel:
+        // - Non-empty operator_channel: must match exactly (dedicated operator)
+        // - Empty operator_channel (self-approval): must match the original request channel
+        let expected_channel = if entry.operator_channel.is_empty() {
+            &entry.source_channel
+        } else {
+            &entry.operator_channel
+        };
+        if source_channel != expected_channel {
             // Put entry back — wrong channel, don't consume it
             let tool_name = entry.tool_name.clone();
             pending.insert(approval_id.to_string(), entry);

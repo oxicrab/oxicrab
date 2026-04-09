@@ -92,6 +92,14 @@ impl SemanticToolIndex {
             .take(self.top_k)
             .collect();
         if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
+            tracing::debug!(
+                "semantic filter: low confidence margin {:.3} between '{}' ({:.3}) and '{}' ({:.3})",
+                selected[0].1 - selected[1].1,
+                selected[0].0,
+                selected[0].1,
+                selected[1].0,
+                selected[1].1,
+            );
             crate::metrics::record_semantic_low_confidence_fallback();
             return None;
         }
@@ -163,6 +171,14 @@ impl SemanticToolIndex {
             .take(self.top_k)
             .collect();
         if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
+            tracing::debug!(
+                "semantic filter: low confidence margin {:.3} between '{}' ({:.3}) and '{}' ({:.3})",
+                selected[0].1 - selected[1].1,
+                selected[0].0,
+                selected[0].1,
+                selected[1].0,
+                selected[1].1,
+            );
             crate::metrics::record_semantic_low_confidence_fallback();
             return None;
         }
