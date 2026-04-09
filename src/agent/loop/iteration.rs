@@ -125,6 +125,7 @@ impl AgentLoop {
             .unwrap_or_else(|| format!("run-{}", fastrand::u64(..)));
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
+        let mut last_was_tool_only = false;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -235,8 +236,19 @@ impl AgentLoop {
 
             // Clone needed: messages is mutated after the call (tool results appended),
             // and ChatRequest takes ownership. Cost is negligible vs. the API round-trip.
-            let response = super::model_gateway::ModelGateway::invoke(
-                effective_provider.as_ref(),
+            //
+            // When the previous response was tool-calls-only (no text content),
+            // strip tools from this request so the LLM must produce text. This
+            // avoids the empty-response → post-loop-summary fallback path.
+            let request = if last_was_tool_only {
+                debug!("stripping tools from request after tool-only response");
+                super::model_gateway::ModelGateway::build_summary_request(
+                    messages.clone(),
+                    effective_model,
+                    self.max_tokens,
+                    self.temperature,
+                )
+            } else {
                 super::model_gateway::ModelGateway::build_turn_request(
                     messages.clone(),
                     Arc::clone(&tools_arc),
@@ -245,9 +257,11 @@ impl AgentLoop {
                     current_temp,
                     tool_choice,
                     overrides.response_format.clone(),
-                ),
-            )
-            .await;
+                )
+            };
+            let response =
+                super::model_gateway::ModelGateway::invoke(effective_provider.as_ref(), request)
+                    .await;
 
             // Stop typing indicator after LLM call returns (guard aborts on drop)
             drop(typing_guard);
@@ -262,6 +276,10 @@ impl AgentLoop {
             // Record token usage off the async runtime (fire-and-forget)
             let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
             self.record_tokens_background(&response, cost_model, overrides.request_id.as_deref());
+
+            // Track whether this response had tool calls but no text — if so,
+            // the next iteration will strip tools to force a text response.
+            last_was_tool_only = response.has_tool_calls() && response.content.is_none();
 
             if response.has_tool_calls() {
                 any_tools_called = true;

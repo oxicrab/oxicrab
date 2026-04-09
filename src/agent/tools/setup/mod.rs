@@ -390,7 +390,11 @@ fn register_reddit(registry: &mut ToolRegistry) {
 fn register_interactive(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::interactive::AddButtonsTool;
 
-    registry.register(Arc::new(AddButtonsTool::new(ctx.pending_buttons.clone())));
+    // Registered as deferred so it's not in the default tool list. Tools
+    // already attach buttons via suggested_buttons metadata; the LLM only
+    // needs add_buttons for custom/ad-hoc buttons and can discover it via
+    // tool_search when needed.
+    registry.register_deferred(Arc::new(AddButtonsTool::new(ctx.pending_buttons.clone())));
 }
 
 #[cfg(feature = "tool-rss")]
