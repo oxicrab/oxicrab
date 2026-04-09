@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.2] - 2026-04-09
+
+### Added
+- daily session rotation and reset command ([78b9ecb](https://github.com/oxicrab/oxicrab/commit/78b9ecbfc5acfea52dd69819b08b9b70923557c4))
+
+
+### Changed
+- **ci:** replace cargo-fuzz with proptest security tests ([3a8607e](https://github.com/oxicrab/oxicrab/commit/3a8607e93314ca371d9e526767d90845359f1a9f))
+- Revert "fix(ci): free disk space before nextest archive extraction" ([e11205c](https://github.com/oxicrab/oxicrab/commit/e11205c1f2972a14cfb1646123306fe10ff0cbdd))
+
+
+### Fixed
+- **ci:** free disk space before nextest archive extraction ([42eccf4](https://github.com/oxicrab/oxicrab/commit/42eccf4c019448c5a8901b35c971b5fc5881de3c))
+- **test:** remove remaining hallucination detection test assertions ([e6dc5e2](https://github.com/oxicrab/oxicrab/commit/e6dc5e2275be83dd562f40a8ddaf53d86adb6192))
+- **test:** update integration tests for hallucination and approval changes ([4f65725](https://github.com/oxicrab/oxicrab/commit/4f657258aa6c7ed049f06d7035dc037ee76b6728))
+- harden 2 foundational features from pre-v0.9.6 audit ([c541a94](https://github.com/oxicrab/oxicrab/commit/c541a94a22c2c5a6c255a754ab2bd246f748057c))
+- harden 4 features from v0.9-v0.11 release audit ([2338344](https://github.com/oxicrab/oxicrab/commit/2338344ad70aa4cc40bfe141bb6027ed4fe26d46))
+- harden 4 features from v0.11-v0.14 release audit ([d85a834](https://github.com/oxicrab/oxicrab/commit/d85a8342669fabb57a4777c41ea0e45c7ccd0ab3))
+- harden 7 features from extended release audit ([88cd9d8](https://github.com/oxicrab/oxicrab/commit/88cd9d8d727f76b6f961dd0a5662aa32c3fc59ef))
+- harden 6 fragile features from release audit ([7889088](https://github.com/oxicrab/oxicrab/commit/7889088c739ea73bd013178161c63d8df6fe18ec))
+- remove auto-continue that corrupted formatted responses ([682a361](https://github.com/oxicrab/oxicrab/commit/682a36197eeb33388ab8d498a9849f70515dc84a))
+
 ## [0.17.1] - 2026-04-09
 
 ### Added
@@ -13,6 +35,7 @@ All notable changes to this project will be documented in this file.
 
 
 ### Fixed
+- **test:** update http unsupported method test for Method::from_bytes ([4975e1a](https://github.com/oxicrab/oxicrab/commit/4975e1acb9cd3c42f58631103c4c11850270973d))
 - correct bytes-vs-characters in truncation and message splitting ([c7dc312](https://github.com/oxicrab/oxicrab/commit/c7dc312e6b4c2a478d8258237a5e0e90806e38bd))
 - pre-flight token trimming respects compaction enabled flag ([cb74d7e](https://github.com/oxicrab/oxicrab/commit/cb74d7e649374b724746be61a8d1bfd404143612))
 - resolve 7 bugs from final review pass ([ba7e0b9](https://github.com/oxicrab/oxicrab/commit/ba7e0b938949f15ab17f729407b4ddc8ad22c3dc))
