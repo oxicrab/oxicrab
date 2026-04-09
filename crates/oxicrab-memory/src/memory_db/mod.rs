@@ -71,11 +71,13 @@ use search::fts_query;
 /// Uses exponential decay: `0.5 ^ (age_days / half_life_days)`.
 /// Returns 1.0 for fresh entries, 0.5 at one half-life, 0.25 at two, etc.
 /// A `half_life_days` of 0 disables decay (returns 1.0).
+/// Floor of 0.01 prevents very old but relevant entries from becoming invisible.
 pub fn recency_decay(age_days: f64, half_life_days: u32) -> f32 {
     if half_life_days == 0 || age_days <= 0.0 {
         return 1.0;
     }
-    (0.5_f64.powf(age_days / f64::from(half_life_days))) as f32
+    let decay = (0.5_f64.powf(age_days / f64::from(half_life_days))) as f32;
+    decay.max(0.01)
 }
 
 pub struct MemoryDB {

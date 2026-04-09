@@ -108,6 +108,7 @@ impl ContextProviderRunner {
                 poison.into_inner()
             });
             if let Some(cached) = cache.get(&provider.name)
+                && provider.ttl > 0
                 && cached.fetched_at.elapsed() < Duration::from_secs(provider.ttl)
             {
                 return Some(cached.content.clone());
@@ -124,13 +125,18 @@ impl ContextProviderRunner {
         .await
         {
             Ok(Ok(output)) if output.status.success() => {
-                const MAX_PROVIDER_OUTPUT: usize = 100_000; // 100KB
-                let stdout = &output.stdout[..output.stdout.len().min(MAX_PROVIDER_OUTPUT)];
-                let mut result = String::from_utf8_lossy(stdout).to_string();
+                const MAX_PROVIDER_OUTPUT: usize = 100_000; // 100KB total
+                let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
+                let mut result = stdout.to_string();
                 if !stderr.trim().is_empty() {
                     result.push_str("\n[stderr] ");
                     result.push_str(stderr.trim());
+                }
+                // Cap total output (stdout + stderr combined)
+                if result.len() > MAX_PROVIDER_OUTPUT {
+                    let boundary = result.floor_char_boundary(MAX_PROVIDER_OUTPUT);
+                    result.truncate(boundary);
                 }
                 result
             }

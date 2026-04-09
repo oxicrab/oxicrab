@@ -23,13 +23,14 @@ pub fn extract_remember_content(message: &str) -> Option<String> {
             if content.len() < MIN_CONTENT_LEN {
                 return None;
             }
-            // Reject questions
-            if content.ends_with('?') {
+            // Reject pure questions (short content ending with ?) but allow
+            // longer content that may contain statements alongside questions.
+            let interrogatives = ["when ", "how ", "what ", "why ", "if ", "whether "];
+            let starts_with_interrogative = interrogatives.iter().any(|q| content.starts_with(q));
+            if starts_with_interrogative {
                 return None;
             }
-            // Reject interrogative forms ("remember when...", "remember how...")
-            let interrogatives = ["when ", "how ", "what ", "why ", "if ", "whether "];
-            if interrogatives.iter().any(|q| content.starts_with(q)) {
+            if content.ends_with('?') && content.len() < 80 {
                 return None;
             }
             // Return the original-case content (trim same prefix length from original).

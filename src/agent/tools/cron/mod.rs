@@ -926,6 +926,13 @@ impl Tool for CronTool {
                     )));
                 }
 
+                // Enforce maximum retry limit to prevent infinite replay loops
+                if entry.retry_count >= 5 {
+                    return Ok(ToolResult::error(format!(
+                        "DLQ entry {dlq_id} has reached the maximum retry limit (5)"
+                    )));
+                }
+
                 // Spawn replay on a separate task to avoid deadlock (same
                 // reason as the "run" action — session lock re-entrancy).
                 let job_id = entry.job_id.clone();
