@@ -62,7 +62,7 @@ async fn test_ssrf_blocked_metadata() {
 async fn test_unsupported_method() {
     let tool = HttpTool::new();
     let result = tool
-        .send_request(&serde_json::json!({"url": "https://example.com", "method": "TRACE"}))
+        .send_request(&serde_json::json!({"url": "https://example.com", "method": "NOT A METHOD"}))
         .await
         .unwrap();
     assert!(result.is_error);
