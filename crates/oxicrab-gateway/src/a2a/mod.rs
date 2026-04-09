@@ -7,6 +7,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::Utc;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
@@ -126,7 +127,7 @@ pub struct A2aState {
     pub config: A2aConfig,
     pub store: Arc<A2aTaskStore>,
     pub inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    pub pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    pub pending: Arc<DashMap<String, oneshot::Sender<OutboundMessage>>>,
     pub host: String,
     pub port: u16,
 }
@@ -201,13 +202,7 @@ pub async fn create_task_handler(
 
     // Create oneshot channel for the response
     let (tx, rx) = oneshot::channel();
-    {
-        let mut pending = state
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        pending.insert(task_id.clone(), tx);
-    }
+    state.pending.insert(task_id.clone(), tx);
 
     // Update status to working
     state
@@ -218,11 +213,7 @@ pub async fn create_task_handler(
     let msg = InboundMessage::builder("http", "a2a", task_id.clone(), body.message).build();
 
     if let Err(e) = state.inbound_tx.send(msg).await {
-        let mut pending = state
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        pending.remove(&task_id);
+        state.pending.remove(&task_id);
         state.store.update_status(
             &task_id,
             TaskStatus::Failed,

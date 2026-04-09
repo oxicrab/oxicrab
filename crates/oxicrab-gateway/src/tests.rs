@@ -6,7 +6,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 fn make_state() -> HttpApiState {
     HttpApiState {
         inbound_tx: Arc::new(mpsc::channel(1).0),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -73,11 +73,7 @@ fn test_route_response_non_http_returns_false() {
 fn test_route_response_http_with_pending() {
     let state = make_state();
     let (tx, mut rx) = oneshot::channel();
-    state
-        .pending
-        .lock()
-        .unwrap()
-        .insert("req-1".to_string(), tx);
+    state.pending.insert("req-1".to_string(), tx);
 
     let msg = OutboundMessage::builder("http", "req-1", "response text").build();
     assert!(route_response(&state, msg));
@@ -173,7 +169,7 @@ fn make_webhook_config(enabled: bool, secret: &str) -> WebhookConfig {
 fn make_state_with_webhooks(webhooks: HashMap<String, WebhookConfig>) -> HttpApiState {
     HttpApiState {
         inbound_tx: Arc::new(mpsc::channel(1).0),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(webhooks),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -190,7 +186,7 @@ fn make_state_with_webhooks_and_outbound(
     (
         HttpApiState {
             inbound_tx: Arc::new(mpsc::channel(1).0),
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            pending: Arc::new(DashMap::new()),
             webhooks: Arc::new(webhooks),
             outbound_tx: Some(Arc::new(outbound_tx)),
             leak_detector: Arc::new(NoopRedactor),
@@ -417,7 +413,7 @@ async fn test_webhook_direct_delivery_to_targets() {
 
     let state = HttpApiState {
         inbound_tx: Arc::new(mpsc::channel(1).0),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(NoopRedactor),
@@ -483,7 +479,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
 
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(NoopRedactor),
@@ -513,7 +509,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
 
     // Simulate agent response by sending to the pending oneshot
     let request_id = inbound.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(
         OutboundMessage::builder("http", request_id, "I'm investigating the server issue.").build(),
     )
@@ -544,7 +540,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -573,7 +569,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
 
     // Send a response through the pending oneshot
     let request_id = msg.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(OutboundMessage::builder("http", request_id, "world").build())
         .unwrap();
 
@@ -593,7 +589,7 @@ async fn test_chat_handler_with_session_id() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -617,7 +613,7 @@ async fn test_chat_handler_with_session_id() {
 
     let msg = inbound_rx.recv().await.unwrap();
     let request_id = msg.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(OutboundMessage::builder("http", request_id, "reply").build())
         .unwrap();
 
@@ -637,7 +633,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -665,7 +661,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
     assert!(msg.chat_id.starts_with("http-"));
 
     // Verify the pending map has an entry for this request
-    let has_pending = pending.lock().unwrap().contains_key(&msg.chat_id);
+    let has_pending = pending.contains_key(&msg.chat_id);
     assert!(has_pending, "pending map should contain the request_id");
 }
 
@@ -673,7 +669,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
 async fn test_deliver_to_targets_no_outbound_tx() {
     let state = HttpApiState {
         inbound_tx: Arc::new(mpsc::channel(1).0),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -766,7 +762,7 @@ async fn test_webhook_direct_delivery_returns_error_when_no_targets_accept_deliv
 
     let state = HttpApiState {
         inbound_tx: Arc::new(mpsc::channel(1).0),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(NoopRedactor),
@@ -817,7 +813,7 @@ async fn test_webhook_template_with_json_fields() {
 
     let state = HttpApiState {
         inbound_tx: Arc::new(mpsc::channel(1).0),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(NoopRedactor),
@@ -862,7 +858,7 @@ async fn test_chat_handler_rejects_oversized_message() {
     let (inbound_tx, _rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -896,7 +892,7 @@ async fn test_chat_handler_inbound_send_fails() {
 
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1031,7 +1027,7 @@ async fn test_chat_handler_with_response_format_metadata() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1064,7 +1060,7 @@ async fn test_chat_handler_with_response_format_metadata() {
 
     // Complete the request to avoid timeout
     let request_id = msg.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(OutboundMessage::builder("http", request_id, r#"{"items":[]}"#).build())
         .unwrap();
 
@@ -1080,7 +1076,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1107,7 +1103,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
     );
 
     let request_id = msg.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(OutboundMessage::builder("http", request_id, "world").build())
         .unwrap();
 
@@ -1123,7 +1119,7 @@ async fn test_chat_handler_rejects_oversized_schema() {
     let (inbound_tx, _inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1179,7 +1175,7 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
     let (inbound_tx, _inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1511,7 +1507,7 @@ async fn test_api_key_auth_accepts_valid_bearer() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1539,7 +1535,7 @@ async fn test_api_key_auth_accepts_valid_bearer() {
 
     let msg = inbound_rx.recv().await.unwrap();
     let request_id = msg.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(OutboundMessage::builder("http", request_id, "ok").build())
         .unwrap();
 
@@ -1559,7 +1555,7 @@ async fn test_api_key_auth_accepts_x_api_key_header() {
     let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
     let state = HttpApiState {
         inbound_tx: Arc::new(inbound_tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
         leak_detector: Arc::new(NoopRedactor),
@@ -1587,7 +1583,7 @@ async fn test_api_key_auth_accepts_x_api_key_header() {
 
     let msg = inbound_rx.recv().await.unwrap();
     let request_id = msg.chat_id.clone();
-    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    let tx = pending.remove(&request_id).unwrap().1;
     tx.send(OutboundMessage::builder("http", request_id, "ok").build())
         .unwrap();
 

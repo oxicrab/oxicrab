@@ -232,19 +232,7 @@ fn format_whatsapp_target(phone: &str) -> String {
     }
 }
 
-/// Truncate a name for use in a button label, preserving UTF-8 boundaries.
-fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
-    let char_count = text.chars().count();
-    if char_count <= max_text_chars {
-        format!("{prefix}{text}")
-    } else {
-        let truncated: String = text
-            .chars()
-            .take(max_text_chars.saturating_sub(3))
-            .collect();
-        format!("{prefix}{truncated}...")
-    }
-}
+use oxicrab_core::utils::truncate_label;
 
 /// Build suggested Run and Pause/Resume buttons for cron jobs (max 5 total).
 fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {

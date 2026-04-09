@@ -48,15 +48,6 @@ impl GoogleApiClient {
             .send_request(&url, method, &token, body.as_ref())
             .await?;
 
-        // On 401, force refresh (server rejected the token) and retry once.
-        //
-        // NOTE: The refreshed token is updated in-memory (Arc<Mutex<GoogleCredentials>>)
-        // and will be used for subsequent calls within this process lifetime. However,
-        // the token is NOT persisted to disk/DB here because GoogleApiClient does not
-        // have access to the token store or file path. If the process restarts before
-        // a normal get_credentials() call, the stale file token will trigger another
-        // refresh on next startup. This is acceptable because refresh tokens are
-        // long-lived and the startup path already handles refresh-on-load.
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
             info!("Google API returned 401, forcing token refresh and retrying");
             let new_token = {
@@ -73,13 +64,11 @@ impl GoogleApiClient {
         Self::parse_response(response).await
     }
 
-    /// Parse a Google API response, handling empty bodies (e.g. 204 No Content from DELETE).
     async fn parse_response(response: reqwest::Response) -> Result<Value> {
         let status = response.status();
         if status == reqwest::StatusCode::NO_CONTENT {
             return Ok(Value::Null);
         }
-        // Read body before checking status so error details are preserved
         let text = response.text().await?;
         if !status.is_success() {
             let safe_text: String = text
@@ -104,7 +93,6 @@ impl GoogleApiClient {
         Ok(serde_json::from_str(&text)?)
     }
 
-    /// Test constructor that accepts a custom base URL for mock server testing.
     #[cfg(test)]
     fn with_base_url(base_url: &str) -> Self {
         let creds = GoogleCredentials {
@@ -114,7 +102,7 @@ impl GoogleApiClient {
             client_id: String::new(),
             client_secret: String::new(),
             scopes: vec![],
-            expiry: Some(u64::MAX), // never expires
+            expiry: Some(u64::MAX),
         };
         Self {
             credentials: Arc::new(Mutex::new(creds)),
@@ -123,9 +111,57 @@ impl GoogleApiClient {
         }
     }
 
-    /// Create shared credentials for use across multiple `GoogleApiClient` instances.
     pub fn shared_credentials(credentials: GoogleCredentials) -> Arc<Mutex<GoogleCredentials>> {
         Arc::new(Mutex::new(credentials))
+    }
+
+    /// Paginate a Google API list endpoint, collecting items across pages.
+    pub async fn paginate(
+        &self,
+        base_endpoint: &str,
+        items_field: &str,
+        max_pages: usize,
+        max_items: Option<usize>,
+    ) -> Result<Vec<Value>> {
+        let separator = if base_endpoint.contains('?') {
+            '&'
+        } else {
+            '?'
+        };
+        let mut all_items: Vec<Value> = Vec::new();
+        let mut page_token: Option<String> = None;
+
+        for _ in 0..max_pages {
+            let endpoint = match &page_token {
+                Some(token) => format!(
+                    "{base_endpoint}{separator}pageToken={}",
+                    urlencoding::encode(token)
+                ),
+                None => base_endpoint.to_string(),
+            };
+
+            let data = self.call(&endpoint, "GET", None).await?;
+
+            if let Some(items) = data[items_field].as_array() {
+                all_items.extend(items.iter().cloned());
+            }
+
+            if let Some(cap) = max_items
+                && all_items.len() >= cap
+            {
+                all_items.truncate(cap);
+                break;
+            }
+
+            match data["nextPageToken"].as_str() {
+                Some(token) if !token.is_empty() => {
+                    page_token = Some(token.to_string());
+                }
+                _ => break,
+            }
+        }
+
+        Ok(all_items)
     }
 
     async fn send_request(
@@ -135,16 +171,12 @@ impl GoogleApiClient {
         token: &str,
         body: Option<&Value>,
     ) -> Result<reqwest::Response> {
-        let mut request = match method {
-            "GET" => self.client.get(url),
-            "POST" => self.client.post(url),
-            "PUT" => self.client.put(url),
-            "PATCH" => self.client.patch(url),
-            "DELETE" => self.client.delete(url),
-            _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {method}")),
-        };
-
-        request = request.header("Authorization", format!("Bearer {token}"));
+        let http_method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| anyhow::anyhow!("invalid HTTP method: {method}"))?;
+        let mut request = self
+            .client
+            .request(http_method, url)
+            .header("Authorization", format!("Bearer {token}"));
 
         if let Some(body) = body {
             request = request.json(body);

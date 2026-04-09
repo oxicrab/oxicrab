@@ -644,7 +644,7 @@ fn build_subagent_prompt(
 ) -> String {
     let context_section = if let Some(ctx) = context {
         // Cap context to avoid bloating subagent token usage
-        let trimmed: String = ctx.chars().take(MAX_CONTEXT_CHARS).collect();
+        let trimmed = &ctx[..ctx.floor_char_boundary(MAX_CONTEXT_CHARS)];
         format!(
             "\n## Conversation Context\nThe main agent's recent conversation (for reference):\n{trimmed}\n"
         )

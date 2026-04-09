@@ -14,6 +14,27 @@ use tracing::{debug, warn};
 
 const GITHUB_API: &str = "https://api.github.com";
 
+/// Structured GitHub API error for retry classification without string matching.
+#[derive(Debug)]
+struct GitHubApiError {
+    status: u16,
+    message: String,
+}
+
+impl std::fmt::Display for GitHubApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GitHub API {}: {}", self.status, self.message)
+    }
+}
+
+impl std::error::Error for GitHubApiError {}
+
+/// Check if an anyhow error is a server-side (5xx) GitHub API error.
+fn is_github_server_error(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<GitHubApiError>()
+        .is_some_and(|ge| ge.status >= 500)
+}
+
 pub struct GitHubTool {
     token: String,
     base_url: String,
@@ -64,7 +85,7 @@ impl GitHubTool {
         if lower.contains("bearer") || lower.contains("token") || lower.contains("credential") {
             return "authentication error (check token)".to_string();
         }
-        text.chars().take(500).collect()
+        text[..text.floor_char_boundary(500)].to_string()
     }
 
     fn github_headers(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -81,16 +102,21 @@ impl GitHubTool {
         let resp = req.send().await?;
         let status = resp.status();
         Self::check_rate_limit(&resp);
-        if status.as_u16() == 429 {
-            anyhow::bail!("GitHub API rate limit exceeded, try again later");
+        let status_code = status.as_u16();
+        if status_code == 429 {
+            return Err(GitHubApiError {
+                status: status_code,
+                message: "rate limit exceeded, try again later".to_string(),
+            }
+            .into());
         }
         let text = resp.text().await?;
         if !status.is_success() {
-            anyhow::bail!(
-                "GitHub API {}: {}",
-                status,
-                Self::sanitize_api_error_text(&text)
-            );
+            return Err(GitHubApiError {
+                status: status_code,
+                message: Self::sanitize_api_error_text(&text),
+            }
+            .into());
         }
         let body: Value = serde_json::from_str(&text)
             .with_context(|| format!("GitHub API returned invalid JSON ({status})"))?;
@@ -104,7 +130,7 @@ impl GitHubTool {
     {
         match self.api_send(build_request(self)).await {
             Ok(v) => Ok(v),
-            Err(e) if e.to_string().contains("GitHub API 5") => {
+            Err(e) if is_github_server_error(&e) => {
                 debug!("GitHub API server error, retrying once after 2s");
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 self.api_send(build_request(self)).await
@@ -175,22 +201,21 @@ impl GitHubTool {
             let resp = req.send().await?;
             let status = resp.status();
             Self::check_rate_limit(&resp);
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                anyhow::bail!("GitHub API rate limit exceeded, try again later");
-            }
+            let status_code = status.as_u16();
             if !status.is_success() {
                 let text = resp.text().await.unwrap_or_default();
-                anyhow::bail!(
-                    "GitHub API {status}: {}",
-                    Self::sanitize_api_error_text(&text)
-                );
+                return Err(GitHubApiError {
+                    status: status_code,
+                    message: Self::sanitize_api_error_text(&text),
+                }
+                .into());
             }
             Ok(())
         };
 
         match do_send(send(self)).await {
             Ok(()) => Ok(()),
-            Err(e) if e.to_string().contains("GitHub API 5") => {
+            Err(e) if is_github_server_error(&e) => {
                 debug!("GitHub API server error, retrying once after 2s");
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 do_send(send(self)).await
@@ -692,9 +717,10 @@ impl GitHubTool {
 
         let text = String::from_utf8_lossy(&decoded);
 
-        // Truncate at 10k chars
-        let truncated: String = text.chars().take(10_000).collect();
-        let suffix = if text.chars().count() > 10_000 {
+        // Truncate at 10k bytes (char-boundary safe)
+        let boundary = text.floor_char_boundary(10_000);
+        let truncated = &text[..boundary];
+        let suffix = if boundary < text.len() {
             "\n\n... (truncated)"
         } else {
             ""
@@ -812,19 +838,7 @@ impl GitHubTool {
     }
 }
 
-/// UTF-8 safe label truncation for button labels.
-fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
-    let char_count = text.chars().count();
-    if char_count <= max_text_chars {
-        format!("{prefix}{text}")
-    } else {
-        let truncated: String = text
-            .chars()
-            .take(max_text_chars.saturating_sub(3))
-            .collect();
-        format!("{prefix}{truncated}...")
-    }
-}
+use oxicrab_core::utils::truncate_label;
 
 /// Build suggested "View" buttons for open issues (max 5).
 fn build_issue_buttons(issues: &[Value], owner: &str, repo: &str) -> Vec<Value> {

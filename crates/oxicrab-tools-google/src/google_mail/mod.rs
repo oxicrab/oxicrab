@@ -119,36 +119,16 @@ impl Tool for GoogleMailTool {
                 let query = require_param!(params, "query");
                 let max_results = params["max_results"].as_u64().unwrap_or(10).min(50) as u32;
 
-                // Fetch message IDs with pagination (up to 3 pages, capped at max_results total)
-                let mut all_message_stubs: Vec<Value> = Vec::new();
-                let mut page_token: Option<String> = None;
-                let max_pages = 3;
                 let per_page = max_results.min(50);
-
-                for _ in 0..max_pages {
-                    let mut endpoint = format!(
-                        "users/me/messages?q={}&maxResults={}",
-                        urlencoding::encode(query),
-                        per_page
-                    );
-                    if let Some(ref token) = page_token {
-                        endpoint.push_str(&format!("&pageToken={}", urlencoding::encode(token)));
-                    }
-                    let result = self.api.call(&endpoint, "GET", None).await?;
-                    let empty_messages: Vec<Value> = vec![];
-                    let page_messages = result["messages"].as_array().unwrap_or(&empty_messages);
-                    all_message_stubs.extend(page_messages.iter().cloned());
-
-                    if all_message_stubs.len() >= max_results as usize {
-                        all_message_stubs.truncate(max_results as usize);
-                        break;
-                    }
-
-                    match result["nextPageToken"].as_str() {
-                        Some(t) if !t.is_empty() => page_token = Some(t.to_string()),
-                        _ => break,
-                    }
-                }
+                let base_endpoint = format!(
+                    "users/me/messages?q={}&maxResults={}",
+                    urlencoding::encode(query),
+                    per_page
+                );
+                let all_message_stubs = self
+                    .api
+                    .paginate(&base_endpoint, "messages", 3, Some(max_results as usize))
+                    .await?;
 
                 if all_message_stubs.is_empty() {
                     return Ok(ToolResult::new(format!(
@@ -491,11 +471,11 @@ fn build_read_buttons(message_id: &str, subject: &str) -> Vec<Value> {
     if message_id.is_empty() {
         return Vec::new();
     }
-    let subject_short: String = subject.chars().take(20).collect();
-    let suffix = if subject_short.len() < subject.len() {
-        format!("{subject_short}...")
+    let boundary = subject.floor_char_boundary(20);
+    let suffix = if boundary < subject.len() {
+        format!("{}...", &subject[..boundary])
     } else {
-        subject_short
+        subject.to_string()
     };
     vec![
         serde_json::json!({
@@ -526,15 +506,8 @@ fn build_read_buttons(message_id: &str, subject: &str) -> Vec<Value> {
 
 /// UTF-8 safe label truncation: `"{prefix}: {text}"` capped at `max_chars` total.
 fn truncate_label(prefix: &str, text: &str, max_chars: usize) -> String {
-    // "{prefix}: " takes prefix.len() + 2 chars
-    let budget = max_chars.saturating_sub(prefix.len() + 2);
-    let truncated: String = text.chars().take(budget).collect();
-    if truncated.len() < text.len() {
-        let trimmed: String = text.chars().take(budget.saturating_sub(3)).collect();
-        format!("{prefix}: {trimmed}...")
-    } else {
-        format!("{prefix}: {truncated}")
-    }
+    let budget = max_chars.saturating_sub(prefix.chars().count() + 2);
+    oxicrab_core::utils::truncate_label(&format!("{prefix}: "), text, budget)
 }
 
 /// Extract the human-readable body from a Gmail message payload.

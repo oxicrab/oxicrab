@@ -90,7 +90,7 @@ pub fn handle_get_articles(
         let mut out = format!("Articles ({}):\n\n", page.len());
         for &idx in &page {
             let article = &articles[idx];
-            let short_id: String = article.id.chars().take(8).collect();
+            let short_id = &article.id[..article.id.floor_char_boundary(8)];
             let feed_label = feed_name_map
                 .get(article.feed_id.as_str())
                 .copied()
@@ -124,7 +124,7 @@ pub fn handle_get_articles(
         let mut out = format!("Articles ({}):\n\n", articles.len());
         for &idx in &display_order {
             let article = &articles[idx];
-            let short_id: String = article.id.chars().take(8).collect();
+            let short_id = &article.id[..article.id.floor_char_boundary(8)];
             let feed_label = feed_name_map
                 .get(article.feed_id.as_str())
                 .copied()
@@ -189,7 +189,7 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
                     continue;
                 }
                 update_model_for_article(db, &full_id, accepted);
-                let short_id: String = full_id.chars().take(8).collect();
+                let short_id = full_id[..full_id.floor_char_boundary(8)].to_string();
                 successes.push(short_id);
             }
             Ok(None) => {
@@ -265,7 +265,7 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
         return Ok(ToolResult::new("No more articles to review."));
     };
 
-    let short_id: String = article.id.chars().take(8).collect();
+    let short_id = &article.id[..article.id.floor_char_boundary(8)];
 
     let feeds = db.list_rss_feeds().unwrap_or_default();
     let feed_name = feeds

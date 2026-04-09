@@ -44,17 +44,30 @@ pub fn safe_filename(name: &str) -> String {
         .collect()
 }
 
+/// Build a button label by prepending `prefix` to `text`, truncating `text` to
+/// at most `max_text_chars` characters (with `...` suffix) if it exceeds the budget.
+/// Safe for multi-byte UTF-8.
+///
+/// Example: `truncate_label("View: ", "long title", 10)` → `"View: long title"`
+/// if ≤10 chars, or `"View: long ti..."` if over.
+pub fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
+    let boundary = text.floor_char_boundary(max_text_chars);
+    if boundary >= text.len() {
+        format!("{prefix}{text}")
+    } else {
+        let trim_boundary = text.floor_char_boundary(max_text_chars.saturating_sub(3));
+        format!("{prefix}{}...", &text[..trim_boundary])
+    }
+}
+
 /// Truncate a string to at most `max_chars` characters, appending `suffix`
 /// (e.g. `"..."`) if truncated. Returns the original string (owned) if short enough.
 /// Safe for multi-byte UTF-8.
 pub fn truncate_chars(s: &str, max_chars: usize, suffix: &str) -> String {
-    // Fast path: ASCII-only strings where len == char count
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
-    // Find the byte index of the max_chars-th character
-    match s.char_indices().nth(max_chars) {
-        Some((byte_idx, _)) => format!("{}{}", &s[..byte_idx], suffix),
-        None => s.to_string(), // fewer chars than max_chars
+    let boundary = s.floor_char_boundary(max_chars);
+    if boundary >= s.len() {
+        s.to_string()
+    } else {
+        format!("{}{suffix}", &s[..boundary])
     }
 }

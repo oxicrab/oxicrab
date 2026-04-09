@@ -341,7 +341,7 @@ impl BaseChannel for WhatsAppChannel {
                                         return;
                                     }
 
-                                    let preview: String = content.chars().take(50).collect();
+                                    let preview = &content[..content.floor_char_boundary(50)];
                                     info!("WhatsApp message from sender={}, chat_id={}, is_group={}, content={}...",
                                         sender_jid, session_chat_id, is_group, preview);
 

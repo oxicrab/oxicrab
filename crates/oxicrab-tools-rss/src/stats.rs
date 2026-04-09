@@ -41,7 +41,7 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
             let feed_rejected = db.count_rss_articles(Some("rejected"), Some(&feed.id))?;
             let feed_rate = acceptance_rate(feed_accepted, feed_accepted + feed_rejected);
 
-            let short_id: String = feed.id.chars().take(8).collect();
+            let short_id = &feed.id[..feed.id.floor_char_boundary(8)];
             let status_label = if feed.enabled { "enabled" } else { "disabled" };
             let last_fetched = feed
                 .last_fetched_at_ms

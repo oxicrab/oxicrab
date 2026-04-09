@@ -240,7 +240,7 @@ pub fn handle_onboard(
                          Here are articles to review:\n\n"
                     );
                     for a in &articles {
-                        let short_id: String = a.id.chars().take(8).collect();
+                        let short_id = &a.id[..a.id.floor_char_boundary(8)];
                         let _ = writeln!(out, "- [{}] {} — {}", short_id, a.title, a.url);
                     }
                     out.push_str(

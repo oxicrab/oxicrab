@@ -42,14 +42,14 @@ pub use workspace::WorkspaceFileEntry;
 /// Escape SQL LIKE wildcards (`%`, `_`, `\`) so they match literally.
 /// Use with `ESCAPE '\'` in the LIKE clause.
 pub(crate) fn escape_like(s: &str) -> String {
-    s.chars()
-        .flat_map(|c| match c {
-            '%' => vec!['\\', '%'],
-            '_' => vec!['\\', '_'],
-            '\\' => vec!['\\', '\\'],
-            _ => vec![c],
-        })
-        .collect()
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Return the current Unix timestamp in seconds.

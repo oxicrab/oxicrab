@@ -517,7 +517,7 @@ async fn setup_cron_callbacks(
             match &result {
                 Ok(Some(response)) => {
                     let summary = if response.len() > 100 {
-                        format!("{}...", response.chars().take(97).collect::<String>())
+                        format!("{}...", &response[..response.floor_char_boundary(97)])
                     } else {
                         response.clone()
                     };

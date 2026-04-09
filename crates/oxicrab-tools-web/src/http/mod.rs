@@ -78,16 +78,13 @@ impl HttpTool {
             .unwrap_or(DEFAULT_HTTP_TIMEOUT_SECS)
             .min(MAX_HTTP_TIMEOUT_SECS);
 
-        let mut request = match method.as_str() {
-            "GET" => client.get(url),
-            "POST" => client.post(url),
-            "PUT" => client.put(url),
-            "PATCH" => client.patch(url),
-            "DELETE" => client.delete(url),
-            _ => return Ok(ToolResult::error(format!("unsupported method: {method}"))),
+        let http_method = match reqwest::Method::from_bytes(method.as_bytes()) {
+            Ok(m) => m,
+            Err(_) => return Ok(ToolResult::error(format!("unsupported method: {method}"))),
         };
-
-        request = request.timeout(Duration::from_secs(timeout_secs));
+        let mut request = client
+            .request(http_method, url)
+            .timeout(Duration::from_secs(timeout_secs));
 
         // Apply custom headers (block sensitive headers to prevent injection)
         if let Some(headers) = params["headers"].as_object() {
@@ -193,11 +190,10 @@ impl HttpTool {
                 };
 
                 // Truncate if needed
-                let truncated = body_display.len() > MAX_RESPONSE_CHARS;
-                let final_body: String = if truncated {
-                    let truncated_text: String =
-                        body_display.chars().take(MAX_RESPONSE_CHARS).collect();
-                    format!("{truncated_text}...\n[truncated]")
+                let is_truncated = body_display.len() > MAX_RESPONSE_CHARS;
+                let final_body: String = if is_truncated {
+                    let boundary = body_display.floor_char_boundary(MAX_RESPONSE_CHARS);
+                    format!("{}...\n[truncated]", &body_display[..boundary])
                 } else {
                     body_display
                 };

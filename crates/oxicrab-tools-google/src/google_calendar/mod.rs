@@ -200,30 +200,7 @@ impl Tool for GoogleCalendarTool {
                     max_results
                 );
 
-                let mut all_events: Vec<Value> = Vec::new();
-                let mut page_token: Option<String> = None;
-                let max_pages = 5;
-
-                for _ in 0..max_pages {
-                    let endpoint = if let Some(ref token) = page_token {
-                        format!("{}&pageToken={}", base_endpoint, urlencoding::encode(token))
-                    } else {
-                        base_endpoint.clone()
-                    };
-
-                    let data = self.api.call(&endpoint, "GET", None).await?;
-
-                    if let Some(items) = data["items"].as_array() {
-                        all_events.extend(items.iter().cloned());
-                    }
-
-                    match data["nextPageToken"].as_str() {
-                        Some(token) if !token.is_empty() => {
-                            page_token = Some(token.to_string());
-                        }
-                        _ => break,
-                    }
-                }
+                let all_events = self.api.paginate(&base_endpoint, "items", 5, None).await?;
 
                 if all_events.is_empty() {
                     return Ok(ToolResult::new("No upcoming events found.".to_string()));
@@ -734,13 +711,7 @@ fn format_event_detail(ev: &Value) -> String {
 /// Truncate a string to `max_chars` characters, appending "..." if truncated.
 /// Uses char boundaries for UTF-8 safety.
 fn truncate_label(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars.saturating_sub(3)).collect();
-        format!("{truncated}...")
-    }
+    oxicrab_core::utils::truncate_label("", s, max_chars)
 }
 
 /// Check whether any attendee in the event has already responded with the

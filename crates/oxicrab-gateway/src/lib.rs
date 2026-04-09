@@ -23,7 +23,7 @@ use std::hash::BuildHasher;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -34,6 +34,7 @@ use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use dashmap::DashMap;
 use governor::{DefaultKeyedRateLimiter, Quota};
 use hmac::{Hmac, KeyInit, Mac};
 use ipnet::IpNet;
@@ -77,7 +78,7 @@ const REPLAY_WINDOW_SECS: i64 = 300;
 #[derive(Clone)]
 pub struct HttpApiState {
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    pending: Arc<DashMap<String, oneshot::Sender<OutboundMessage>>>,
     webhooks: Arc<HashMap<String, WebhookConfig>>,
     outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
     /// Pre-configured leak detector with known secrets registered.
@@ -94,18 +95,6 @@ pub struct HttpApiState {
     /// True when running in echo mode (no agent loop). Distinguishes
     /// "permanently unavailable" from "still initializing" in the status handler.
     pub echo_mode: bool,
-}
-
-impl HttpApiState {
-    /// Lock the pending response map, recovering from poison.
-    fn lock_pending(
-        &self,
-    ) -> std::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<OutboundMessage>>> {
-        self.pending.lock().unwrap_or_else(|poison| {
-            warn!("gateway pending map mutex was poisoned, recovering");
-            poison.into_inner()
-        })
-    }
 }
 
 /// Configuration for [`start()`], replacing the 12-parameter function signature.
@@ -128,17 +117,13 @@ pub struct GatewayStartConfig<S: BuildHasher> {
 /// (e.g., on client disconnect). If the response already arrived via `route_response()`,
 /// the entry will already be consumed and the remove is a harmless no-op.
 pub struct PendingCleanup {
-    pub pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    pub pending: Arc<DashMap<String, oneshot::Sender<OutboundMessage>>>,
     pub id: String,
 }
 
 impl Drop for PendingCleanup {
     fn drop(&mut self) {
-        let mut pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        pending.remove(&self.id);
+        self.pending.remove(&self.id);
     }
 }
 
@@ -416,10 +401,7 @@ async fn chat_handler(
 
     // Create oneshot channel for the response
     let (tx, rx) = oneshot::channel();
-    {
-        let mut pending = state.lock_pending();
-        pending.insert(request_id.clone(), tx);
-    }
+    state.pending.insert(request_id.clone(), tx);
 
     // Drop guard: remove pending entry if the handler is dropped (client disconnect).
     // When the response arrives normally, the entry is consumed by route_response()
@@ -491,8 +473,7 @@ async fn chat_handler(
 
     if let Err(e) = state.inbound_tx.send(msg).await {
         // Clean up pending entry
-        let mut pending = state.lock_pending();
-        pending.remove(&request_id);
+        state.pending.remove(&request_id);
         error!("failed to publish HTTP API message: {}", e);
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -521,8 +502,7 @@ async fn chat_handler(
         }
         Err(_) => {
             // Timeout — clean up pending entry
-            let mut pending = state.lock_pending();
-            pending.remove(&request_id);
+            state.pending.remove(&request_id);
             warn!("HTTP API request timed out: {}", request_id);
             (
                 StatusCode::GATEWAY_TIMEOUT,
@@ -769,10 +749,7 @@ async fn webhook_handler(
         let request_id = format!("webhook-{}-{}", name, Uuid::new_v4());
 
         let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = state.lock_pending();
-            pending.insert(request_id.clone(), tx);
-        }
+        state.pending.insert(request_id.clone(), tx);
 
         // Drop guard: remove pending entry if the handler is dropped or panics.
         let _cleanup = PendingCleanup {
@@ -793,8 +770,7 @@ async fn webhook_handler(
         .build();
 
         if let Err(e) = state.inbound_tx.send(inbound).await {
-            let mut pending = state.lock_pending();
-            pending.remove(&request_id);
+            state.pending.remove(&request_id);
             error!("webhook {}: failed to publish inbound message: {}", name, e);
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
@@ -830,8 +806,7 @@ async fn webhook_handler(
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Err(_) => {
-                let mut pending = state.lock_pending();
-                pending.remove(&request_id);
+                state.pending.remove(&request_id);
                 warn!("webhook {}: agent response timed out", name);
                 StatusCode::GATEWAY_TIMEOUT.into_response()
             }
@@ -961,7 +936,7 @@ pub async fn start<S: BuildHasher>(
         );
     }
 
-    let pending = Arc::new(Mutex::new(HashMap::new()));
+    let pending = Arc::new(DashMap::new());
 
     let state = HttpApiState {
         inbound_tx: inbound_tx.clone(),
@@ -1062,8 +1037,7 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
         return false;
     }
 
-    let mut pending = state.lock_pending();
-    if let Some(tx) = pending.remove(&msg.chat_id) {
+    if let Some((_, tx)) = state.pending.remove(&msg.chat_id) {
         if tx.send(msg).is_err() {
             warn!("HTTP API client disconnected before receiving response");
         }

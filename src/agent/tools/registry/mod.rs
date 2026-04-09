@@ -2,13 +2,10 @@ use crate::agent::tools::base::{ExecutionContext, ToolMiddleware};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::agent::truncation::truncate_tool_result;
 use anyhow::Result;
-use lru::LruCache;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::Mutex;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 /// Produce a canonical JSON string with object keys sorted recursively.
@@ -127,11 +124,6 @@ fn coerce_value_to_schema(value: &mut Value, schema: &Value) {
             coerce_value_to_schema(item, items_schema);
         }
     }
-}
-
-struct CachedResult {
-    result: ToolResult,
-    cached_at: Instant,
 }
 
 pub struct ToolRegistry {
@@ -564,19 +556,20 @@ impl Default for ToolRegistry {
 
 // --- Middleware implementations ---
 
-/// Cache middleware — checks LRU cache before execution, stores results after.
+/// Cache middleware — checks moka cache before execution, stores results after.
+/// TTL-based expiry is handled by moka internally (no manual staleness checks).
 pub struct CacheMiddleware {
-    cache: Mutex<LruCache<String, CachedResult>>,
-    ttl_secs: u64,
+    cache: moka::sync::Cache<String, Arc<ToolResult>>,
 }
 
 impl CacheMiddleware {
     pub fn new(max_entries: usize, ttl_secs: u64) -> Self {
+        let max_entries = u64::try_from(max_entries).unwrap_or(u64::MAX);
         Self {
-            cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(max_entries).expect("cache max_entries must be > 0"),
-            )),
-            ttl_secs,
+            cache: moka::sync::Cache::builder()
+                .max_capacity(max_entries)
+                .time_to_live(Duration::from_secs(ttl_secs))
+                .build(),
         }
     }
 }
@@ -594,17 +587,9 @@ impl ToolMiddleware for CacheMiddleware {
             return None;
         }
         let cache_key = format!("{}#{}:{}", name.len(), name, canonical_json(params));
-        let mut cache = self.cache.lock().await;
-        if let Some(cached) = cache.get(&cache_key) {
-            if cached.cached_at.elapsed().as_secs() < self.ttl_secs {
-                debug!(
-                    "Cache hit for tool '{}' (age: {:?})",
-                    name,
-                    cached.cached_at.elapsed()
-                );
-                return Some(cached.result.clone());
-            }
-            cache.pop(&cache_key);
+        if let Some(cached) = self.cache.get(&cache_key) {
+            debug!("cache hit for tool '{name}'");
+            return Some((*cached).clone());
         }
         None
     }
@@ -621,14 +606,7 @@ impl ToolMiddleware for CacheMiddleware {
             return;
         }
         let cache_key = format!("{}#{}:{}", name.len(), name, canonical_json(params));
-        let mut cache = self.cache.lock().await;
-        cache.put(
-            cache_key,
-            CachedResult {
-                result: result.clone(),
-                cached_at: Instant::now(),
-            },
-        );
+        self.cache.insert(cache_key, Arc::new(result.clone()));
     }
 }
 

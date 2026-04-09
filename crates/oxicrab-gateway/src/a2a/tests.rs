@@ -15,7 +15,7 @@ fn make_a2a_state() -> (A2aState, mpsc::Receiver<InboundMessage>) {
         },
         store: Arc::new(A2aTaskStore::new()),
         inbound_tx: Arc::new(tx),
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(DashMap::new()),
         host: "127.0.0.1".to_string(),
         port: 3000,
     };

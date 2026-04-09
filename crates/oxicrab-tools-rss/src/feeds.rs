@@ -213,7 +213,7 @@ pub fn handle_list_feeds(db: &MemoryDB) -> Result<ToolResult> {
 
     let mut out = format!("Feeds ({}):\n\n", feeds.len());
     for feed in &feeds {
-        let short_id: String = feed.id.chars().take(8).collect();
+        let short_id = &feed.id[..feed.id.floor_char_boundary(8)];
         let status = if feed.enabled { "enabled" } else { "disabled" };
         let _ = write!(
             out,

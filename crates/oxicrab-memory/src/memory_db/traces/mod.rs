@@ -91,11 +91,15 @@ impl CronTrace {
 }
 
 fn truncate_str(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars.saturating_sub(3)).collect();
-        format!("{truncated}...")
+    match s.char_indices().nth(max_chars) {
+        None => s.to_string(),
+        Some(_) => {
+            let end = s
+                .char_indices()
+                .nth(max_chars.saturating_sub(3))
+                .map_or(s.len(), |(i, _)| i);
+            format!("{}...", &s[..end])
+        }
     }
 }
 

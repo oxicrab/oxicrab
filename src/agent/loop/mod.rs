@@ -45,8 +45,8 @@ use crate::safety::LeakDetector;
 use crate::session::{SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
+use dashmap::DashMap;
 use lru::LruCache;
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -66,7 +66,7 @@ const AUTO_CONTINUE_MIN_TOOL_CALLS: usize = 3;
 /// Maximum auto-continue re-prompts per run
 const AUTO_CONTINUE_MAX: usize = 2;
 /// Pre-flight token estimation: chars-per-token ratio (conservative)
-const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+pub(crate) const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 /// Pre-flight compaction threshold as fraction of context limit (80%)
 const PREFLIGHT_COMPACTION_RATIO: usize = 4; // numerator of 4/5
 /// Maximum pending messages per session before new arrivals are dropped.
@@ -113,7 +113,7 @@ pub struct AgentLoop {
     /// Serializes message processing per session while allowing independent
     /// sessions to be processed concurrently. Messages arriving during an
     /// active run are queued and coalesced into the next turn.
-    session_states: Arc<std::sync::Mutex<HashMap<String, Arc<SessionState>>>>,
+    session_states: Arc<DashMap<String, Arc<SessionState>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     shutdown_notify: Arc<Notify>,
     task_tracker: Arc<TaskTracker>,
@@ -506,7 +506,7 @@ impl AgentLoop {
             compactor,
             compaction_config,
             _subagents: Some(subagents),
-            session_states: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            session_states: Arc::new(DashMap::new()),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             shutdown_notify: Arc::new(Notify::new()),
             task_tracker: Arc::new(TaskTracker::new()),
@@ -745,11 +745,7 @@ impl AgentLoop {
 
     /// Get or create per-session state (processing lock + pending queue).
     fn session_state(&self, session_key: &str) -> Arc<SessionState> {
-        let mut states = self
-            .session_states
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        states
+        self.session_states
             .entry(session_key.to_string())
             .or_insert_with(|| {
                 Arc::new(SessionState {
@@ -761,22 +757,16 @@ impl AgentLoop {
     }
 
     /// Remove session states that are only held by the map (strong count == 1).
-    /// This prevents the `session_states` `HashMap` from growing unboundedly.
+    /// This prevents the `session_states` map from growing unboundedly.
     ///
-    /// Safety of `Arc::strong_count`: This is called under the outer
-    /// `std::sync::Mutex` lock on `session_states`, which serializes all
-    /// calls to `session_state()` and `evict_stale_session_states()`. No
-    /// other code clones the `Arc` without holding that mutex, so the
-    /// strong count cannot change between the check and the retain
-    /// decision — no TOCTOU race is possible.
+    /// Note on `Arc::strong_count`: With `DashMap`, concurrent `session_state()`
+    /// calls may briefly race with eviction. The worst case is a stale entry
+    /// survives one extra eviction cycle — acceptable for a cleanup heuristic.
     fn evict_stale_session_states(&self) {
-        let mut states = self
-            .session_states
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let before = states.len();
-        states.retain(|_, arc| Arc::strong_count(arc) > 1);
-        let evicted = before - states.len();
+        let before = self.session_states.len();
+        self.session_states
+            .retain(|_, arc| Arc::strong_count(arc) > 1);
+        let evicted = before - self.session_states.len();
         if evicted > 0 {
             debug!("evicted {evicted} stale session state(s)");
         }

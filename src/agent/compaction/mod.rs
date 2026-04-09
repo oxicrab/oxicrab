@@ -18,7 +18,7 @@ const PRE_FLUSH_MAX_TOKENS: u32 = 800;
 const COMPACTION_TEMPERATURE: Option<f32> = Some(0.3);
 const EXTRACTION_TEMPERATURE: Option<f32> = Some(0.0);
 const PRE_FLUSH_TEMPERATURE: Option<f32> = Some(0.0);
-const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+use super::agent_loop::CHARS_PER_TOKEN_ESTIMATE;
 
 pub fn estimate_tokens(text: &str) -> usize {
     // Use char count for better accuracy with non-ASCII text

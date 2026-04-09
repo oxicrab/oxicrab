@@ -1,9 +1,12 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::safety::LeakDetector;
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use governor::clock::DefaultClock;
+use governor::state::keyed::DefaultKeyedStateStore;
+use governor::{Quota, RateLimiter};
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -19,17 +22,16 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_INBOUND_CONTENT_LEN: usize = 1_000_000;
 /// Maximum outbound message content length (1 MB)
 const MAX_OUTBOUND_CONTENT_LEN: usize = 1_000_000;
-/// Maximum number of tracked senders/destinations before forced pruning
-const MAX_TRACKED_ENDPOINTS: usize = 5000;
 
-/// Rate-limit state protected by a `std::sync::Mutex` (held only briefly for
-/// timestamp bookkeeping, never across awaits).
-struct RateLimitState {
-    rate_limit: usize,
-    outbound_rate_limit: usize,
-    rate_window: Duration,
-    sender_timestamps: HashMap<String, Vec<Instant>>,
-    outbound_timestamps: HashMap<String, Vec<Instant>>,
+type KeyedLimiter = RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>;
+
+/// Build a keyed rate limiter: `burst` requests per `window`.
+fn build_keyed_limiter(burst: usize, window: Duration) -> KeyedLimiter {
+    let burst = NonZeroU32::new(burst.max(1) as u32).expect("burst must be > 0");
+    let quota = Quota::with_period(window / burst.get())
+        .expect("valid quota period")
+        .allow_burst(burst);
+    RateLimiter::keyed(quota)
 }
 
 pub struct MessageBus {
@@ -37,7 +39,8 @@ pub struct MessageBus {
     inbound_rx: Mutex<Option<mpsc::Receiver<InboundMessage>>>,
     pub outbound_tx: mpsc::Sender<OutboundMessage>,
     outbound_rx: Mutex<Option<mpsc::Receiver<OutboundMessage>>>,
-    rate_state: Mutex<RateLimitState>,
+    inbound_limiter: KeyedLimiter,
+    outbound_limiter: KeyedLimiter,
     leak_detector: Arc<LeakDetector>,
 }
 
@@ -68,6 +71,7 @@ impl MessageBus {
         outbound_capacity: usize,
         leak_detector: Arc<LeakDetector>,
     ) -> Self {
+        let window = Duration::from_secs_f64(rate_window_secs);
         let (inbound_tx, inbound_rx) = mpsc::channel(inbound_capacity);
         let (outbound_tx, outbound_rx) = mpsc::channel(outbound_capacity);
         Self {
@@ -75,13 +79,8 @@ impl MessageBus {
             inbound_rx: Mutex::new(Some(inbound_rx)),
             outbound_tx,
             outbound_rx: Mutex::new(Some(outbound_rx)),
-            rate_state: Mutex::new(RateLimitState {
-                rate_limit,
-                outbound_rate_limit: DEFAULT_OUTBOUND_RATE_LIMIT,
-                rate_window: Duration::from_secs_f64(rate_window_secs),
-                sender_timestamps: HashMap::new(),
-                outbound_timestamps: HashMap::new(),
-            }),
+            inbound_limiter: build_keyed_limiter(rate_limit, window),
+            outbound_limiter: build_keyed_limiter(DEFAULT_OUTBOUND_RATE_LIMIT, window),
             leak_detector,
         }
     }
@@ -127,39 +126,11 @@ impl MessageBus {
             msg.content.truncate(truncate_pos);
         }
 
-        // Rate-limit check (brief lock, no await inside)
-        {
-            let mut state = self
-                .rate_state
-                .lock()
-                .map_err(|e| anyhow::anyhow!("rate state lock poisoned: {e}"))?;
-            let now = Instant::now();
-            let key = format!("{}:{}", msg.channel, msg.sender_id);
-            let rate_window = state.rate_window;
-            let rate_limit = state.rate_limit;
-
-            let timestamps = state.sender_timestamps.entry(key.clone()).or_default();
-            let cutoff = now.checked_sub(rate_window).unwrap_or(now);
-            timestamps.retain(|&t| t > cutoff);
-
-            if timestamps.len() >= rate_limit {
-                warn!(
-                    "Rate limit hit for {} ({}/{:.0}s) – dropping message",
-                    key,
-                    rate_limit,
-                    rate_window.as_secs_f64()
-                );
-                return Err(anyhow::anyhow!("Rate limit exceeded for {key}"));
-            }
-
-            timestamps.push(now);
-
-            // Prune inactive senders to prevent unbounded growth
-            if state.sender_timestamps.len() > MAX_TRACKED_ENDPOINTS {
-                state
-                    .sender_timestamps
-                    .retain(|_, ts| ts.iter().any(|&t| now.duration_since(t) < rate_window));
-            }
+        // Rate-limit check
+        let key = format!("{}:{}", msg.channel, msg.sender_id);
+        if self.inbound_limiter.check_key(&key).is_err() {
+            warn!("rate limit hit for {key} – dropping message");
+            return Err(anyhow::anyhow!("Rate limit exceeded for {key}"));
         }
 
         let channel = msg.channel.clone();
@@ -197,39 +168,11 @@ impl MessageBus {
                 .truncate(msg.content.floor_char_boundary(MAX_OUTBOUND_CONTENT_LEN));
         }
 
-        // Outbound rate limiting per destination (brief lock, no await inside)
-        {
-            let mut state = self
-                .rate_state
-                .lock()
-                .map_err(|e| anyhow::anyhow!("rate state lock poisoned: {e}"))?;
-            let now = Instant::now();
-            // Allocates a String key per message; cheap relative to the mutex
-            // and simpler than a composite (String, String) key type.
-            let key = format!("{}:{}", msg.channel, msg.chat_id);
-            let rate_window = state.rate_window;
-            let outbound_rate_limit = state.outbound_rate_limit;
-
-            let timestamps = state.outbound_timestamps.entry(key.clone()).or_default();
-            let cutoff = now.checked_sub(rate_window).unwrap_or(now);
-            timestamps.retain(|&t| t > cutoff);
-            if timestamps.len() >= outbound_rate_limit {
-                warn!(
-                    "outbound rate limit hit for {} ({}/{:.0}s) – dropping message",
-                    key,
-                    outbound_rate_limit,
-                    rate_window.as_secs_f64()
-                );
-                return Err(anyhow::anyhow!("Outbound rate limit exceeded for {key}"));
-            }
-            timestamps.push(now);
-
-            // Prune inactive destinations to prevent unbounded growth
-            if state.outbound_timestamps.len() > MAX_TRACKED_ENDPOINTS {
-                state
-                    .outbound_timestamps
-                    .retain(|_, ts| ts.iter().any(|&t| now.duration_since(t) < rate_window));
-            }
+        // Outbound rate limiting per destination
+        let key = format!("{}:{}", msg.channel, msg.chat_id);
+        if self.outbound_limiter.check_key(&key).is_err() {
+            warn!("outbound rate limit hit for {key} – dropping message");
+            return Err(anyhow::anyhow!("Outbound rate limit exceeded for {key}"));
         }
 
         // Scan for leaked secrets before sending (plaintext + encoded + known)

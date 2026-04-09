@@ -91,7 +91,7 @@ impl ActivityLog {
 
     pub fn log_tool_call(&mut self, name: &str, args: &serde_json::Value) {
         let args_str = serde_json::to_string(args).unwrap_or_default();
-        let preview: String = args_str.chars().take(500).collect();
+        let preview = &args_str[..args_str.floor_char_boundary(500)];
         self.write(
             "tool_call",
             &format!("  TOOL CALL: {name} {preview}"),
@@ -105,12 +105,9 @@ impl ActivityLog {
         } else {
             "  TOOL RESULT"
         };
-        let preview: String = content.chars().take(500).collect();
-        let suffix = if content.chars().count() > 500 {
-            "..."
-        } else {
-            ""
-        };
+        let boundary = content.floor_char_boundary(500);
+        let preview = &content[..boundary];
+        let suffix = if boundary < content.len() { "..." } else { "" };
         self.write(
             "tool_result",
             &format!(

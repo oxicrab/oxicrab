@@ -549,20 +549,20 @@ fn test_mention_regex_pattern() {
 
 #[test]
 fn test_classify_slack_error_rate_limited_http() {
-    let err = classify_slack_error(429, None);
+    let err = classify_slack_error(429, None, None);
     assert!(matches!(err, SlackApiError::RateLimited { .. }));
 }
 
 #[test]
 fn test_classify_slack_error_rate_limited_field() {
-    let err = classify_slack_error(200, Some("ratelimited"));
+    let err = classify_slack_error(200, Some("ratelimited"), None);
     assert!(matches!(err, SlackApiError::RateLimited { .. }));
 }
 
 #[test]
 fn test_classify_slack_error_invalid_auth() {
     for variant in &["invalid_auth", "account_inactive", "token_revoked"] {
-        let err = classify_slack_error(200, Some(variant));
+        let err = classify_slack_error(200, Some(variant), None);
         assert!(
             matches!(err, SlackApiError::InvalidAuth),
             "expected InvalidAuth for {variant}"
@@ -572,25 +572,25 @@ fn test_classify_slack_error_invalid_auth() {
 
 #[test]
 fn test_classify_slack_error_missing_scope() {
-    let err = classify_slack_error(200, Some("missing_scope:chat:write"));
+    let err = classify_slack_error(200, Some("missing_scope:chat:write"), None);
     assert!(matches!(err, SlackApiError::MissingScope(_)));
 }
 
 #[test]
 fn test_classify_slack_error_channel_not_found() {
-    let err = classify_slack_error(200, Some("channel_not_found"));
+    let err = classify_slack_error(200, Some("channel_not_found"), None);
     assert!(matches!(err, SlackApiError::ChannelNotFound));
 }
 
 #[test]
 fn test_classify_slack_error_server_error() {
-    let err = classify_slack_error(502, None);
+    let err = classify_slack_error(502, None, None);
     assert!(matches!(err, SlackApiError::ServerError(502)));
 }
 
 #[test]
 fn test_classify_slack_error_other() {
-    let err = classify_slack_error(200, Some("something_weird"));
+    let err = classify_slack_error(200, Some("something_weird"), None);
     assert!(matches!(err, SlackApiError::Other(_)));
 }
 

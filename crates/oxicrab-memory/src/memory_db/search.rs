@@ -333,8 +333,9 @@ impl MemoryDB {
         }
 
         // Fallback: LIKE search
-        let truncated: String = query_text.trim().chars().take(200).collect();
-        let escaped = super::escape_like(&truncated);
+        let trimmed = query_text.trim();
+        let truncated = &trimmed[..trimmed.floor_char_boundary(200)];
+        let escaped = super::escape_like(truncated);
         let like = format!("%{escaped}%");
         let mut stmt = conn.prepare(
             "SELECT source_key, content

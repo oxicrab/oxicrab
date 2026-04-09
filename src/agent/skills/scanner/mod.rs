@@ -160,7 +160,10 @@ pub fn scan_skill(content: &str) -> SkillScanResult {
                 let finding = SkillFinding {
                     category: pattern.category,
                     pattern_name: pattern.name,
-                    matched_text: m.as_str().chars().take(100).collect(),
+                    matched_text: {
+                        let s = m.as_str();
+                        s[..s.floor_char_boundary(100)].to_string()
+                    },
                     line_number: line_idx + 1,
                 };
                 if pattern.block {
@@ -183,7 +186,8 @@ pub fn scan_skill(content: &str) -> SkillScanResult {
             for pattern in SCAN_PATTERNS.iter() {
                 if let Some(m) = pattern.regex.find(&joined) {
                     // Only report if this wasn't already caught by single-line scan
-                    let matched = m.as_str().chars().take(100).collect::<String>();
+                    let ms = m.as_str();
+                    let matched = ms[..ms.floor_char_boundary(100)].to_string();
                     let already_found = if pattern.block {
                         blocked
                             .iter()

@@ -11,6 +11,7 @@ oxicrab-core = { path = "../oxicrab-core" }
 oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
 anyhow = { workspace = true }
 axum = { workspace = true }
+dashmap = "6.1"
 chrono = { workspace = true }
 governor = { workspace = true }
 hex = { workspace = true }

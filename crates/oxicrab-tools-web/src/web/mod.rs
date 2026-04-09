@@ -347,7 +347,7 @@ impl WebFetchTool {
 
                 let truncated = extracted_text.len() > max_chars;
                 let final_text = if truncated {
-                    extracted_text.chars().take(max_chars).collect()
+                    extracted_text[..extracted_text.floor_char_boundary(max_chars)].to_string()
                 } else {
                     extracted_text
                 };

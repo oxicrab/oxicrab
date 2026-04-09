@@ -344,16 +344,13 @@ fn parse_mdy_slash(input: &str) -> Option<NaiveDate> {
 }
 
 pub(crate) fn days_in_month(year: i32, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 => {
-            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
-                29
-            } else {
-                28
-            }
-        }
-        _ => 30,
+    use chrono::NaiveDate;
+    if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)
     }
+    .and_then(|d| d.pred_opt())
+    .map(|d| d.day())
+    .unwrap_or(30)
 }

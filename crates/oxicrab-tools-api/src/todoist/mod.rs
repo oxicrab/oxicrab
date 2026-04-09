@@ -54,7 +54,7 @@ impl TodoistTool {
         }
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            let safe: String = text.chars().take(200).collect();
+            let safe = &text[..text.floor_char_boundary(200)];
             anyhow::bail!("Todoist API {status}: {safe}");
         }
         if text.is_empty() {
@@ -447,12 +447,10 @@ fn build_task_buttons(tasks: &[Value]) -> Vec<Value> {
         }
         // UTF-8 safe truncation for button labels
         let label = {
-            let truncated: String = task_content.chars().take(25).collect();
-            if truncated.len() < task_content.len() {
-                format!(
-                    "Complete: {}...",
-                    task_content.chars().take(22).collect::<String>()
-                )
+            let boundary = task_content.floor_char_boundary(25);
+            if boundary < task_content.len() {
+                let trim_boundary = task_content.floor_char_boundary(22);
+                format!("Complete: {}...", &task_content[..trim_boundary])
             } else {
                 format!("Complete: {task_content}")
             }

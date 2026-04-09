@@ -1,17 +1,14 @@
+use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 /// Maximum length for a regex pattern trigger. Patterns exceeding this
 /// are rejected to prevent `ReDoS`.
 const MAX_PATTERN_LEN: usize = 256;
 
-/// LRU cache of compiled regexes keyed by anchored pattern string.
-static PATTERN_CACHE: std::sync::LazyLock<
-    std::sync::Mutex<lru::LruCache<String, Option<regex::Regex>>>,
-> = std::sync::LazyLock::new(|| {
-    std::sync::Mutex::new(lru::LruCache::new(
-        std::num::NonZeroUsize::new(64).expect("64 > 0"),
-    ))
-});
+/// Concurrent cache of compiled regexes keyed by anchored pattern string.
+static PATTERN_CACHE: LazyLock<Cache<String, Option<regex::Regex>>> =
+    LazyLock::new(|| Cache::builder().max_capacity(64).build());
 
 /// Trigger condition for a routing directive or static rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,11 +47,8 @@ impl DirectiveTrigger {
                     return false;
                 }
                 let anchored = format!("^(?:{pat})$");
-                let mut cache = PATTERN_CACHE
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let compiled =
-                    cache.get_or_insert(anchored.clone(), || regex::Regex::new(&anchored).ok());
+                    PATTERN_CACHE.get_with(anchored.clone(), || regex::Regex::new(&anchored).ok());
                 compiled.as_ref().is_some_and(|re| re.is_match(normalized))
             }
         }

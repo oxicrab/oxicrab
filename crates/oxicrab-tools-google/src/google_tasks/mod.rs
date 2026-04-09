@@ -113,26 +113,10 @@ impl Tool for GoogleTasksTool {
 
         match action {
             "list_task_lists" => {
-                let mut all_lists: Vec<Value> = Vec::new();
-                let mut page_token: Option<String> = None;
-                let max_pages = 3;
-
-                for _ in 0..max_pages {
-                    let mut endpoint = "users/@me/lists?maxResults=100".to_string();
-                    if let Some(ref token) = page_token {
-                        endpoint.push_str(&format!("&pageToken={}", urlencoding::encode(token)));
-                    }
-
-                    let result = self.api.call(&endpoint, "GET", None).await?;
-                    let empty_vec: Vec<Value> = vec![];
-                    let page_lists = result["items"].as_array().unwrap_or(&empty_vec);
-                    all_lists.extend(page_lists.iter().cloned());
-
-                    match result["nextPageToken"].as_str() {
-                        Some(t) if !t.is_empty() => page_token = Some(t.to_string()),
-                        _ => break,
-                    }
-                }
+                let all_lists = self
+                    .api
+                    .paginate("users/@me/lists?maxResults=100", "items", 3, None)
+                    .await?;
 
                 if all_lists.is_empty() {
                     return Ok(ToolResult::new("No task lists found.".to_string()));
@@ -152,39 +136,19 @@ impl Tool for GoogleTasksTool {
                 let max_results = params["max_results"].as_u64().unwrap_or(20).min(100) as u32;
                 let show_completed = params["show_completed"].as_bool().unwrap_or(true);
 
-                let mut all_tasks: Vec<Value> = Vec::new();
-                let mut page_token: Option<String> = None;
-                let max_pages = 3;
-                let cap: usize = 200;
-
-                for _ in 0..max_pages {
-                    let mut endpoint = format!(
-                        "lists/{}/tasks?maxResults={}",
-                        urlencoding::encode(list_id),
-                        max_results
-                    );
-                    if !show_completed {
-                        endpoint.push_str("&showCompleted=false&showHidden=false");
-                    }
-                    if let Some(ref token) = page_token {
-                        endpoint.push_str(&format!("&pageToken={}", urlencoding::encode(token)));
-                    }
-
-                    let result = self.api.call(&endpoint, "GET", None).await?;
-                    let empty_vec: Vec<Value> = vec![];
-                    let page_tasks = result["items"].as_array().unwrap_or(&empty_vec);
-                    all_tasks.extend(page_tasks.iter().cloned());
-
-                    if all_tasks.len() >= cap {
-                        all_tasks.truncate(cap);
-                        break;
-                    }
-
-                    match result["nextPageToken"].as_str() {
-                        Some(t) if !t.is_empty() => page_token = Some(t.to_string()),
-                        _ => break,
-                    }
+                let mut base_endpoint = format!(
+                    "lists/{}/tasks?maxResults={}",
+                    urlencoding::encode(list_id),
+                    max_results
+                );
+                if !show_completed {
+                    base_endpoint.push_str("&showCompleted=false&showHidden=false");
                 }
+
+                let all_tasks = self
+                    .api
+                    .paginate(&base_endpoint, "items", 3, Some(200))
+                    .await?;
 
                 if all_tasks.is_empty() {
                     return Ok(ToolResult::new("No tasks found.".to_string()));
@@ -391,12 +355,10 @@ fn build_google_task_buttons(tasks: &[Value], tasklist_id: &str) -> Vec<Value> {
         }
         // UTF-8 safe truncation for button labels
         let label = {
-            let truncated: String = title.chars().take(25).collect();
-            if truncated.len() < title.len() {
-                format!(
-                    "Complete: {}...",
-                    title.chars().take(22).collect::<String>()
-                )
+            let boundary = title.floor_char_boundary(25);
+            if boundary < title.len() {
+                let trim_boundary = title.floor_char_boundary(22);
+                format!("Complete: {}...", &title[..trim_boundary])
             } else {
                 format!("Complete: {title}")
             }

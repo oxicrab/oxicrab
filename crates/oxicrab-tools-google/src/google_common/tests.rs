@@ -209,8 +209,8 @@ async fn test_parse_response_error_caps_length() {
 async fn test_call_unsupported_method() {
     let server = MockServer::start().await;
     let client = GoogleApiClient::with_base_url(&server.uri());
-    let err = client.call("test", "TRACE", None).await.unwrap_err();
-    assert!(err.to_string().contains("Unsupported HTTP method"));
+    let err = client.call("test", "NOT A METHOD", None).await.unwrap_err();
+    assert!(err.to_string().contains("invalid HTTP method"));
 }
 
 #[tokio::test]

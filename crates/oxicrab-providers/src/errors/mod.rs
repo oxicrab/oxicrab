@@ -5,6 +5,10 @@ use tracing::{error, warn};
 /// Common error handling utilities for LLM providers.
 ///
 /// Free functions for standardized error handling across all providers.
+fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 500 | 502 | 503 | 504 | 529)
+}
+
 pub struct ProviderErrorHandler;
 
 impl ProviderErrorHandler {
@@ -38,26 +42,16 @@ impl ProviderErrorHandler {
                 };
             }
 
-            let retryable = status == 429
-                || status == 500
-                || status == 502
-                || status == 503
-                || status == 504
-                || status == 529;
-            let safe_msg: String = error_msg.chars().take(500).collect();
+            let retryable = is_retryable_status(status);
+            let safe_msg = &error_msg[..error_msg.floor_char_boundary(500)];
             return OxicrabError::Provider {
                 message: format!("API error ({error_type}): {safe_msg}"),
                 retryable,
             };
         }
 
-        let retryable = status == 429
-            || status == 500
-            || status == 502
-            || status == 503
-            || status == 504
-            || status == 529;
-        let safe_text: String = error_text.chars().take(500).collect();
+        let retryable = is_retryable_status(status);
+        let safe_text = &error_text[..error_text.floor_char_boundary(500)];
         OxicrabError::Provider {
             message: format!("API error ({status}): {safe_text}"),
             retryable,
