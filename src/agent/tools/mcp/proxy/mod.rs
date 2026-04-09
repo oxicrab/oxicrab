@@ -88,9 +88,14 @@ impl Tool for McpProxyTool {
             request = request.with_arguments(args);
         }
 
-        let result = match self.peer.call_tool(request).await {
-            Ok(r) => r,
-            Err(e) => {
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            self.peer.call_tool(request),
+        )
+        .await
+        {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
                 warn!("MCP tool '{}' failed: {}", self.tool_name, e);
                 let raw_msg = format!("MCP tool '{}' call failed: {}", self.tool_name, e);
                 let sanitized = crate::utils::path_sanitize::sanitize_error_message(
@@ -98,6 +103,13 @@ impl Tool for McpProxyTool {
                     self.workspace.as_deref(),
                 );
                 return Ok(ToolResult::error(sanitized));
+            }
+            Err(_elapsed) => {
+                warn!("MCP tool '{}' timed out after 120s", self.tool_name);
+                return Ok(ToolResult::error(format!(
+                    "MCP tool '{}' timed out",
+                    self.tool_name
+                )));
             }
         };
 

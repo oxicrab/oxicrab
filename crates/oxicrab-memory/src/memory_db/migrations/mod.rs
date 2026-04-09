@@ -3,36 +3,61 @@ use rusqlite::Connection;
 
 const MIGRATION_0001_BASE: &str = include_str!("0001_base.sql");
 
+/// Run a migration step inside a transaction. Rolls back on failure so the
+/// database is never left in a partially-migrated state.
+fn run_migration(conn: &Connection, version: u32, f: impl FnOnce() -> Result<()>) -> Result<()> {
+    conn.execute_batch("BEGIN;")?;
+    match f() {
+        Ok(()) => {
+            conn.execute_batch(&format!("PRAGMA user_version = {version}; COMMIT;"))?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(e)
+        }
+    }
+}
+
 pub fn apply_migrations(conn: &Connection) -> Result<()> {
     if user_version(conn)? < 1 {
-        conn.execute_batch(MIGRATION_0001_BASE)?;
-        conn.execute("PRAGMA user_version = 1", [])?;
+        run_migration(conn, 1, || {
+            conn.execute_batch(MIGRATION_0001_BASE)?;
+            Ok(())
+        })?;
     }
 
     if user_version(conn)? < 2 {
-        add_column_if_missing(conn, "llm_cost_log", "request_id", "TEXT")?;
-        add_column_if_missing(conn, "intent_metrics", "request_id", "TEXT")?;
-        add_column_if_missing(conn, "memory_access_log", "request_id", "TEXT")?;
-        conn.execute("PRAGMA user_version = 2", [])?;
+        run_migration(conn, 2, || {
+            add_column_if_missing(conn, "llm_cost_log", "request_id", "TEXT")?;
+            add_column_if_missing(conn, "intent_metrics", "request_id", "TEXT")?;
+            add_column_if_missing(conn, "memory_access_log", "request_id", "TEXT")?;
+            Ok(())
+        })?;
     }
 
     if user_version(conn)? < 3 {
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_memory_entries_source_key \
-             ON memory_entries(source_key, created_at);",
-        )?;
-        conn.execute("PRAGMA user_version = 3", [])?;
+        run_migration(conn, 3, || {
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_memory_entries_source_key \
+                 ON memory_entries(source_key, created_at);",
+            )?;
+            Ok(())
+        })?;
     }
 
     if user_version(conn)? < 4 {
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);",
-        )?;
-        conn.execute("PRAGMA user_version = 4", [])?;
+        run_migration(conn, 4, || {
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);",
+            )?;
+            Ok(())
+        })?;
     }
 
     if user_version(conn)? < 5 {
-        conn.execute_batch(
+        run_migration(conn, 5, || {
+            conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS rss_feeds (
                 id TEXT PRIMARY KEY,
                 url TEXT NOT NULL UNIQUE,
@@ -89,11 +114,13 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
             CREATE INDEX IF NOT EXISTS idx_rss_articles_published ON rss_articles(published_at_ms);
             CREATE INDEX IF NOT EXISTS idx_rss_article_tags_tag ON rss_article_tags(tag);",
         )?;
-        conn.execute("PRAGMA user_version = 5", [])?;
+            Ok(())
+        })?;
     }
 
     if user_version(conn)? < 6 {
-        conn.execute_batch(
+        run_migration(conn, 6, || {
+            conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS cron_execution_traces (
                 id TEXT PRIMARY KEY,
                 job_id TEXT NOT NULL,
@@ -109,12 +136,14 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
             CREATE INDEX IF NOT EXISTS idx_cron_traces_job ON cron_execution_traces(job_id);
             CREATE INDEX IF NOT EXISTS idx_cron_traces_started ON cron_execution_traces(started_at);",
         )?;
-        conn.execute("PRAGMA user_version = 6", [])?;
+            Ok(())
+        })?;
     }
 
     if user_version(conn)? < 7 {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS collections (
+        run_migration(conn, 7, || {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS collections (
                 name         TEXT PRIMARY KEY,
                 description  TEXT NOT NULL DEFAULT '',
                 schema_json  TEXT NOT NULL,
@@ -131,8 +160,9 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
             );
             CREATE INDEX IF NOT EXISTS idx_collection_records_name
                 ON collection_records(collection_name);",
-        )?;
-        conn.execute("PRAGMA user_version = 7", [])?;
+            )?;
+            Ok(())
+        })?;
     }
 
     Ok(())
