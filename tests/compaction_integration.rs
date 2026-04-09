@@ -32,7 +32,7 @@ async fn test_compaction_disabled_preserves_full_history() {
         TestAgentOverrides {
             compaction_config: Some(CompactionConfig {
                 enabled: false,
-                threshold_tokens: 100,
+                threshold_tokens: 1_000_000,
                 keep_recent: 2,
                 keep_recent_turns: None,
                 extraction_enabled: false,

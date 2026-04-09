@@ -176,7 +176,7 @@ impl AgentLoop {
             // Pre-flight token estimation: trim oldest non-system messages if
             // estimated token count exceeds 80% of the compaction threshold.
             // Prevents wasted API calls that would fail with context-length errors.
-            if self.compaction_config.threshold_tokens > 0 {
+            if self.compaction_config.enabled && self.compaction_config.threshold_tokens > 0 {
                 let msg_chars: usize = messages.iter().map(|m| m.content.len()).sum();
                 let tool_def_chars: usize = tools_arc.iter().map(|td| {
                     td.name.len() + td.description.len() + td.parameters.to_string().len()

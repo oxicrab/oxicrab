@@ -420,8 +420,10 @@ fn test_fire_cron_job_increments_run_count() {
     let got = db.get_cron_job("job-fire").unwrap().unwrap();
     assert_eq!(got.state.run_count, 0);
 
-    // Fire twice
+    // Fire, complete, fire again (atomic claiming requires status != 'running')
     db.fire_cron_job("job-fire", Some(10_000), 5000, 5000)
+        .unwrap();
+    db.update_cron_job_status("job-fire", "success", None)
         .unwrap();
     db.fire_cron_job("job-fire", Some(15_000), 10_000, 10_000)
         .unwrap();
