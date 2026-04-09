@@ -61,10 +61,6 @@ const MAX_RETRY_DELAY_SECS: f64 = 10.0;
 const DEFAULT_HISTORY_SIZE: usize = 50;
 const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 const MAX_COMPACTION_STATE_SESSIONS: usize = 1024;
-/// Minimum tool calls in the current run before auto-continue triggers
-const AUTO_CONTINUE_MIN_TOOL_CALLS: usize = 3;
-/// Maximum auto-continue re-prompts per run
-const AUTO_CONTINUE_MAX: usize = 2;
 /// Pre-flight token estimation: chars-per-token ratio (conservative)
 pub(crate) const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 /// Pre-flight compaction threshold as fraction of context limit (80%)

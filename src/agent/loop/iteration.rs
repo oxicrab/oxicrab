@@ -1,9 +1,8 @@
 use super::config::{AgentLoopResult, AgentRunOverrides};
 use super::hallucination::{self, TextAction};
 use super::{
-    AUTO_CONTINUE_MAX, AUTO_CONTINUE_MIN_TOOL_CALLS, AgentLoop, CHARS_PER_TOKEN_ESTIMATE,
-    EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS, MIN_WRAPUP_ITERATION, PREFLIGHT_COMPACTION_RATIO,
-    RETRY_BACKOFF_BASE, WRAPUP_THRESHOLD_RATIO,
+    AgentLoop, CHARS_PER_TOKEN_ESTIMATE, EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS,
+    MIN_WRAPUP_ITERATION, PREFLIGHT_COMPACTION_RATIO, RETRY_BACKOFF_BASE, WRAPUP_THRESHOLD_RATIO,
 };
 use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
@@ -126,8 +125,6 @@ impl AgentLoop {
         let mut collected_tool_metadata: Vec<(String, HashMap<String, serde_json::Value>)> =
             Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
-        let mut total_tool_calls: usize = 0;
-        let mut auto_continue_count: usize = 0;
 
         // Clear request-scoped deferred tool activations from previous retries/reuse.
         self.tool_search_activated.clear(&activation_scope).await;
@@ -246,7 +243,6 @@ impl AgentLoop {
 
             if response.has_tool_calls() {
                 any_tools_called = true;
-                total_tool_calls += response.tool_calls.len();
                 tools_used.extend(response.tool_calls.iter().map(|tc| tc.name.clone()));
                 ContextBuilder::add_assistant_message(
                     &mut messages,
@@ -322,36 +318,6 @@ impl AgentLoop {
                             } else {
                                 hallucination::record_retry_failure();
                             }
-                        }
-
-                        // Auto-continue: if the LLM stopped mid-task after
-                        // significant tool use and we have budget remaining,
-                        // re-prompt to finish the work.
-                        if total_tool_calls >= AUTO_CONTINUE_MIN_TOOL_CALLS
-                            && auto_continue_count < AUTO_CONTINUE_MAX
-                            && iteration < effective_max_iterations - 1
-                        {
-                            auto_continue_count += 1;
-                            debug!(
-                                "auto-continue {}/{}: LLM returned text after {} tool calls, \
-                                 re-prompting",
-                                auto_continue_count, AUTO_CONTINUE_MAX, total_tool_calls
-                            );
-                            ContextBuilder::add_assistant_message(
-                                &mut messages,
-                                Some(&content),
-                                None,
-                                response.reasoning_content.as_deref(),
-                                response.reasoning_signature.as_deref(),
-                                response.redacted_thinking_blocks.clone(),
-                            );
-                            messages.push(Message::user(
-                                "You stopped mid-task after using tools. \
-                                 Continue with the remaining work, or if \
-                                 you're done, provide your final response."
-                                    .to_string(),
-                            ));
-                            continue;
                         }
 
                         let content = strip_think_tags(&content);

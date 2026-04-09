@@ -1573,20 +1573,6 @@ fn test_wave_consecutive_side_effects_separate() {
     assert_eq!(waves[1], vec![1]);
 }
 
-// --- auto-continue constants ---
-
-#[test]
-fn test_auto_continue_constants() {
-    assert_eq!(
-        AUTO_CONTINUE_MIN_TOOL_CALLS, 3,
-        "auto-continue should require at least 3 tool calls"
-    );
-    assert_eq!(
-        AUTO_CONTINUE_MAX, 2,
-        "auto-continue should allow at most 2 re-prompts"
-    );
-}
-
 // --- preflight token estimation constants ---
 
 #[test]
