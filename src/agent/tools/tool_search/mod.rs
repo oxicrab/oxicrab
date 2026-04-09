@@ -1,5 +1,7 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use crate::agent::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -108,6 +110,7 @@ impl Tool for ToolSearchTool {
             actions: actions![search: ro],
             category: ToolCategory::System,
             subagent_access: SubagentAccess::Denied,
+            concurrency: ToolConcurrency::ReadOnly,
             ..Default::default()
         }
     }

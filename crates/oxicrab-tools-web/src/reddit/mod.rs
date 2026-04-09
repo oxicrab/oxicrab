@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use oxicrab_core::tools::base::{
     ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory,
+    ToolConcurrency,
 };
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
@@ -215,7 +216,7 @@ impl Tool for RedditTool {
                 },
             ],
             category: ToolCategory::Productivity,
-            ..Default::default()
+            concurrency: ToolConcurrency::ReadOnly,
         }
     }
 

@@ -20,7 +20,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 9 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, MiniMax, etc.), with OAuth and local model fallback
 - **Model routing**: Per-task provider/model assignment with N-way fallback chains and complexity-aware per-message routing
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction
-- **29 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, RSS reader, and more
+- **30 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, RSS reader, interactive buttons, structured collections, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
 - **Cron scheduling**: Recurring jobs, one-shot timers (absolute or relative delay), cron expressions, echo mode, multi-channel targeting
@@ -38,7 +38,12 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Tool output stash**: In-memory LRU cache for recovering large tool outputs after truncation
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
-- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, skill file security scanning, interactive operator approval for mutating actions
+- **Parallel tool execution**: Concurrency-classified wave execution (ReadOnly concurrent, SideEffect sequential, Exclusive alone)
+- **Auto-continue**: Automatic re-prompting when the agent stops mid-task after 3+ tool calls (up to 2 retries)
+- **Message queuing**: Per-session queuing (max 10) for messages arriving during an active agent run, coalesced on completion
+- **Pre-flight token estimation**: Trims oldest messages before LLM calls when estimated tokens exceed 80% of compaction threshold
+- **Slack thread tracking**: Bot remembers threads it participated in (24h TTL), responds without @mention in tracked threads
+- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, skill file security scanning, interactive operator approval for mutating actions, config validation (minimum secret lengths, reserved header blocking), tool name shadowing prevention, atomic cron claiming
 
 ## Installation
 
@@ -174,7 +179,7 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 30 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
 
-**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword, `collections` — structured data with typed schemas and per-collection CRUD tools
+**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword, `add_buttons` — interactive buttons (Slack/Discord), `collections` — structured data with typed schemas and per-collection CRUD tools
 
 **Configurable**: `google_mail`, `google_calendar`, `google_tasks`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 

@@ -6,7 +6,9 @@ use chromiumoxide::browser::{Browser, BrowserConfig as ChromeBrowserConfig};
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
 use oxicrab_core::actions;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -786,7 +788,7 @@ impl Tool for BrowserTool {
                 navigate,
             ],
             category: ToolCategory::Web,
-            ..Default::default()
+            concurrency: ToolConcurrency::Exclusive,
         }
     }
 

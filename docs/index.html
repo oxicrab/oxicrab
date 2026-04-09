@@ -731,7 +731,7 @@
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Your AI assistant framework, <span class="rust-highlight">built in Rust.</span></h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 29 built-in tools, layered routing, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 30 built-in tools, layered routing, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -818,10 +818,10 @@
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">29 Built-in Tools</div>
+        <div class="feature-name">30 Built-in Tools</div>
         <div class="feature-detail">
           <h3>Filesystem, shell, web, browser, and more</h3>
-          <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, binary blob sanitization, and truncation middleware. Plus MCP for external tool servers.</p>
+          <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, binary blob sanitization, and truncation middleware. Parallel tool execution via concurrency classification (read-only tools run concurrently, side-effect tools sequential, exclusive tools alone). Plus MCP for external tool servers.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -835,7 +835,7 @@
         <div class="feature-name">Sessions</div>
         <div class="feature-detail">
           <h3>Persistent sessions with automatic compaction</h3>
-          <p>Per-channel session management with context summarization. Long conversations are automatically compacted to stay within context limits while preserving key information. Orphaned tool messages are cleaned up post-compaction to prevent API errors.</p>
+          <p>Per-channel session management with context summarization. Long conversations are automatically compacted to stay within context limits while preserving key information. Orphaned tool messages are cleaned up post-compaction to prevent API errors. Per-session message queuing coalesces messages arriving during an active agent run (max 10 per session). Pre-flight token estimation trims oldest messages before LLM calls to prevent wasted API calls.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -843,6 +843,13 @@
         <div class="feature-detail">
           <h3>Catches false claims and phantom actions</h3>
           <p>Action claim detection, false no-tools-claim retry, false-claim regex detection, intent-based structural analysis, and wrap-up nudges. Prevents the agent from claiming it did something it didn&rsquo;t.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Auto-Continue</div>
+        <div class="feature-detail">
+          <h3>Automatic task completion</h3>
+          <p>When the agent stops mid-task (after 3+ tool calls with iteration budget remaining), it automatically re-prompts to continue (up to 2 times). Prevents incomplete multi-step workflows.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -877,7 +884,7 @@
         <div class="feature-name">Security</div>
         <div class="feature-detail">
           <h3>Defense in depth</h3>
-          <p>Per-channel DM policy (allowlist/pairing/open) with default-deny sender allowlists, bidirectional leak detection (two-phase Aho-Corasick + regex scanning for API key patterns across plaintext, base64, and hex encodings — inbound scanning redacts secrets before they reach the LLM or session history, outbound scanning redacts before sending to channels), shell AST analysis (structural command validation via brush-parser), kernel-level process sandbox (Landlock on Linux, Seatbelt on macOS), shell command allowlists + regex blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation.</p>
+          <p>Per-channel DM policy (allowlist/pairing/open) with default-deny sender allowlists, bidirectional leak detection (two-phase Aho-Corasick + regex scanning for API key patterns across plaintext, base64, and hex encodings — inbound scanning redacts secrets before they reach the LLM or session history, outbound scanning redacts before sending to channels), shell AST analysis (structural command validation via brush-parser), kernel-level process sandbox (Landlock on Linux, Seatbelt on macOS), shell command allowlists + regex blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation, config validation (minimum secret lengths, reserved header blocking, command sanitization), tool name shadowing prevention (built-in tools cannot be overridden by MCP or runtime tools), atomic cron claiming to prevent double-firing.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -990,7 +997,7 @@ cargo build --release --no-default-features \
 <section id="tools" class="tools-section">
   <div class="container fade-in">
     <div class="section-label">Tools</div>
-    <div class="section-title">29 built-in tools + MCP</div>
+    <div class="section-title">30 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
 
     <div class="tools-legend">

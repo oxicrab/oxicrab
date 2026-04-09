@@ -467,6 +467,9 @@ doneEmoji = "white_check_mark"</code></pre>
       <tr><td><code>doneEmoji</code></td><td>"white_check_mark"</td><td>Reaction added after responding (thinking emoji is removed)</td></tr>
     </table>
 
+    <h3>Thread participation</h3>
+    <p>The bot automatically tracks threads it has participated in (24-hour TTL). In tracked threads, the bot responds without requiring an @mention, even when <code>mentionOnly</code> is enabled. This applies to both threads the bot started and threads where it replied.</p>
+
     <h3>Supported features</h3>
     <div class="features-list">
       <span>Text messages</span>
@@ -479,6 +482,7 @@ doneEmoji = "white_check_mark"</code></pre>
       <span>Reaction lifecycle</span>
       <span>Block Kit buttons</span>
       <span>Interactive payloads</span>
+      <span>Thread participation tracking</span>
       <span>Markdown formatting</span>
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
@@ -589,7 +593,7 @@ accountSid = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 authToken = "your-auth-token"
 phoneNumber = "+15551234567"
 webhookPort = 8080
-webhookHost = "0.0.0.0"
+webhookHost = "127.0.0.1"
 webhookPath = "/twilio/webhook"
 webhookUrl = "https://your-server.example.com/twilio/webhook"
 allowFrom = []
@@ -597,7 +601,7 @@ allowGroups = []
 dmPolicy = "allowlist"</code></pre>
     </div>
 
-    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). Empty <strong>allowFrom</strong> denies all senders &mdash; add phone numbers or use <code>["*"]</code> for open access. <strong>webhookHost</strong> defaults to <code>"0.0.0.0"</code> (all interfaces); set to <code>"127.0.0.1"</code> when running behind a reverse proxy.</div>
+    <div class="note"><strong>webhookUrl</strong> is required and must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). The Twilio channel will not start without it. Empty <strong>allowFrom</strong> denies all senders &mdash; add phone numbers or use <code>["*"]</code> for open access. <strong>webhookHost</strong> defaults to <code>"127.0.0.1"</code> (loopback only); set to <code>"0.0.0.0"</code> to listen on all interfaces.</div>
 
     <h3>Supported features</h3>
     <div class="features-list">

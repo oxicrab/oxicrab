@@ -1,5 +1,7 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
+use crate::agent::tools::base::{
+    ExecutionContext, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use lru::LruCache;
 use serde_json::Value;
@@ -142,6 +144,7 @@ impl Tool for StashRetrieveTool {
             built_in: true,
             actions: actions![retrieve: ro],
             category: ToolCategory::Core,
+            concurrency: ToolConcurrency::ReadOnly,
             ..Default::default()
         }
     }

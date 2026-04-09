@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::{ActionDescriptor, ToolCapabilities, ToolConcurrency};
 use regex::Regex;
 
 #[test]
@@ -1330,4 +1331,319 @@ fn test_strip_think_tags_closed_then_unclosed() {
 fn test_strip_think_tags_empty_block() {
     let input = "<think></think>content after";
     assert_eq!(strip_think_tags(input), "content after");
+}
+
+// --- classify_tool_call_concurrency tests ---
+
+/// Helper: builds a mock tool with given capabilities and registers it.
+fn register_mock_tool(registry: &mut ToolRegistry, name: &'static str, caps: ToolCapabilities) {
+    use async_trait::async_trait;
+    use serde_json::{Value, json};
+
+    struct ConfigurableTool {
+        name: &'static str,
+        caps: ToolCapabilities,
+    }
+
+    #[async_trait]
+    impl crate::agent::tools::base::Tool for ConfigurableTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &'static str {
+            "test"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            self.caps.clone()
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<crate::agent::tools::base::ToolResult> {
+            Ok(crate::agent::tools::base::ToolResult::new("ok"))
+        }
+    }
+
+    registry.register(Arc::new(ConfigurableTool { name, caps }));
+}
+
+#[test]
+fn test_classify_exclusive_tool() {
+    let mut registry = ToolRegistry::new();
+    register_mock_tool(
+        &mut registry,
+        "shell",
+        ToolCapabilities {
+            concurrency: ToolConcurrency::Exclusive,
+            actions: vec![ActionDescriptor {
+                name: "run",
+                read_only: true,
+            }],
+            ..Default::default()
+        },
+    );
+    let tc = make_tool_call_with_args("c1", "shell", serde_json::json!({"action": "run"}));
+    let result = classify_tool_call_concurrency(&registry, &tc);
+    assert_eq!(
+        result,
+        ToolConcurrency::Exclusive,
+        "exclusive concurrency overrides action read_only flag"
+    );
+}
+
+#[test]
+fn test_classify_action_based_readonly() {
+    let mut registry = ToolRegistry::new();
+    register_mock_tool(
+        &mut registry,
+        "github",
+        ToolCapabilities {
+            actions: vec![
+                ActionDescriptor {
+                    name: "list",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "create",
+                    read_only: false,
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    let tc = make_tool_call_with_args("c1", "github", serde_json::json!({"action": "list"}));
+    let result = classify_tool_call_concurrency(&registry, &tc);
+    assert_eq!(result, ToolConcurrency::ReadOnly);
+}
+
+#[test]
+fn test_classify_action_based_mutating() {
+    let mut registry = ToolRegistry::new();
+    register_mock_tool(
+        &mut registry,
+        "github",
+        ToolCapabilities {
+            actions: vec![
+                ActionDescriptor {
+                    name: "list",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "create",
+                    read_only: false,
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    let tc = make_tool_call_with_args("c1", "github", serde_json::json!({"action": "create"}));
+    let result = classify_tool_call_concurrency(&registry, &tc);
+    assert_eq!(result, ToolConcurrency::SideEffect);
+}
+
+#[test]
+fn test_classify_single_purpose_readonly() {
+    // Single-purpose tool with one readonly action descriptor and no
+    // "action" param — should use the single descriptor's read_only flag.
+    // This tests the bug fix for single-purpose tools that previously
+    // fell through to SideEffect because action_name was empty.
+    let mut registry = ToolRegistry::new();
+    register_mock_tool(
+        &mut registry,
+        "web_search",
+        ToolCapabilities {
+            actions: vec![ActionDescriptor {
+                name: "search",
+                read_only: true,
+            }],
+            ..Default::default()
+        },
+    );
+    let tc = make_tool_call_with_args("c1", "web_search", serde_json::json!({"query": "rust"}));
+    let result = classify_tool_call_concurrency(&registry, &tc);
+    assert_eq!(
+        result,
+        ToolConcurrency::ReadOnly,
+        "single-purpose tool with one readonly action should be ReadOnly"
+    );
+}
+
+#[test]
+fn test_classify_single_purpose_mutating() {
+    let mut registry = ToolRegistry::new();
+    register_mock_tool(
+        &mut registry,
+        "write_file",
+        ToolCapabilities {
+            actions: vec![ActionDescriptor {
+                name: "write",
+                read_only: false,
+            }],
+            ..Default::default()
+        },
+    );
+    let tc = make_tool_call_with_args(
+        "c1",
+        "write_file",
+        serde_json::json!({"path": "/tmp/f.txt"}),
+    );
+    let result = classify_tool_call_concurrency(&registry, &tc);
+    assert_eq!(
+        result,
+        ToolConcurrency::SideEffect,
+        "single-purpose tool with mutating action should be SideEffect"
+    );
+}
+
+#[test]
+fn test_classify_unknown_tool_defaults_to_side_effect() {
+    let registry = ToolRegistry::new();
+    let tc = make_tool_call("c1", "nonexistent");
+    let result = classify_tool_call_concurrency(&registry, &tc);
+    assert_eq!(
+        result,
+        ToolConcurrency::SideEffect,
+        "unknown tool should default to SideEffect for safety"
+    );
+}
+
+// --- partition_into_waves tests ---
+
+#[test]
+fn test_wave_all_readonly_single_wave() {
+    let classes = vec![
+        ToolConcurrency::ReadOnly,
+        ToolConcurrency::ReadOnly,
+        ToolConcurrency::ReadOnly,
+    ];
+    let waves = partition_into_waves(&classes);
+    assert_eq!(waves.len(), 1, "all ReadOnly should form a single wave");
+    assert_eq!(waves[0], vec![0, 1, 2]);
+}
+
+#[test]
+fn test_wave_mixed_breaks_wave() {
+    let classes = vec![
+        ToolConcurrency::ReadOnly,
+        ToolConcurrency::SideEffect,
+        ToolConcurrency::ReadOnly,
+    ];
+    let waves = partition_into_waves(&classes);
+    assert_eq!(
+        waves.len(),
+        3,
+        "SideEffect should break ReadOnly into separate waves"
+    );
+    assert_eq!(waves[0], vec![0]);
+    assert_eq!(waves[1], vec![1]);
+    assert_eq!(waves[2], vec![2]);
+}
+
+#[test]
+fn test_wave_exclusive_isolates() {
+    let classes = vec![
+        ToolConcurrency::ReadOnly,
+        ToolConcurrency::ReadOnly,
+        ToolConcurrency::Exclusive,
+        ToolConcurrency::ReadOnly,
+    ];
+    let waves = partition_into_waves(&classes);
+    assert_eq!(waves.len(), 3);
+    assert_eq!(waves[0], vec![0, 1], "leading ReadOnly grouped");
+    assert_eq!(waves[1], vec![2], "Exclusive gets its own wave");
+    assert_eq!(waves[2], vec![3], "trailing ReadOnly in its own wave");
+}
+
+#[test]
+fn test_wave_empty_input() {
+    let waves = partition_into_waves(&[]);
+    assert!(waves.is_empty());
+}
+
+#[test]
+fn test_wave_consecutive_side_effects_separate() {
+    let classes = vec![ToolConcurrency::SideEffect, ToolConcurrency::SideEffect];
+    let waves = partition_into_waves(&classes);
+    assert_eq!(waves.len(), 2, "each SideEffect gets its own wave");
+    assert_eq!(waves[0], vec![0]);
+    assert_eq!(waves[1], vec![1]);
+}
+
+// --- auto-continue constants ---
+
+#[test]
+fn test_auto_continue_constants() {
+    assert_eq!(
+        AUTO_CONTINUE_MIN_TOOL_CALLS, 3,
+        "auto-continue should require at least 3 tool calls"
+    );
+    assert_eq!(
+        AUTO_CONTINUE_MAX, 2,
+        "auto-continue should allow at most 2 re-prompts"
+    );
+}
+
+// --- preflight token estimation constants ---
+
+#[test]
+fn test_preflight_estimation_constants() {
+    assert_eq!(
+        CHARS_PER_TOKEN_ESTIMATE, 4,
+        "conservative chars-per-token ratio"
+    );
+    assert_eq!(
+        PREFLIGHT_COMPACTION_RATIO, 4,
+        "preflight compaction threshold is 4/5 (80%)"
+    );
+    // Verify the arithmetic: ratio/5 should give 0.8
+    let threshold_fraction = PREFLIGHT_COMPACTION_RATIO as f64 / 5.0;
+    assert!(
+        (threshold_fraction - 0.8).abs() < f64::EPSILON,
+        "compaction ratio should represent 80%"
+    );
+}
+
+// --- coalesce_messages tests ---
+
+#[test]
+fn test_coalesce_messages_joins_content() {
+    let m1 = InboundMessage::builder("slack", "user1", "ch1", "hello").build();
+    let m2 = InboundMessage::builder("slack", "user1", "ch1", "world").build();
+    let result = AgentLoop::coalesce_messages(vec![m1, m2]);
+    assert_eq!(result.content, "hello\nworld");
+}
+
+#[test]
+fn test_coalesce_messages_uses_last_metadata() {
+    let m1 = InboundMessage::builder("slack", "user1", "ch1", "first")
+        .meta("key".to_string(), serde_json::json!("val1"))
+        .build();
+    let m2 = InboundMessage::builder("slack", "user2", "ch1", "second")
+        .meta("key".to_string(), serde_json::json!("val2"))
+        .build();
+    let result = AgentLoop::coalesce_messages(vec![m1, m2]);
+    assert_eq!(result.content, "first\nsecond");
+    assert_eq!(result.metadata["key"], serde_json::json!("val2"));
+    assert_eq!(result.sender_id, "user2");
+}
+
+#[test]
+fn test_coalesce_messages_single() {
+    let m = InboundMessage::builder("http", "api", "s1", "only one").build();
+    let result = AgentLoop::coalesce_messages(vec![m]);
+    assert_eq!(result.content, "only one");
+}
+
+// --- per-session pending queue limit ---
+
+#[test]
+fn test_max_pending_messages_per_session() {
+    assert_eq!(
+        MAX_PENDING_MESSAGES_PER_SESSION, 10,
+        "pending queue should cap at 10 messages"
+    );
 }

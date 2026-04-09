@@ -23,6 +23,8 @@ use helpers::{
     execute_tool_call, extract_media_paths, load_and_encode_images, strip_document_tags,
     strip_think_tags,
 };
+#[cfg(test)]
+use iteration::{classify_tool_call_concurrency, partition_into_waves};
 
 pub use config::{
     AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, DirectResult,

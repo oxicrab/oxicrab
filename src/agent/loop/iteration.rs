@@ -13,11 +13,84 @@ use super::helpers::{
     ApprovalContext, execute_tool_call, extract_media_paths, start_typing, strip_think_tags,
 };
 use super::metadata::{extract_display_text, merge_suggested_buttons, prepend_display_text};
-use crate::agent::tools::base::{ExecutionContext, ToolResult};
+use crate::agent::tools::ToolRegistry;
+use crate::agent::tools::base::{ExecutionContext, ToolConcurrency, ToolResult};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
+
+/// Classify the effective concurrency for a single tool call based on the
+/// tool's declared capabilities and the specific action being invoked.
+///
+/// Priority: tool-level `Exclusive` overrides everything. For action-based
+/// tools, the specific action's `read_only` flag determines `ReadOnly` vs
+/// `SideEffect`. For single-purpose tools with a single action descriptor
+/// and no `action` param, the descriptor's `read_only` flag is used. For
+/// tools with no actions, the tool-level `concurrency` field is used.
+pub(super) fn classify_tool_call_concurrency(
+    registry: &ToolRegistry,
+    tc: &ToolCallRequest,
+) -> ToolConcurrency {
+    let Some(tool) = registry.get(&tc.name) else {
+        return ToolConcurrency::SideEffect;
+    };
+    let caps = tool.capabilities();
+
+    if caps.concurrency == ToolConcurrency::Exclusive {
+        return ToolConcurrency::Exclusive;
+    }
+
+    if !caps.actions.is_empty() {
+        let action_name = tc
+            .arguments
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let is_readonly = if action_name.is_empty() && caps.actions.len() == 1 {
+            caps.actions[0].read_only
+        } else {
+            caps.actions
+                .iter()
+                .any(|a| a.name == action_name && a.read_only)
+        };
+        if is_readonly {
+            return ToolConcurrency::ReadOnly;
+        }
+        return ToolConcurrency::SideEffect;
+    }
+
+    caps.concurrency
+}
+
+/// Partition tool call indices into execution waves based on their
+/// concurrency classifications.
+///
+/// Consecutive `ReadOnly` calls form a single parallel wave.
+/// `SideEffect` and `Exclusive` calls each get their own single-item wave.
+pub(super) fn partition_into_waves(classifications: &[ToolConcurrency]) -> Vec<Vec<usize>> {
+    let mut waves: Vec<Vec<usize>> = Vec::new();
+    let mut current_readonly_wave: Vec<usize> = Vec::new();
+
+    for (i, class) in classifications.iter().enumerate() {
+        match class {
+            ToolConcurrency::Exclusive | ToolConcurrency::SideEffect => {
+                if !current_readonly_wave.is_empty() {
+                    waves.push(std::mem::take(&mut current_readonly_wave));
+                }
+                waves.push(vec![i]);
+            }
+            ToolConcurrency::ReadOnly => {
+                current_readonly_wave.push(i);
+            }
+        }
+    }
+    if !current_readonly_wave.is_empty() {
+        waves.push(current_readonly_wave);
+    }
+
+    waves
+}
 
 const SESSION_KEY_META_KEY: &str = "session_key";
 
@@ -596,31 +669,10 @@ impl AgentLoop {
         // Classify each tool call's effective concurrency
         let classifications: Vec<ToolConcurrency> = tool_calls
             .iter()
-            .map(|tc| self.classify_tool_call_concurrency(tc))
+            .map(|tc| classify_tool_call_concurrency(&self.tools, tc))
             .collect();
 
-        // Partition into waves: consecutive ReadOnly calls form a parallel
-        // wave; SideEffect calls form single-item sequential waves;
-        // Exclusive calls always get their own wave.
-        let mut waves: Vec<Vec<usize>> = Vec::new();
-        let mut current_readonly_wave: Vec<usize> = Vec::new();
-
-        for (i, class) in classifications.iter().enumerate() {
-            match class {
-                ToolConcurrency::Exclusive | ToolConcurrency::SideEffect => {
-                    if !current_readonly_wave.is_empty() {
-                        waves.push(std::mem::take(&mut current_readonly_wave));
-                    }
-                    waves.push(vec![i]);
-                }
-                ToolConcurrency::ReadOnly => {
-                    current_readonly_wave.push(i);
-                }
-            }
-        }
-        if !current_readonly_wave.is_empty() {
-            waves.push(current_readonly_wave);
-        }
+        let waves = partition_into_waves(&classifications);
 
         let wave_count = waves.len();
         let parallel_waves = waves.iter().filter(|w| w.len() > 1).count();
@@ -751,45 +803,6 @@ impl AgentLoop {
                 })
             })
             .collect()
-    }
-
-    /// Determine the effective concurrency for a single tool call.
-    ///
-    /// Priority: tool-level `Exclusive` overrides everything. For
-    /// action-based tools, the specific action's `read_only` flag
-    /// determines `ReadOnly` vs `SideEffect`. For single-purpose tools,
-    /// the tool-level `concurrency` field is used directly.
-    fn classify_tool_call_concurrency(
-        &self,
-        tc: &ToolCallRequest,
-    ) -> crate::agent::tools::base::ToolConcurrency {
-        use crate::agent::tools::base::ToolConcurrency;
-
-        let Some(tool) = self.tools.get(&tc.name) else {
-            return ToolConcurrency::SideEffect;
-        };
-        let caps = tool.capabilities();
-
-        if caps.concurrency == ToolConcurrency::Exclusive {
-            return ToolConcurrency::Exclusive;
-        }
-
-        // For action-based tools, check the specific action's read_only flag
-        if !caps.actions.is_empty() {
-            let action = tc
-                .arguments
-                .get("action")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let is_readonly = caps.actions.iter().any(|a| a.name == action && a.read_only);
-            if is_readonly {
-                return ToolConcurrency::ReadOnly;
-            }
-            return ToolConcurrency::SideEffect;
-        }
-
-        // Single-purpose tools: use the declared concurrency
-        caps.concurrency
     }
 
     /// Collect media from tool results, scan for prompt injection, update

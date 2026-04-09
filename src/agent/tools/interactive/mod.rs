@@ -1,5 +1,7 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
+use crate::agent::tools::base::{
+    ExecutionContext, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -123,6 +125,7 @@ impl Tool for AddButtonsTool {
             built_in: true,
             actions: actions![add: ro],
             category: ToolCategory::Core,
+            concurrency: ToolConcurrency::ReadOnly,
             ..Default::default()
         }
     }

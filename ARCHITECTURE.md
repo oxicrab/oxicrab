@@ -100,6 +100,10 @@ Important current behavior:
 
 - tool execution uses one gateway for LLM tool calls and direct dispatches
 - tool policy, schema validation, approvals, exfiltration rules, timeouts, and panic isolation are enforced in one place
+- multiple tool calls in a single turn use wave-based parallel execution: ReadOnly tools run concurrently, SideEffect tools run sequentially, Exclusive tools (shell, tmux) run alone
+- auto-continue re-prompts (up to 2) when the LLM stops mid-task after 3+ tool calls
+- pre-flight token estimation trims oldest messages if approaching 80% of context limit
+- per-session message queuing coalesces messages that arrive during an active run (up to 10)
 - hallucination handling is intentionally minimal: regex-based Layer 1 retry for unsupported action claims
 - request-scoped runtime state is isolated per run
   - deferred tool activation from `tool_search`
@@ -108,7 +112,7 @@ Important current behavior:
 
 ## Tool System
 
-`ToolRegistry` in `src/agent/tools/registry/mod.rs` is the execution engine. It is immutable after construction and runs middleware around tool execution:
+`ToolRegistry` in `src/agent/tools/registry/mod.rs` is the execution engine. It rejects registration of tool names that collide with built-in tools and runs middleware around tool execution:
 
 - cache
 - truncation
@@ -198,14 +202,20 @@ Important hardening layers:
 - bidirectional leak detection
   - inbound redaction before LLM/session persistence
   - outbound redaction before channel delivery
+  - compaction summaries and button context metadata also scanned
 - prompt injection detection
-- shell AST analysis
-- Landlock/Seatbelt sandboxing
+- shell AST analysis (shell tool and tmux send_keys)
+- Landlock/Seatbelt sandboxing (shell and tmux tools)
 - capability-based filesystem confinement
 - DM pairing and sender allowlists
 - DNS rebinding protection for outbound HTTP tools
-- skill scanning before prompt injection
+- skill scanning before prompt injection (multi-line sliding window for evasion defense)
 - exfiltration guard for network tools
+- config validation enforces minimum secret lengths (32 chars for webhook secrets and API keys)
+- reserved custom provider headers rejected at config time
+- built-in tool name shadowing rejected at registration
+- context provider output sanitized for prompt injection
+- interactive approval enforced in all dispatch paths (LLM, direct, action)
 
 ## Config
 

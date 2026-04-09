@@ -780,3 +780,73 @@ fn test_is_slack_domain() {
     assert!(!is_slack_domain("https://attacker.com/slack.com"));
     assert!(!is_slack_domain("not-a-url"));
 }
+
+// --- thread participation tracking tests ---
+
+#[test]
+fn test_thread_tracking_records_participation() {
+    // The participated_threads HashMap tracks threads the bot has replied
+    // to. Verify insertion and lookup work as expected for the auto-reply
+    // in-threads feature.
+    let threads: Arc<std::sync::Mutex<HashMap<String, std::time::Instant>>> =
+        Arc::new(std::sync::Mutex::new(HashMap::new()));
+
+    let now = std::time::Instant::now();
+    {
+        let mut map = threads.lock().unwrap();
+        map.insert("1234567890.123456".to_string(), now);
+    }
+
+    // Verify the thread is tracked
+    let tracked = threads.lock().unwrap().contains_key("1234567890.123456");
+    assert!(tracked, "thread_ts should be present after recording");
+
+    // Verify a non-participated thread is not tracked
+    let not_tracked = threads.lock().unwrap().contains_key("9999999999.999999");
+    assert!(!not_tracked, "unrecorded thread_ts should not be present");
+}
+
+#[test]
+fn test_thread_tracking_ttl_prune() {
+    // Simulate the pruning logic from SlackChannel::send() — entries
+    // older than THREAD_TRACK_TTL (24h) are pruned.
+    let threads: Arc<std::sync::Mutex<HashMap<String, std::time::Instant>>> =
+        Arc::new(std::sync::Mutex::new(HashMap::new()));
+
+    let now = std::time::Instant::now();
+    // Create an "old" entry by subtracting more than TTL
+    let old_time = now
+        .checked_sub(THREAD_TRACK_TTL + std::time::Duration::from_secs(1))
+        .unwrap();
+    let recent_time = now;
+
+    {
+        let mut map = threads.lock().unwrap();
+        map.insert("old_thread".to_string(), old_time);
+        map.insert("recent_thread".to_string(), recent_time);
+
+        // Apply the same pruning logic as send()
+        if let Some(cutoff) = now.checked_sub(THREAD_TRACK_TTL) {
+            map.retain(|_, last| *last > cutoff);
+        }
+    }
+
+    let map = threads.lock().unwrap();
+    assert!(
+        !map.contains_key("old_thread"),
+        "thread older than TTL should be pruned"
+    );
+    assert!(
+        map.contains_key("recent_thread"),
+        "recent thread should survive pruning"
+    );
+}
+
+#[test]
+fn test_thread_track_ttl_is_24_hours() {
+    assert_eq!(
+        THREAD_TRACK_TTL,
+        std::time::Duration::from_secs(86400),
+        "thread tracking TTL should be 24 hours"
+    );
+}

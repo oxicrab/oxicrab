@@ -1,7 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use oxicrab_core::actions;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
 use serde_json::Value;
@@ -146,7 +148,7 @@ impl Tool for WeatherTool {
             subagent_access: SubagentAccess::ReadOnly,
             category: ToolCategory::Web,
             actions: actions![current: ro, forecast: ro],
-            ..Default::default()
+            concurrency: ToolConcurrency::ReadOnly,
         }
     }
 

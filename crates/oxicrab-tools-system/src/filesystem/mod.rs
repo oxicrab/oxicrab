@@ -4,7 +4,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use oxicrab_core::actions;
 use oxicrab_core::require_param;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -200,6 +202,7 @@ impl Tool for ReadFileTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![read: ro],
             category: ToolCategory::System,
+            concurrency: ToolConcurrency::ReadOnly,
             ..Default::default()
         }
     }
@@ -657,6 +660,7 @@ impl Tool for ListDirTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![list: ro],
             category: ToolCategory::System,
+            concurrency: ToolConcurrency::ReadOnly,
             ..Default::default()
         }
     }

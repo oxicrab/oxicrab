@@ -259,7 +259,7 @@
 
 <div class="page-header">
   <h1>Tool Reference</h1>
-  <p>29 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+  <p>30 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, result caching, and concurrency-classified parallel execution.</p>
 </div>
 
 <div class="content">
@@ -340,6 +340,23 @@
     <p>When <a href="config.html#operator-approval">operator approval</a> is enabled, mutating actions pause for an Approve/Deny button click before executing. Read-only actions always execute immediately.</p>
   </div>
 
+  <!-- ============ PARALLEL TOOL EXECUTION ============ -->
+  <div id="parallel-execution" class="tool-section" style="border-left: 3px solid var(--teal); margin-bottom: 2.5rem;">
+    <h2>Parallel Tool Execution</h2>
+    <p class="desc">When the LLM issues multiple tool calls in a single turn, oxicrab groups them into <strong>waves</strong> based on each tool's concurrency classification. Tools within the same wave execute concurrently; waves run in order.</p>
+
+    <table class="action-table">
+      <thead><tr><th>Concurrency</th><th>Behavior</th><th>Examples</th></tr></thead>
+      <tbody>
+        <tr><td>ReadOnly</td><td>Runs concurrently with other ReadOnly tools in the same wave</td><td>read_file, list_dir, web_search, memory_search, weather</td></tr>
+        <tr><td>SideEffect</td><td>Runs sequentially (one at a time), but can share a wave with ReadOnly tools that complete first</td><td>write_file, exec, google_mail (send), cron (add)</td></tr>
+        <tr><td>Exclusive</td><td>Runs alone in its own wave, no other tools execute concurrently</td><td>browser (navigate/eval)</td></tr>
+      </tbody>
+    </table>
+
+    <p>Each tool declares its concurrency level via the <code>concurrency</code> field on <code>ToolCapabilities</code>. The wave scheduler groups compatible calls and executes them with <code>tokio::join!</code> for maximum throughput while preserving safety for tools with side effects.</p>
+  </div>
+
   <!-- ============ CORE TOOLS ============ -->
   <div class="cat-header">Filesystem &amp; Shell</div>
 
@@ -391,7 +408,7 @@ enabled = true
 additionalReadPaths = ["/opt/data"]
 additionalWritePaths = ["/home/user/output"]
 blockNetwork = true</code></pre>
-    <p>The default allowlist includes 70+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Use <code>additionalAllowedCommands</code> to add commands without replacing defaults, or <code>allowedCommands</code> for a full override.</p>
+    <p>The default allowlist includes 70+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Use <code>additionalAllowedCommands</code> to add commands without replacing defaults, or <code>allowedCommands</code> for a full override. A startup warning is emitted when <code>allowedCommands</code> is empty (unrestricted shell access).</p>
     <p>Set <code>restrictToWorkspace: true</code> to restrict filesystem access to the workspace directory.</p>
     <p>The <code>sandbox</code> block controls kernel-level process sandboxing. On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code> (plus <code>/System</code>, <code>/Library</code>, <code>/opt/homebrew</code>, <code>/usr/local</code> on macOS). Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code> (plus <code>/private/tmp</code>, <code>/private/var/folders</code> on macOS). Use <code>additionalReadPaths</code>/<code>additionalWritePaths</code> to extend. Set <code>blockNetwork: false</code> to allow outbound connections from shell commands.</p>
   </div>

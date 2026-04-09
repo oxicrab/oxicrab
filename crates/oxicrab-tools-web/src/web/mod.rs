@@ -5,7 +5,9 @@ use anyhow::Context;
 use anyhow::Result;
 use async_trait::async_trait;
 use oxicrab_core::actions;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -143,7 +145,7 @@ impl Tool for WebSearchTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![search: ro],
             category: ToolCategory::Web,
-            ..Default::default()
+            concurrency: ToolConcurrency::ReadOnly,
         }
     }
 
@@ -394,7 +396,7 @@ impl Tool for WebFetchTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![fetch: ro],
             category: ToolCategory::Web,
-            ..Default::default()
+            concurrency: ToolConcurrency::ReadOnly,
         }
     }
 
