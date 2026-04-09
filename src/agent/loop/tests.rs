@@ -1048,157 +1048,6 @@ fn test_load_and_encode_images_rejects_fake_pdf() {
     assert!(images.is_empty(), "should reject non-PDF content");
 }
 
-// --- handle_text_response tests ---
-
-#[test]
-fn test_conversational_reply_passes_through() {
-    // Short conversational replies should be returned as-is (not flagged as hallucination)
-    let tool_names = vec!["memory_search".to_string(), "cron".to_string()];
-    let mut messages = vec![];
-    let mut layer1_fired = false;
-
-    let cases = [
-        "Sure, I'll do that now.",
-        "Sounds good!",
-        "The first option, please.",
-        "Yes",
-        "No, let's skip that.",
-    ];
-    for reply in cases {
-        let result = hallucination::handle_text_response(
-            reply,
-            &mut messages,
-            false,
-            &mut layer1_fired,
-            &tool_names,
-        );
-        assert!(
-            matches!(result, TextAction::Return),
-            "conversational reply '{reply}' should pass through"
-        );
-    }
-}
-
-#[test]
-fn test_action_hallucination_caught_without_tool_forcing() {
-    // Action claims should be caught by hallucination detection (tool_choice is always auto)
-    let tool_names = vec!["write_file".to_string()];
-    let mut messages = vec![];
-    let mut layer1_fired = false;
-
-    let result = hallucination::handle_text_response(
-        "I've updated the configuration file.",
-        &mut messages,
-        false,
-        &mut layer1_fired,
-        &tool_names,
-    );
-    assert!(
-        matches!(result, TextAction::Continue),
-        "action claim should trigger correction"
-    );
-    assert!(layer1_fired);
-}
-
-#[test]
-fn test_action_hallucination_not_repeated_after_l1_correction() {
-    // After layer1_fired, a second action claim should pass through (single retry exhausted)
-    let tool_names = vec!["write_file".to_string()];
-    let mut messages = vec![];
-    let mut layer1_fired = true; // L1 already corrected
-
-    let result = hallucination::handle_text_response(
-        "I've written the new module.",
-        &mut messages,
-        false,
-        &mut layer1_fired,
-        &tool_names,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "after L1 correction, text should pass through"
-    );
-}
-
-#[test]
-fn test_legitimate_tool_response_passes_through() {
-    // After tools were actually called, action claims pass through (not a hallucination)
-    let tool_names = vec!["write_file".to_string()];
-    let mut messages = vec![];
-    let mut layer1_fired = false;
-
-    let result = hallucination::handle_text_response(
-        "I've updated the configuration file.",
-        &mut messages,
-        true, // tools were called
-        &mut layer1_fired,
-        &tool_names,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "after real tool calls, text should pass through"
-    );
-}
-
-#[test]
-fn test_text_after_tools_called_passes_action_claims() {
-    // After tools have been called (any_tools_called=true), text claiming actions
-    // should pass through since the model actually DID call the tools
-    let tool_names = vec![
-        "exec".to_string(),
-        "read_file".to_string(),
-        "write_file".to_string(),
-    ];
-    let mut messages = vec![];
-    let mut layer1_fired = false;
-
-    let claims = [
-        "I've updated the configuration file.",
-        "I've created a new module for the project.",
-        "Changes have been applied successfully.",
-        "I've executed the commands.",
-        "All tests passed.",
-    ];
-    for claim in claims {
-        let result = hallucination::handle_text_response(
-            claim,
-            &mut messages,
-            true, // tools WERE called
-            &mut layer1_fired,
-            &tool_names,
-        );
-        assert!(
-            matches!(result, TextAction::Return),
-            "claim '{claim}' should pass through after tools were called"
-        );
-        assert!(
-            !layer1_fired,
-            "correction should not be sent after real tool use"
-        );
-    }
-}
-
-#[test]
-fn test_empty_tool_names_disables_hallucination_check() {
-    // When no tools are registered, hallucination detection should not fire
-    let tool_names: Vec<String> = vec![];
-    let mut messages = vec![];
-    let mut layer1_fired = false;
-
-    let result = hallucination::handle_text_response(
-        "I've updated the configuration file.",
-        &mut messages,
-        false,
-        &mut layer1_fired,
-        &tool_names,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "action claim should pass through when no tools are registered"
-    );
-    assert!(!layer1_fired);
-}
-
 // --- Media cleanup tests ---
 
 #[test]
@@ -1604,17 +1453,33 @@ fn test_coalesce_messages_joins_content() {
 }
 
 #[test]
-fn test_coalesce_messages_uses_last_metadata() {
+fn test_coalesce_messages_merges_metadata() {
     let m1 = InboundMessage::builder("slack", "user1", "ch1", "first")
         .meta("key".to_string(), serde_json::json!("val1"))
+        .meta("only_in_m1".to_string(), serde_json::json!(true))
         .build();
     let m2 = InboundMessage::builder("slack", "user2", "ch1", "second")
         .meta("key".to_string(), serde_json::json!("val2"))
         .build();
     let result = AgentLoop::coalesce_messages(vec![m1, m2]);
     assert_eq!(result.content, "first\nsecond");
+    // Later metadata values win on conflict
     assert_eq!(result.metadata["key"], serde_json::json!("val2"));
+    // Earlier-only keys are preserved
+    assert_eq!(result.metadata["only_in_m1"], serde_json::json!(true));
     assert_eq!(result.sender_id, "user2");
+}
+
+#[test]
+fn test_coalesce_messages_merges_media() {
+    let m1 = InboundMessage::builder("slack", "user1", "ch1", "file A")
+        .media(vec!["/tmp/a.pdf".to_string()])
+        .build();
+    let m2 = InboundMessage::builder("slack", "user1", "ch1", "file B")
+        .media(vec!["/tmp/b.jpg".to_string()])
+        .build();
+    let result = AgentLoop::coalesce_messages(vec![m1, m2]);
+    assert_eq!(result.media, vec!["/tmp/a.pdf", "/tmp/b.jpg"]);
 }
 
 #[test]

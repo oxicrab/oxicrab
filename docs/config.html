@@ -562,9 +562,10 @@ format = "json"</code></pre>
         <h3>Agent Loop Behavior</h3>
         <p>The agent loop includes several automatic behaviors that do not require configuration:</p>
         <ul class="plain">
-            <li><strong>Auto-continue</strong> &mdash; when the agent stops mid-task after 3+ tool calls with iteration budget remaining, it automatically re-prompts to continue (up to 2 times). Prevents incomplete multi-step workflows.</li>
-            <li><strong>Pre-flight token estimation</strong> &mdash; before each LLM call, estimates tokens from message characters (chars / 4). If the estimate exceeds 80% of the compaction threshold, trims oldest messages. Prevents wasted API calls on oversized contexts.</li>
-            <li><strong>Per-session message queuing</strong> &mdash; messages arriving during an active agent run are queued (max 10 per session) and coalesced into one turn when the current run completes. No acknowledgment is sent for queued messages.</li>
+            <li><strong>Pre-flight token estimation</strong> &mdash; before each LLM call, estimates tokens from message characters and reasoning content (chars / 4). If the estimate exceeds 80% of the compaction threshold, trims oldest messages. Prevents wasted API calls on oversized contexts.</li>
+            <li><strong>Per-session message queuing</strong> &mdash; messages arriving during an active agent run are queued (max 10 per session) and coalesced into one turn when the current run completes. Coalescing merges content, media, metadata, and action dispatches from all queued messages. No acknowledgment is sent for queued messages.</li>
+            <li><strong>Daily session rotation</strong> &mdash; sessions are automatically rotated at UTC day boundaries. Long-term context is preserved in the memory database via per-turn extraction.</li>
+            <li><strong>Session reset</strong> &mdash; users can send &ldquo;reset&rdquo;, &ldquo;clear history&rdquo;, &ldquo;new session&rdquo;, or &ldquo;start over&rdquo; to immediately clear their session.</li>
         </ul>
 
         <h3>Workspace TTL</h3>

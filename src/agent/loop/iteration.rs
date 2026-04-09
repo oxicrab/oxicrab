@@ -1,5 +1,4 @@
 use super::config::{AgentLoopResult, AgentRunOverrides};
-use super::hallucination::{self, TextAction};
 use super::{
     AgentLoop, CHARS_PER_TOKEN_ESTIMATE, EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS,
     MIN_WRAPUP_ITERATION, PREFLIGHT_COMPACTION_RATIO, RETRY_BACKOFF_BASE, WRAPUP_THRESHOLD_RATIO,
@@ -48,6 +47,14 @@ pub(super) fn classify_tool_call_concurrency(
             .unwrap_or("");
         let is_readonly = if action_name.is_empty() && caps.actions.len() == 1 {
             caps.actions[0].read_only
+        } else if action_name.is_empty() && caps.actions.len() > 1 {
+            debug!(
+                "tool '{}' called without action param but has {} action descriptors, \
+                 defaulting to SideEffect",
+                tc.name,
+                caps.actions.len()
+            );
+            false
         } else {
             caps.actions
                 .iter()
@@ -118,7 +125,6 @@ impl AgentLoop {
             .unwrap_or_else(|| format!("run-{}", fastrand::u64(..)));
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
-        let mut layer1_fired = false;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -174,14 +180,25 @@ impl AgentLoop {
             // estimated token count exceeds 80% of the compaction threshold.
             // Prevents wasted API calls that would fail with context-length errors.
             if self.compaction_config.enabled && self.compaction_config.threshold_tokens > 0 {
-                let msg_chars: usize = messages.iter().map(|m| m.content.len()).sum();
-                let tool_def_chars: usize = tools_arc.iter().map(|td| {
-                    td.name.len() + td.description.len() + td.parameters.to_string().len()
-                }).sum();
+                let msg_chars: usize = messages
+                    .iter()
+                    .map(|m| {
+                        let mut chars = m.content.chars().count();
+                        if let Some(ref rc) = m.reasoning_content {
+                            chars += rc.chars().count();
+                        }
+                        chars
+                    })
+                    .sum();
+                let tool_def_chars: usize = tools_arc
+                    .iter()
+                    .map(|td| {
+                        td.name.len() + td.description.len() + td.parameters.to_string().len()
+                    })
+                    .sum();
                 let estimated_tokens =
                     (msg_chars + tool_def_chars) / CHARS_PER_TOKEN_ESTIMATE;
-                let context_limit =
-                    self.compaction_config.threshold_tokens as usize;
+                let context_limit = self.compaction_config.threshold_tokens as usize;
                 let threshold = context_limit * PREFLIGHT_COMPACTION_RATIO / 5;
                 if estimated_tokens > threshold {
                     debug!(
@@ -195,13 +212,18 @@ impl AgentLoop {
                     while messages.len() > 2 {
                         let recalc: usize = messages
                             .iter()
-                            .map(|m| m.content.len())
+                            .map(|m| {
+                                let mut chars = m.content.chars().count();
+                                if let Some(ref rc) = m.reasoning_content {
+                                    chars += rc.chars().count();
+                                }
+                                chars
+                            })
                             .sum::<usize>()
                             / CHARS_PER_TOKEN_ESTIMATE;
                         if recalc + tool_tokens <= threshold {
                             break;
                         }
-                        // Remove the first non-system message
                         if messages.get(1).is_some_and(|m| m.role != "system") {
                             messages.remove(1);
                         } else {
@@ -302,48 +324,28 @@ impl AgentLoop {
                     }
                 }
             } else if let Some(content) = response.content {
-                match hallucination::handle_text_response(
-                    &content,
-                    &mut messages,
-                    any_tools_called,
-                    &mut layer1_fired,
-                    &tool_names,
-                ) {
-                    TextAction::Continue => {}
-                    TextAction::Return => {
-                        if layer1_fired {
-                            if any_tools_called || !hallucination::contains_action_claims(&content)
-                            {
-                                hallucination::record_retry_success();
-                            } else {
-                                hallucination::record_retry_failure();
-                            }
-                        }
-
-                        let content = strip_think_tags(&content);
-                        let content = prepend_display_text(
-                            content,
-                            &collected_tool_metadata,
-                            Some(&self.leak_detector),
-                            self.prompt_guard
-                                .as_ref()
-                                .map(|g| (g, &self.prompt_guard_config)),
-                        );
-                        let mut response_metadata =
-                            self.take_pending_buttons_metadata(&activation_scope);
-                        merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
-                        return Ok(AgentLoopResult {
-                            content: Some(content),
-                            input_tokens: last_input_tokens,
-                            tools_used,
-                            media: collected_media,
-                            reasoning_content: response.reasoning_content,
-                            reasoning_signature: response.reasoning_signature,
-                            response_metadata,
-                            tool_metadata: collected_tool_metadata,
-                        });
-                    }
-                }
+                let content = strip_think_tags(&content);
+                let content = prepend_display_text(
+                    content,
+                    &collected_tool_metadata,
+                    Some(&self.leak_detector),
+                    self.prompt_guard
+                        .as_ref()
+                        .map(|g| (g, &self.prompt_guard_config)),
+                );
+                let mut response_metadata =
+                    self.take_pending_buttons_metadata(&activation_scope);
+                merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
+                return Ok(AgentLoopResult {
+                    content: Some(content),
+                    input_tokens: last_input_tokens,
+                    tools_used,
+                    media: collected_media,
+                    reasoning_content: response.reasoning_content,
+                    reasoning_signature: response.reasoning_signature,
+                    response_metadata,
+                    tool_metadata: collected_tool_metadata,
+                });
             } else {
                 // Empty response
                 if empty_retries_left > 0 {

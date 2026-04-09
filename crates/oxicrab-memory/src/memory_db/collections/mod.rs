@@ -299,6 +299,19 @@ fn validate_record_data(
     Ok(serde_json::Value::Object(coerced))
 }
 
+/// Build a safe `json_extract` path from a validated field name.
+///
+/// Field names are validated at schema creation to be `[a-zA-Z][a-zA-Z0-9_]*`,
+/// but this function adds a defense-in-depth check to ensure no SQL/JSON path
+/// injection is possible even if validation is relaxed in the future.
+fn safe_json_path(field: &str) -> String {
+    debug_assert!(
+        !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        "field name contains characters unsafe for json_extract path: {field}"
+    );
+    format!("$.{field}")
+}
+
 fn build_filter_clause(
     filters: &[RecordFilter],
     schema: &CollectionSchema,
@@ -317,7 +330,7 @@ fn build_filter_clause(
             .find(|f| f.name == filter.field)
             .ok_or_else(|| anyhow::anyhow!("filter field '{}' not in schema", filter.field))?;
 
-        let json_path = format!("$.{}", filter.field);
+        let json_path = safe_json_path(&filter.field);
 
         // Handle NULL values: SQL `= NULL` is always false, use IS NULL / IS NOT NULL
         if filter.value.is_null() {
@@ -880,7 +893,7 @@ impl MemoryDB {
         let (where_clause, mut bind_values) = build_filter_clause(filters, &schema)?;
 
         let base_idx = bind_values.len() + 1;
-        let field_path = format!("$.{}", request.field);
+        let field_path = safe_json_path(&request.field);
 
         let agg_expr = match request.function {
             AggFunction::Count => format!("COUNT(json_extract(data_json, '{field_path}'))"),
@@ -895,7 +908,7 @@ impl MemoryDB {
         };
 
         let (group_select, group_by_clause) = if let Some(ref group_by) = request.group_by {
-            let gp = format!("$.{group_by}");
+            let gp = safe_json_path(group_by);
             (
                 format!(", json_extract(data_json, '{gp}') AS group_val"),
                 format!(" GROUP BY json_extract(data_json, '{gp}')"),

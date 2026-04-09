@@ -1,7 +1,6 @@
 mod compaction_history;
 mod complexity;
 pub mod config;
-mod hallucination;
 mod helpers;
 mod iteration;
 mod metadata;
@@ -87,9 +86,6 @@ struct SessionCompactionState {
     cognitive_breadcrumb: Option<String>,
     checkpoint_handle: Option<tokio::task::JoinHandle<()>>,
 }
-
-#[cfg(test)]
-use hallucination::TextAction;
 
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
@@ -769,7 +765,8 @@ impl AgentLoop {
     }
 
     /// Coalesce multiple pending messages into a single `InboundMessage`.
-    /// Uses the last message's metadata/media and joins content with newlines.
+    /// Joins content with newlines, merges media and metadata from all
+    /// messages, and preserves the first non-None action dispatch.
     fn coalesce_messages(messages: Vec<InboundMessage>) -> InboundMessage {
         debug_assert!(!messages.is_empty());
         let content = messages
@@ -777,8 +774,28 @@ impl AgentLoop {
             .map(|m| m.content.as_str())
             .collect::<Vec<_>>()
             .join("\n");
+
+        let mut merged_media: Vec<String> = Vec::new();
+        let mut merged_metadata = std::collections::HashMap::new();
+        let mut first_action = None;
+
+        for msg in &messages {
+            merged_media.extend(msg.media.iter().cloned());
+            for (k, v) in &msg.metadata {
+                merged_metadata.insert(k.clone(), v.clone());
+            }
+            if first_action.is_none() && msg.action.is_some() {
+                first_action.clone_from(&msg.action);
+            }
+        }
+
         let mut coalesced = messages.into_iter().last().expect("non-empty vec");
         coalesced.content = content;
+        coalesced.media = merged_media;
+        coalesced.metadata = merged_metadata;
+        if first_action.is_some() {
+            coalesced.action = first_action;
+        }
         coalesced
     }
 

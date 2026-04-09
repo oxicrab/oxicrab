@@ -538,14 +538,16 @@ async fn setup_cron_callbacks(
                 }
             }
 
-            // Persist trace (fire-and-forget on blocking thread)
+            // Persist trace (awaited to ensure it's saved before returning)
             let db_trace = db.clone();
             let trace_clone = trace.clone();
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = db_trace.insert_cron_trace(&trace_clone) {
-                    warn!("failed to save cron trace {}: {}", trace_clone.id, e);
-                }
-            });
+            if let Err(e) =
+                tokio::task::spawn_blocking(move || db_trace.insert_cron_trace(&trace_clone))
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!("trace write task panicked: {e}")))
+            {
+                warn!("failed to save cron trace {}: {}", trace.id, e);
+            }
 
             result
         })

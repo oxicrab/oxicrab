@@ -368,6 +368,25 @@ impl CronService {
                         }
                         _ => {}
                     }
+                    // Also purge old execution traces during the same interval
+                    let db = service.db.clone();
+                    let trace_purged =
+                        tokio::task::spawn_blocking(move || db.purge_old_cron_traces(200))
+                            .await
+                            .unwrap_or_else(|e| {
+                                warn!("cron: spawn_blocking failed: {e}");
+                                Ok(0)
+                            });
+                    match trace_purged {
+                        Ok(n) if n > 0 => {
+                            info!("purged {} old cron execution traces", n);
+                        }
+                        Err(e) => {
+                            warn!("failed to purge old cron traces: {}", e);
+                        }
+                        _ => {}
+                    }
+
                     last_prune_ms = now;
                 }
 
