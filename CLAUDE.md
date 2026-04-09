@@ -46,10 +46,8 @@ cargo test -- --test-threads=1
 Integration tests need `OXICRAB_HOME` set to a temp directory (CI uses `$RUNNER_TEMP/oxicrab-test`). Tests use `MockLLMProvider` from `tests/common/mod.rs` and `TempDir` for isolation.
 
 ```bash
-# Fuzz testing (requires cargo-fuzz)
-cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
-cargo fuzz run fuzz_config_parse -- -max_total_time=30
-# Targets: fuzz_webhook_signature, fuzz_config_parse, fuzz_prompt_guard, fuzz_leak_detector, fuzz_url_validation
+# Property-based security tests (runs with normal test suite)
+cargo test --test property_security -- --test-threads=1
 ```
 
 ## Linting
@@ -245,7 +243,7 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
 - **Remember fast path**: `crates/oxicrab-memory/src/remember/mod.rs`. Six trigger patterns (case-insensitive): "remember that ", "remember: ", "please remember ", "don't forget ", "note that ", "keep in mind ". Bypasses LLM entirely — writes directly to daily notes. Rejects: content < 8 chars, questions ending with `?`, interrogative forms (when/how/what/why/if/whether). Two-layer deduplication: Jaccard word similarity (threshold 0.7) against recent DB entries, then embedding cosine similarity (threshold 0.85) via `MemoryStore::is_semantically_duplicate()` when embeddings are available. Classified by `MessageRouter::route()` at priority 6 and dispatched via `handle_direct_dispatch()`.
 - **Memory quality gates**: `crates/oxicrab-memory/src/quality/mod.rs`. `check_quality()` returns `QualityVerdict`: `Pass`, `Reframed(String)`, or `Reject(RejectReason)`. Rejects greetings/filler (exact match after punctuation stripping, ~45 patterns), content < 15 chars. Reframes negative memories ("was broken", "crashed", etc.) unless they already contain constructive markers ("fixed by", "workaround:", "TODO:"). `filter_lines()` applies quality gates per-line for multi-line LLM output. Integrated in `try_remember_fast_path()` and pre-compaction flush.
 - **Echo gateway mode**: `oxicrab gateway --echo` starts all channels and HTTP API without an LLM provider. Responds with `[echo] channel={} | sender={} | message: {}` format. Useful for testing channel connectivity. A2A is not available in echo mode.
-- **Fuzz testing**: `fuzz/` directory with 5 `cargo-fuzz` targets: `fuzz_webhook_signature`, `fuzz_config_parse`, `fuzz_prompt_guard`, `fuzz_leak_detector`, `fuzz_url_validation`. Run with `cargo fuzz run <target> -- -max_total_time=30`. CI has both informational fuzz jobs and a gating `fuzz-security` job for the security-critical targets (`fuzz_webhook_signature`, `fuzz_leak_detector`, `fuzz_url_validation`). `pub mod fuzz_api` in `src/lib.rs` re-exports `validate_and_resolve` and `validate_webhook_signature` for fuzz access — this module is `#[doc(hidden)]` and not public API.
+- **Property-based security tests**: `tests/property_security.rs` uses `proptest` to exercise security-critical functions with random inputs: webhook signature validation, config parsing, prompt guard, leak detection, URL validation, and router. Runs as part of the normal integration test suite via nextest archive (no nightly required). `pub mod fuzz_api` in `src/lib.rs` re-exports `validate_and_resolve` and `validate_webhook_signature` — this module is `#[doc(hidden)]` and not public API.
 - **Daily session rotation**: `SessionManager::get_or_create()` checks `created_at.date_naive()` against today's UTC date. Sessions from a previous calendar day are automatically deleted and replaced with a fresh empty session. This prevents compaction summary drift and session history poisoning across days. Long-term context is preserved in the memory DB via per-turn extraction.
 - **Session reset command**: Users can send "reset", "clear history", "new session", or "start over" (case-insensitive, exact match after trim) to immediately delete their session and start fresh. Detected in `process_message_unlocked()` before session loading. Returns a confirmation message without invoking the LLM. `is_reset_command()` in `processing.rs`.
 - **Session delete**: `SessionStore` trait has `delete(key)` method. `SessionManager::delete()` removes from both SQLite and LRU cache. `MemoryDB::delete_session()` handles the database layer.
