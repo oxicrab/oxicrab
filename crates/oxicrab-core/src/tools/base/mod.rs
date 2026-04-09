@@ -227,6 +227,24 @@ pub enum ToolCategory {
     System,
 }
 
+/// Concurrency classification for wave-based parallel tool execution.
+///
+/// When the LLM requests multiple tool calls in a single turn, oxicrab
+/// partitions them into "waves" based on this classification:
+/// - `ReadOnly` tools in the same wave run concurrently via `join_all`.
+/// - `SideEffect` tools run sequentially within their wave.
+/// - `Exclusive` tools run alone in their own wave.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolConcurrency {
+    /// Can run concurrently with other ReadOnly tools
+    ReadOnly,
+    /// Mutates state but doesn't conflict — runs sequentially
+    #[default]
+    SideEffect,
+    /// Needs exclusive access — runs alone in its own wave
+    Exclusive,
+}
+
 /// How a tool should be exposed in subagent contexts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentAccess {
@@ -264,6 +282,10 @@ pub struct ToolCapabilities {
     pub actions: Vec<ActionDescriptor>,
     /// Functional category for pre-filtering. Defaults to `Core`.
     pub category: ToolCategory,
+    /// Concurrency classification for wave-based parallel execution.
+    /// Defaults to `SideEffect`. Override to `Exclusive` for tools
+    /// that need exclusive access (shell, tmux).
+    pub concurrency: ToolConcurrency,
 }
 
 impl Default for ToolCapabilities {
@@ -274,6 +296,7 @@ impl Default for ToolCapabilities {
             subagent_access: SubagentAccess::Denied,
             actions: vec![],
             category: ToolCategory::Core,
+            concurrency: ToolConcurrency::default(),
         }
     }
 }

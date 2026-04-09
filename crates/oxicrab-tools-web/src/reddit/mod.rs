@@ -215,6 +215,7 @@ impl Tool for RedditTool {
                 },
             ],
             category: ToolCategory::Productivity,
+            ..Default::default()
         }
     }
 

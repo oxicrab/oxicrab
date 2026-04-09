@@ -164,4 +164,5 @@ fn test_exec_capabilities() {
     assert_eq!(caps.actions.len(), 1);
     assert_eq!(caps.actions[0].name, "execute");
     assert!(!caps.actions[0].read_only);
+    assert_eq!(caps.concurrency, ToolConcurrency::Exclusive);
 }

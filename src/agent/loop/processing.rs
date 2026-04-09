@@ -651,13 +651,13 @@ impl AgentLoop {
         // but we modify the origin session "{origin_channel}:{origin_chat_id}".
         // Use try_lock first to avoid potential ABBA deadlock when two system
         // messages with crossed targets arrive simultaneously.
-        let target_lock = self.session_lock(&session_key);
-        let _target_guard = if let Ok(guard) = target_lock.try_lock() {
+        let target_state = self.session_state(&session_key);
+        let _target_guard = if let Ok(guard) = target_state.processing.try_lock() {
             guard
         } else {
             warn!("could not acquire origin session lock for system message, retrying");
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            target_lock.lock().await
+            target_state.processing.lock().await
         };
         let session = self.sessions.get_or_create(&session_key).await?;
         let request_id = format!("req-{}", Uuid::new_v4());
@@ -1479,8 +1479,8 @@ impl AgentLoop {
     ) -> Result<super::config::DirectResult> {
         // Acquire per-session lock to serialize access to the session being modified.
         let lock_key = session_key.to_string();
-        let lock = self.session_lock(&lock_key);
-        let _guard = lock.lock().await;
+        let state = self.session_state(&lock_key);
+        let _guard = state.processing.lock().await;
 
         // Inbound secret scanning for direct calls (cron, subagents)
         let redacted_content: Option<String> = {

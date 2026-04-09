@@ -146,6 +146,7 @@ impl Tool for WeatherTool {
             subagent_access: SubagentAccess::ReadOnly,
             category: ToolCategory::Web,
             actions: actions![current: ro, forecast: ro],
+            ..Default::default()
         }
     }
 

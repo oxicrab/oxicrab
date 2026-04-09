@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use oxicrab_core::actions;
 use oxicrab_core::config::schema::{AllowedCommands, SandboxConfig};
 use oxicrab_core::require_param;
-use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use regex::Regex;
 use serde_json::Value;
@@ -312,6 +314,7 @@ impl Tool for ExecTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![execute],
             category: ToolCategory::System,
+            concurrency: ToolConcurrency::Exclusive,
             ..Default::default()
         }
     }

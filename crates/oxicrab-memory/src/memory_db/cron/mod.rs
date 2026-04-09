@@ -366,7 +366,7 @@ impl MemoryDB {
                 last_status = 'running', last_error = NULL,
                 run_count = run_count + 1,
                 next_run_at_ms = ?1, last_run_at_ms = ?2, updated_at_ms = ?3
-             WHERE id = ?4",
+             WHERE id = ?4 AND (last_status IS NULL OR last_status != 'running')",
             params![next_run_at_ms, last_run_at_ms, updated_at_ms, id],
         )?;
         Ok(updated > 0)

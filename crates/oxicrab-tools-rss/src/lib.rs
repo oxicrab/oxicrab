@@ -122,6 +122,7 @@ impl Tool for RssTool {
                 done: ro,
             ],
             category: ToolCategory::Web,
+            ..Default::default()
         }
     }
 

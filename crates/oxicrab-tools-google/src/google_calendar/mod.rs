@@ -69,6 +69,7 @@ impl Tool for GoogleCalendarTool {
                 list_calendars: ro,
             ],
             category: ToolCategory::Scheduling,
+            ..Default::default()
         }
     }
 

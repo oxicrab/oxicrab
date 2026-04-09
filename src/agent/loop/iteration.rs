@@ -1,7 +1,8 @@
 use super::config::{AgentLoopResult, AgentRunOverrides};
 use super::hallucination::{self, TextAction};
 use super::{
-    AgentLoop, EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS, MIN_WRAPUP_ITERATION,
+    AUTO_CONTINUE_MAX, AUTO_CONTINUE_MIN_TOOL_CALLS, AgentLoop, CHARS_PER_TOKEN_ESTIMATE,
+    EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS, MIN_WRAPUP_ITERATION, PREFLIGHT_COMPACTION_RATIO,
     RETRY_BACKOFF_BASE, WRAPUP_THRESHOLD_RATIO,
 };
 use crate::agent::cognitive::CheckpointTracker;
@@ -52,6 +53,8 @@ impl AgentLoop {
         let mut collected_tool_metadata: Vec<(String, HashMap<String, serde_json::Value>)> =
             Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
+        let mut total_tool_calls: usize = 0;
+        let mut auto_continue_count: usize = 0;
 
         // Clear request-scoped deferred tool activations from previous retries/reuse.
         self.tool_search_activated.clear(&activation_scope).await;
@@ -97,6 +100,46 @@ impl AgentLoop {
             // in handle_text_response() catches false action claims as a safety net.
             let tool_choice: Option<String> = None;
 
+            // Pre-flight token estimation: trim oldest non-system messages if
+            // estimated token count exceeds 80% of the compaction threshold.
+            // Prevents wasted API calls that would fail with context-length errors.
+            if self.compaction_config.threshold_tokens > 0 {
+                let msg_chars: usize = messages.iter().map(|m| m.content.len()).sum();
+                let tool_def_chars: usize = tools_arc.iter().map(|td| {
+                    td.name.len() + td.description.len() + td.parameters.to_string().len()
+                }).sum();
+                let estimated_tokens =
+                    (msg_chars + tool_def_chars) / CHARS_PER_TOKEN_ESTIMATE;
+                let context_limit =
+                    self.compaction_config.threshold_tokens as usize;
+                let threshold = context_limit * PREFLIGHT_COMPACTION_RATIO / 5;
+                if estimated_tokens > threshold {
+                    debug!(
+                        "pre-flight: estimated {} tokens exceeds 80% of {} limit, \
+                         trimming oldest messages",
+                        estimated_tokens, context_limit
+                    );
+                    // Drop oldest non-system messages until under threshold.
+                    // Keep system prompt (index 0) and the most recent messages.
+                    while messages.len() > 2 {
+                        let recalc: usize = messages
+                            .iter()
+                            .map(|m| m.content.len())
+                            .sum::<usize>()
+                            / CHARS_PER_TOKEN_ESTIMATE;
+                        if recalc <= threshold {
+                            break;
+                        }
+                        // Remove the first non-system message
+                        if messages.get(1).is_some_and(|m| m.role != "system") {
+                            messages.remove(1);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
             // Clone needed: messages is mutated after the call (tool results appended),
             // and ChatRequest takes ownership. Cost is negligible vs. the API round-trip.
             let response = super::model_gateway::ModelGateway::invoke(
@@ -129,6 +172,7 @@ impl AgentLoop {
 
             if response.has_tool_calls() {
                 any_tools_called = true;
+                total_tool_calls += response.tool_calls.len();
                 tools_used.extend(response.tool_calls.iter().map(|tc| tc.name.clone()));
                 ContextBuilder::add_assistant_message(
                     &mut messages,
@@ -205,6 +249,37 @@ impl AgentLoop {
                                 hallucination::record_retry_failure();
                             }
                         }
+
+                        // Auto-continue: if the LLM stopped mid-task after
+                        // significant tool use and we have budget remaining,
+                        // re-prompt to finish the work.
+                        if total_tool_calls >= AUTO_CONTINUE_MIN_TOOL_CALLS
+                            && auto_continue_count < AUTO_CONTINUE_MAX
+                            && iteration < effective_max_iterations - 1
+                        {
+                            auto_continue_count += 1;
+                            debug!(
+                                "auto-continue {}/{}: LLM returned text after {} tool calls, \
+                                 re-prompting",
+                                auto_continue_count, AUTO_CONTINUE_MAX, total_tool_calls
+                            );
+                            ContextBuilder::add_assistant_message(
+                                &mut messages,
+                                Some(&content),
+                                None,
+                                response.reasoning_content.as_deref(),
+                                response.reasoning_signature.as_deref(),
+                                response.redacted_thinking_blocks.clone(),
+                            );
+                            messages.push(Message::user(
+                                "You stopped mid-task after using tools. \
+                                 Continue with the remaining work, or if \
+                                 you're done, provide your final response."
+                                    .to_string(),
+                            ));
+                            continue;
+                        }
+
                         let content = strip_think_tags(&content);
                         let content = prepend_display_text(
                             content,
@@ -437,7 +512,17 @@ impl AgentLoop {
         }
     }
 
-    /// Execute tool calls — single-tool fast-path or parallel `spawn`+`join_all`.
+    /// Execute tool calls using wave-based concurrency.
+    ///
+    /// Tool calls are partitioned into waves based on their concurrency
+    /// classification:
+    /// - `ReadOnly` calls (action is `read_only`) are batched together
+    ///   and run concurrently via `spawn` + `join_all`.
+    /// - `SideEffect` calls break the current wave and run sequentially.
+    /// - `Exclusive` calls (shell, tmux) always run alone in their own wave.
+    ///
+    /// Results are collected in the original tool call order regardless of
+    /// execution order within waves.
     async fn execute_tools(
         &self,
         tool_calls: &[ToolCallRequest],
@@ -446,6 +531,8 @@ impl AgentLoop {
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
         routing_policy: Option<&crate::router::RoutingPolicy>,
     ) -> Vec<ToolResult> {
+        use crate::agent::tools::base::ToolConcurrency;
+
         let allow_tools: Option<crate::config::DenyByDefaultList> =
             exfil_guard.map(|g| g.allow_tools.clone());
         let router_allow: Option<std::collections::HashSet<String>> =
@@ -472,6 +559,8 @@ impl AgentLoop {
             .and_then(|v| v.as_str())
             .unwrap_or(&exec_ctx.channel)
             .to_string();
+
+        // Single tool call: skip wave partitioning overhead
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
             if blocked_by_router(&tc.name) {
@@ -481,7 +570,7 @@ impl AgentLoop {
                     tc.name
                 ))];
             }
-            vec![
+            return vec![
                 execute_tool_call(
                     &self.tools,
                     &tc.name,
@@ -501,68 +590,206 @@ impl AgentLoop {
                     }),
                 )
                 .await,
-            ]
-        } else {
-            let shared_names: Arc<Vec<String>> = Arc::from(tool_names.to_vec());
-            let handles: Vec<_> = tool_calls
-                .iter()
-                .map(|tc| {
-                    let registry = self.tools.clone();
-                    let tc_name = tc.name.clone();
-                    let tc_args = tc.arguments.clone();
-                    let available = shared_names.clone();
-                    let ctx = exec_ctx.clone();
-                    let allow = allow_tools.clone();
-                    let ws = self.workspace.clone();
-                    let blocked = blocked_by_router(&tc_name);
-                    let a_store = approval_store.clone();
-                    let a_config = approval_config.clone();
-                    let a_tx = approval_tx.clone();
-                    let a_channel = exec_channel.clone();
-                    let a_chat_id = exec_chat_id.clone();
-                    let a_sender_id = exec_sender_id.clone();
-                    let a_leak = self.leak_detector.clone();
-                    tokio::task::spawn(async move {
-                        if blocked {
-                            crate::router::metrics::record_blocked_tool_attempt();
-                            return ToolResult::error(format!(
-                                "Tool '{tc_name}' is not allowed in this routed turn."
-                            ));
+            ];
+        }
+
+        // Classify each tool call's effective concurrency
+        let classifications: Vec<ToolConcurrency> = tool_calls
+            .iter()
+            .map(|tc| self.classify_tool_call_concurrency(tc))
+            .collect();
+
+        // Partition into waves: consecutive ReadOnly calls form a parallel
+        // wave; SideEffect calls form single-item sequential waves;
+        // Exclusive calls always get their own wave.
+        let mut waves: Vec<Vec<usize>> = Vec::new();
+        let mut current_readonly_wave: Vec<usize> = Vec::new();
+
+        for (i, class) in classifications.iter().enumerate() {
+            match class {
+                ToolConcurrency::Exclusive | ToolConcurrency::SideEffect => {
+                    if !current_readonly_wave.is_empty() {
+                        waves.push(std::mem::take(&mut current_readonly_wave));
+                    }
+                    waves.push(vec![i]);
+                }
+                ToolConcurrency::ReadOnly => {
+                    current_readonly_wave.push(i);
+                }
+            }
+        }
+        if !current_readonly_wave.is_empty() {
+            waves.push(current_readonly_wave);
+        }
+
+        let wave_count = waves.len();
+        let parallel_waves = waves.iter().filter(|w| w.len() > 1).count();
+        if parallel_waves > 0 {
+            debug!(
+                "wave execution: {} tool call(s) in {} wave(s), {} parallel",
+                tool_calls.len(),
+                wave_count,
+                parallel_waves
+            );
+        }
+
+        // Pre-allocate results with placeholders, indexed by original position
+        let mut results: Vec<Option<ToolResult>> = (0..tool_calls.len()).map(|_| None).collect();
+
+        // Execute each wave
+        let shared_names: Arc<Vec<String>> = Arc::from(tool_names.to_vec());
+        for wave in &waves {
+            let is_parallel = wave.len() > 1;
+
+            if is_parallel {
+                // Parallel wave: spawn all ReadOnly calls and join
+                let handles: Vec<_> = wave
+                    .iter()
+                    .map(|&idx| {
+                        let tc = &tool_calls[idx];
+                        let registry = self.tools.clone();
+                        let tc_name = tc.name.clone();
+                        let tc_args = tc.arguments.clone();
+                        let available = shared_names.clone();
+                        let ctx = exec_ctx.clone();
+                        let allow = allow_tools.clone();
+                        let ws = self.workspace.clone();
+                        let blocked = blocked_by_router(&tc_name);
+                        let a_store = approval_store.clone();
+                        let a_config = approval_config.clone();
+                        let a_tx = approval_tx.clone();
+                        let a_channel = exec_channel.clone();
+                        let a_chat_id = exec_chat_id.clone();
+                        let a_sender_id = exec_sender_id.clone();
+                        let a_leak = self.leak_detector.clone();
+                        tokio::task::spawn(async move {
+                            if blocked {
+                                crate::router::metrics::record_blocked_tool_attempt();
+                                return ToolResult::error(format!(
+                                    "Tool '{tc_name}' is not allowed \
+                                     in this routed turn."
+                                ));
+                            }
+                            execute_tool_call(
+                                &registry,
+                                &tc_name,
+                                &tc_args,
+                                &available,
+                                &ctx,
+                                allow.as_ref(),
+                                Some(&ws),
+                                Some(ApprovalContext {
+                                    store: &a_store,
+                                    config: &a_config,
+                                    outbound_tx: &a_tx,
+                                    leak_detector: &a_leak,
+                                    channel: &a_channel,
+                                    chat_id: &a_chat_id,
+                                    sender_id: &a_sender_id,
+                                }),
+                            )
+                            .await
+                        })
+                    })
+                    .collect();
+
+                let wave_results = futures_util::future::join_all(handles).await;
+                for (wave_pos, &idx) in wave.iter().enumerate() {
+                    results[idx] = Some(match &wave_results[wave_pos] {
+                        Ok(result) => result.clone(),
+                        Err(join_err) => {
+                            error!("Tool task panicked: {:?}", join_err);
+                            ToolResult::error("Tool crashed unexpectedly")
                         }
+                    });
+                }
+            } else {
+                // Sequential wave: single SideEffect or Exclusive call
+                for &idx in wave {
+                    let tc = &tool_calls[idx];
+                    if blocked_by_router(&tc.name) {
+                        crate::router::metrics::record_blocked_tool_attempt();
+                        results[idx] = Some(ToolResult::error(format!(
+                            "Tool '{}' is not allowed in this routed turn.",
+                            tc.name
+                        )));
+                        continue;
+                    }
+                    results[idx] = Some(
                         execute_tool_call(
-                            &registry,
-                            &tc_name,
-                            &tc_args,
-                            &available,
-                            &ctx,
-                            allow.as_ref(),
-                            Some(&ws),
+                            &self.tools,
+                            &tc.name,
+                            &tc.arguments,
+                            tool_names,
+                            exec_ctx,
+                            allow_tools.as_ref(),
+                            Some(&self.workspace),
                             Some(ApprovalContext {
-                                store: &a_store,
-                                config: &a_config,
-                                outbound_tx: &a_tx,
-                                leak_detector: &a_leak,
-                                channel: &a_channel,
-                                chat_id: &a_chat_id,
-                                sender_id: &a_sender_id,
+                                store: &approval_store,
+                                config: &approval_config,
+                                outbound_tx: &approval_tx,
+                                leak_detector: &self.leak_detector,
+                                channel: &exec_channel,
+                                chat_id: &exec_chat_id,
+                                sender_id: &exec_sender_id,
                             }),
                         )
-                        .await
-                    })
-                })
-                .collect();
-            futures_util::future::join_all(handles)
-                .await
-                .into_iter()
-                .map(|join_result| match join_result {
-                    Ok(result) => result,
-                    Err(join_err) => {
-                        error!("Tool task panicked: {:?}", join_err);
-                        ToolResult::error("Tool crashed unexpectedly")
-                    }
-                })
-                .collect()
+                        .await,
+                    );
+                }
+            }
         }
+
+        // Unwrap results in original order
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| {
+                r.unwrap_or_else(|| {
+                    error!("missing result for tool call index {i}");
+                    ToolResult::error("Tool execution result was lost")
+                })
+            })
+            .collect()
+    }
+
+    /// Determine the effective concurrency for a single tool call.
+    ///
+    /// Priority: tool-level `Exclusive` overrides everything. For
+    /// action-based tools, the specific action's `read_only` flag
+    /// determines `ReadOnly` vs `SideEffect`. For single-purpose tools,
+    /// the tool-level `concurrency` field is used directly.
+    fn classify_tool_call_concurrency(
+        &self,
+        tc: &ToolCallRequest,
+    ) -> crate::agent::tools::base::ToolConcurrency {
+        use crate::agent::tools::base::ToolConcurrency;
+
+        let Some(tool) = self.tools.get(&tc.name) else {
+            return ToolConcurrency::SideEffect;
+        };
+        let caps = tool.capabilities();
+
+        if caps.concurrency == ToolConcurrency::Exclusive {
+            return ToolConcurrency::Exclusive;
+        }
+
+        // For action-based tools, check the specific action's read_only flag
+        if !caps.actions.is_empty() {
+            let action = tc
+                .arguments
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let is_readonly = caps.actions.iter().any(|a| a.name == action && a.read_only);
+            if is_readonly {
+                return ToolConcurrency::ReadOnly;
+            }
+            return ToolConcurrency::SideEffect;
+        }
+
+        // Single-purpose tools: use the declared concurrency
+        caps.concurrency
     }
 
     /// Collect media from tool results, scan for prompt injection, update

@@ -1013,6 +1013,7 @@ impl Tool for GitHubTool {
                 notifications: ro,
             ],
             category: ToolCategory::Development,
+            ..Default::default()
         }
     }
 

@@ -51,6 +51,7 @@ impl Tool for GoogleMailTool {
                 trash,
             ],
             category: ToolCategory::Communication,
+            ..Default::default()
         }
     }
 

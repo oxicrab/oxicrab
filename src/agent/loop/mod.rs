@@ -59,6 +59,24 @@ const MAX_RETRY_DELAY_SECS: f64 = 10.0;
 const DEFAULT_HISTORY_SIZE: usize = 50;
 const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 const MAX_COMPACTION_STATE_SESSIONS: usize = 1024;
+/// Minimum tool calls in the current run before auto-continue triggers
+const AUTO_CONTINUE_MIN_TOOL_CALLS: usize = 3;
+/// Maximum auto-continue re-prompts per run
+const AUTO_CONTINUE_MAX: usize = 2;
+/// Pre-flight token estimation: chars-per-token ratio (conservative)
+const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+/// Pre-flight compaction threshold as fraction of context limit (80%)
+const PREFLIGHT_COMPACTION_RATIO: usize = 4; // numerator of 4/5
+/// Maximum pending messages per session before new arrivals are dropped.
+const MAX_PENDING_MESSAGES_PER_SESSION: usize = 10;
+
+/// Per-session state: a processing lock plus a queue for messages that arrive
+/// while the lock is held. Messages in the queue are coalesced and processed
+/// as a single turn once the current run completes.
+struct SessionState {
+    processing: tokio::sync::Mutex<()>,
+    pending: std::sync::Mutex<Vec<InboundMessage>>,
+}
 
 struct CachedSemanticIndex {
     signature: u64,
@@ -89,10 +107,11 @@ pub struct AgentLoop {
     compactor: Option<Arc<MessageCompactor>>,
     compaction_config: crate::config::CompactionConfig,
     _subagents: Option<Arc<SubagentManager>>,
-    /// Per-session processing locks. Each session key maps to a Mutex that
-    /// serializes message processing for that session while allowing independent
-    /// sessions to be processed concurrently.
-    session_locks: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// Per-session state: a processing lock plus a pending-message queue.
+    /// Serializes message processing per session while allowing independent
+    /// sessions to be processed concurrently. Messages arriving during an
+    /// active run are queued and coalesced into the next turn.
+    session_states: Arc<std::sync::Mutex<HashMap<String, Arc<SessionState>>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     shutdown_notify: Arc<Notify>,
     task_tracker: Arc<TaskTracker>,
@@ -485,7 +504,7 @@ impl AgentLoop {
             compactor,
             compaction_config,
             _subagents: Some(subagents),
-            session_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            session_states: Arc::new(std::sync::Mutex::new(HashMap::new())),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             shutdown_notify: Arc::new(Notify::new()),
             task_tracker: Arc::new(TaskTracker::new()),
@@ -722,50 +741,68 @@ impl AgentLoop {
         }
     }
 
-    /// Get or create a per-session lock, enabling concurrent processing of
-    /// independent sessions while serializing within each session.
-    fn session_lock(&self, session_key: &str) -> Arc<tokio::sync::Mutex<()>> {
-        let mut locks = self
-            .session_locks
+    /// Get or create per-session state (processing lock + pending queue).
+    fn session_state(&self, session_key: &str) -> Arc<SessionState> {
+        let mut states = self
+            .session_states
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        locks
+        states
             .entry(session_key.to_string())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .or_insert_with(|| {
+                Arc::new(SessionState {
+                    processing: tokio::sync::Mutex::new(()),
+                    pending: std::sync::Mutex::new(Vec::new()),
+                })
+            })
             .clone()
     }
 
-    /// Remove session locks that are only held by the map (strong count == 1).
-    /// This prevents the `session_locks` `HashMap` from growing unboundedly.
+    /// Remove session states that are only held by the map (strong count == 1).
+    /// This prevents the `session_states` `HashMap` from growing unboundedly.
     ///
     /// Safety of `Arc::strong_count`: This is called under the outer
-    /// `std::sync::Mutex` lock on `session_locks`, which serializes all
-    /// calls to `session_lock()` and `evict_stale_session_locks()`. No
+    /// `std::sync::Mutex` lock on `session_states`, which serializes all
+    /// calls to `session_state()` and `evict_stale_session_states()`. No
     /// other code clones the `Arc` without holding that mutex, so the
     /// strong count cannot change between the check and the retain
     /// decision — no TOCTOU race is possible.
-    fn evict_stale_session_locks(&self) {
-        let mut locks = self
-            .session_locks
+    fn evict_stale_session_states(&self) {
+        let mut states = self
+            .session_states
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let before = locks.len();
-        locks.retain(|_, arc| Arc::strong_count(arc) > 1);
-        let evicted = before - locks.len();
+        let before = states.len();
+        states.retain(|_, arc| Arc::strong_count(arc) > 1);
+        let evicted = before - states.len();
         if evicted > 0 {
-            debug!("evicted {evicted} stale session lock(s)");
+            debug!("evicted {evicted} stale session state(s)");
         }
     }
 
+    /// Coalesce multiple pending messages into a single `InboundMessage`.
+    /// Uses the last message's metadata/media and joins content with newlines.
+    fn coalesce_messages(messages: Vec<InboundMessage>) -> InboundMessage {
+        debug_assert!(!messages.is_empty());
+        let content = messages
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut coalesced = messages.into_iter().last().expect("non-empty vec");
+        coalesced.content = content;
+        coalesced
+    }
+
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
-        // Periodically evict stale session locks to prevent unbounded growth.
+        // Periodically evict stale session states to prevent unbounded growth.
         // Only run every 100 messages to avoid the overhead on every call.
         static EVICT_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         if EVICT_COUNTER
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             .is_multiple_of(100)
         {
-            self.evict_stale_session_locks();
+            self.evict_stale_session_states();
         }
 
         // Approval callbacks bypass the session lock to prevent deadlock
@@ -780,9 +817,92 @@ impl AgentLoop {
         }
 
         let session_key = msg.session_key();
-        let lock = self.session_lock(&session_key);
-        let _guard = lock.lock().await;
-        self.process_message_unlocked(msg).await
+        let state = self.session_state(&session_key);
+
+        // Try to acquire the processing lock without blocking. If the
+        // session is already being processed, queue this message for
+        // coalesced processing after the current run completes.
+        let Ok(guard) = state.processing.try_lock() else {
+            // Session is busy — queue the message
+            let queued = {
+                let mut pending = state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if pending.len() >= MAX_PENDING_MESSAGES_PER_SESSION {
+                    warn!(
+                        "pending queue full for session {}, dropping message",
+                        session_key
+                    );
+                    return Ok(None);
+                }
+                pending.push(msg);
+                pending.len()
+            };
+            info!(
+                "queued message for busy session {} ({} pending)",
+                session_key, queued
+            );
+            return Ok(None);
+        };
+
+        // Process the initial message
+        let result = self.process_message_unlocked(msg).await;
+
+        // Drain and process any messages that queued while we held the lock.
+        // Stay inside the processing guard so new arrivals continue to queue.
+        loop {
+            let pending = {
+                let mut queue = state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if queue.is_empty() {
+                    break;
+                }
+                std::mem::take(&mut *queue)
+            };
+
+            let count = pending.len();
+            info!(
+                "processing {} coalesced pending message(s) for session {}",
+                count, session_key
+            );
+            let coalesced = Self::coalesce_messages(pending);
+
+            // Process the coalesced turn. Errors are logged but do not
+            // prevent draining the remaining queue — we still hold the
+            // guard and want to eventually release it.
+            match self.process_message_unlocked(coalesced).await {
+                Ok(Some(outbound)) => {
+                    info!(
+                        "coalesced turn produced response for session {}",
+                        session_key
+                    );
+                    if let Err(e) = self.bus.publish_outbound(outbound).await {
+                        error!(
+                            "failed to send coalesced outbound for session {}: {}",
+                            session_key, e
+                        );
+                    }
+                }
+                Ok(None) => {
+                    debug!(
+                        "coalesced turn produced no response for session {}",
+                        session_key
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "error processing coalesced turn for session {}: {}",
+                        session_key, e
+                    );
+                }
+            }
+        }
+
+        drop(guard);
+        result
     }
 
     /// Resolve an operator approval callback without acquiring the session lock.

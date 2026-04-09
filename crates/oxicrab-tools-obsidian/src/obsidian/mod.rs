@@ -125,6 +125,7 @@ impl Tool for ObsidianTool {
                 rename,
             ],
             category: ToolCategory::Productivity,
+            ..Default::default()
         }
     }
 

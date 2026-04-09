@@ -411,6 +411,7 @@ impl Tool for MediaTool {
                 root_folders: ro,
             ],
             category: ToolCategory::Media,
+            ..Default::default()
         }
     }
 

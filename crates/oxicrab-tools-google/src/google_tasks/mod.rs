@@ -48,6 +48,7 @@ impl Tool for GoogleTasksTool {
                 create_task_list,
             ],
             category: ToolCategory::Productivity,
+            ..Default::default()
         }
     }
 

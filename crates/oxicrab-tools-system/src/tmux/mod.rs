@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use oxicrab_core::actions;
 use oxicrab_core::config::schema::SandboxConfig;
 use oxicrab_core::require_param;
-use oxicrab_core::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{
+    ExecutionContext, ToolCapabilities, ToolCategory, ToolConcurrency,
+};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use regex::Regex;
 use serde_json::Value;
@@ -101,6 +103,7 @@ impl Tool for TmuxTool {
             built_in: true,
             category: ToolCategory::System,
             actions: actions![create, send, read: ro, list: ro, kill],
+            concurrency: ToolConcurrency::Exclusive,
             ..Default::default()
         }
     }

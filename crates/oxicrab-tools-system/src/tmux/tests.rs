@@ -45,6 +45,10 @@ fn test_tmux_capabilities() {
     assert!(caps.built_in);
     assert!(!caps.network_outbound);
     assert_eq!(caps.actions.len(), 5);
+    assert_eq!(
+        caps.concurrency,
+        oxicrab_core::tools::base::ToolConcurrency::Exclusive
+    );
 }
 
 #[test]

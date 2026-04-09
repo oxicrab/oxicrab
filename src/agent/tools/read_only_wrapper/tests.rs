@@ -51,6 +51,7 @@ impl Tool for MockActionTool {
                 },
             ],
             category: ToolCategory::Core,
+            ..Default::default()
         }
     }
 }
@@ -142,6 +143,7 @@ fn test_wrapper_returns_none_for_all_mutating() {
                     read_only: false,
                 }],
                 category: ToolCategory::Core,
+                ..Default::default()
             }
         }
     }

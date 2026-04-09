@@ -786,6 +786,7 @@ impl Tool for BrowserTool {
                 navigate,
             ],
             category: ToolCategory::Web,
+            ..Default::default()
         }
     }
 

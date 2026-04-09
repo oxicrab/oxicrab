@@ -375,6 +375,7 @@ impl Tool for CronTool {
                 trace_detail: ro,
             ],
             category: ToolCategory::Scheduling,
+            ..Default::default()
         }
     }
 

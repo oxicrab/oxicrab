@@ -143,6 +143,7 @@ impl Tool for WebSearchTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![search: ro],
             category: ToolCategory::Web,
+            ..Default::default()
         }
     }
 
@@ -393,6 +394,7 @@ impl Tool for WebFetchTool {
             subagent_access: SubagentAccess::Full,
             actions: actions![fetch: ro],
             category: ToolCategory::Web,
+            ..Default::default()
         }
     }
 

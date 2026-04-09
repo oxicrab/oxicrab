@@ -358,6 +358,7 @@ impl Tool for WorkspaceTool {
                 a
             },
             category: ToolCategory::Productivity,
+            ..Default::default()
         }
     }
 

@@ -13,3 +13,22 @@ fn test_tool_result_with_metadata() {
     let got = result.metadata.unwrap();
     assert_eq!(got["buttons"], meta["buttons"]);
 }
+
+#[test]
+fn test_tool_concurrency_default_is_side_effect() {
+    assert_eq!(ToolConcurrency::default(), ToolConcurrency::SideEffect);
+}
+
+#[test]
+fn test_tool_capabilities_default_concurrency() {
+    let caps = ToolCapabilities::default();
+    assert_eq!(caps.concurrency, ToolConcurrency::SideEffect);
+}
+
+#[test]
+fn test_tool_concurrency_variants() {
+    // Ensure all variants are distinct
+    assert_ne!(ToolConcurrency::ReadOnly, ToolConcurrency::SideEffect);
+    assert_ne!(ToolConcurrency::SideEffect, ToolConcurrency::Exclusive);
+    assert_ne!(ToolConcurrency::ReadOnly, ToolConcurrency::Exclusive);
+}

@@ -108,6 +108,9 @@ fn parse_error_metadata(err_str: &str) -> (u16, Option<u32>) {
     (status, retry_after)
 }
 
+/// Maximum age for tracked thread entries (24 hours).
+const THREAD_TRACK_TTL: std::time::Duration = std::time::Duration::from_secs(86400);
+
 pub struct SlackChannel {
     config: SlackConfig,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
@@ -118,6 +121,9 @@ pub struct SlackChannel {
     seen_messages: Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
     user_cache: Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     client: reqwest::Client,
+    /// Threads the bot has participated in.
+    /// Key: `thread_ts`, Value: last activity timestamp.
+    participated_threads: Arc<std::sync::Mutex<HashMap<String, std::time::Instant>>>,
 }
 
 impl SlackChannel {
@@ -139,6 +145,7 @@ impl SlackChannel {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
+            participated_threads: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -481,6 +488,23 @@ impl SlackChannel {
             }
         }
 
+        // Track thread participation for auto-reply in threads
+        if let Ok(mut threads) = self.participated_threads.lock() {
+            let now = std::time::Instant::now();
+            // Record the thread we replied to
+            if let Some(ts) = thread_ts {
+                threads.insert(ts.to_string(), now);
+            }
+            // Record the bot's own message ts as a potential thread root
+            if let Some(ref ts) = last_ts {
+                threads.insert(ts.clone(), now);
+            }
+            // Prune entries older than 24 hours
+            if let Some(cutoff) = now.checked_sub(THREAD_TRACK_TTL) {
+                threads.retain(|_, last| *last > cutoff);
+            }
+        }
+
         Ok(last_ts)
     }
 }
@@ -522,6 +546,7 @@ impl BaseChannel for SlackChannel {
         let ws_client = self.client.clone();
         let running = self.running.clone();
         let thinking_emoji = self.config.thinking_emoji.clone();
+        let participated_threads = self.participated_threads.clone();
 
         let ws_task = tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -827,6 +852,7 @@ impl BaseChannel for SlackChannel {
                                                         &bot_token,
                                                         &ws_client,
                                                         &thinking_emoji,
+                                                        &participated_threads,
                                                     )
                                                     .await
                                                     {
@@ -1353,6 +1379,7 @@ async fn handle_slack_event(
     bot_token: &str,
     client: &reqwest::Client,
     thinking_emoji: &str,
+    participated_threads: &Arc<std::sync::Mutex<HashMap<String, std::time::Instant>>>,
 ) -> Result<()> {
     // Ignore well-known non-user subtypes. Unknown subtypes pass through (safe default).
     if let Some(subtype) = event.get("subtype").and_then(Value::as_str)
@@ -1408,16 +1435,41 @@ async fn handle_slack_event(
 
     info!("Slack: received message from {} in {}", user_id, channel_id);
 
-    // Strip the bot @mention from text (regex is compiled once at startup)
-    if let Some(ref re) = *mention_regex.lock().await {
+    // Detect bot @mention before stripping it from text
+    let bot_mentioned = if let Some(ref re) = *mention_regex.lock().await {
+        let mentioned = re.is_match(&text);
         text = re.replace_all(&text, "").to_string();
-    }
+        mentioned
+    } else {
+        false
+    };
 
     let is_dm = channel_id.starts_with('D');
     // Check group allowlist for non-DM channels
     if !is_dm && !check_group_access(channel_id, allow_groups) {
         debug!("slack: ignoring message from non-allowed channel {channel_id}");
         return Ok(());
+    }
+    // In group channels, only process if the bot was @mentioned or the
+    // message is in a thread the bot has previously participated in.
+    if !is_dm && !bot_mentioned {
+        let thread_ts = event.get("thread_ts").and_then(Value::as_str);
+        let in_tracked_thread = if let Some(ts) = thread_ts {
+            participated_threads
+                .lock()
+                .map(|threads| threads.contains_key(ts))
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if !in_tracked_thread {
+            debug!(
+                "slack: ignoring group message without mention \
+                 or tracked thread in {}",
+                channel_id
+            );
+            return Ok(());
+        }
     }
     // DM access check
     if is_dm {

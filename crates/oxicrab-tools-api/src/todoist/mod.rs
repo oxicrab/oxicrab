@@ -500,6 +500,7 @@ impl Tool for TodoistTool {
                 list_projects: ro,
             ],
             category: ToolCategory::Productivity,
+            ..Default::default()
         }
     }
 
