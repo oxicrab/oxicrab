@@ -240,11 +240,6 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          df -h /tmp
-
       - name: Download nextest archive
         uses: actions/download-artifact@v8
         with:
@@ -279,11 +274,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          df -h /tmp
 
       - name: Download nextest archive
         uses: actions/download-artifact@v8
