@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.3] - 2026-04-09
+
+### Fixed
+- **ci:** exclude local-whisper from all CI build steps ([e14abe9](https://github.com/oxicrab/oxicrab/commit/e14abe96a18a4667fb1f6edc13bc92f028a18dbd))
+- **ci:** exclude local-whisper from nextest archive ([0ffea02](https://github.com/oxicrab/oxicrab/commit/0ffea020f60c08ea45006c0b14984fba5ecf45fe))
+- **test:** update router contract test for deferred add_buttons ([1ffd7d0](https://github.com/oxicrab/oxicrab/commit/1ffd7d0d37af6eeeae3d74bb5d56bd8812ad22af))
+- eliminate wasted iterations after tool-only LLM responses ([60eb0b2](https://github.com/oxicrab/oxicrab/commit/60eb0b2f58174f5406bb61a3c587f84ac205f8d3))
+- skip empty-response retries when tools already called ([25fac58](https://github.com/oxicrab/oxicrab/commit/25fac58018b999119ecdef84de1ce6bf2d01c4f8))
+- prevent post-loop summary from generating session recaps ([bf812c0](https://github.com/oxicrab/oxicrab/commit/bf812c0474724e5ac56558c6d5a8cf7d0d1ebb15))
+
 ## [0.17.2] - 2026-04-09
 
 ### Added
