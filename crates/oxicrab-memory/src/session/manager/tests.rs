@@ -300,10 +300,12 @@ async fn test_jsonl_migration() {
     let sessions_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&sessions_dir).unwrap();
 
-    let jsonl_content = r#"{"_type":"metadata","key":"telegram:999","created_at":"2026-01-01T00:00:00Z","metadata":{}}
-{"role":"user","content":"migrated msg","timestamp":"2026-01-01T00:00:01Z"}
-"#;
-    std::fs::write(sessions_dir.join("telegram_999.jsonl"), jsonl_content).unwrap();
+    let today = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let jsonl_content = format!(
+        r#"{{"_type":"metadata","key":"telegram:999","created_at":"{today}","metadata":{{}}}}
+{{"role":"user","content":"migrated msg","timestamp":"{today}"}}"#,
+    );
+    std::fs::write(sessions_dir.join("telegram_999.jsonl"), &jsonl_content).unwrap();
 
     // Creating a SessionManager should trigger migration
     let mgr = SessionManager::new(dir.path()).unwrap();
@@ -356,4 +358,100 @@ fn test_message_to_map_reserved_keys_not_overwritten() {
     );
     // Non-reserved extra key should still be present
     assert_eq!(map["tool_call_id"], Value::String("tc_1".to_string()));
+}
+
+// --- session delete tests ---
+
+#[tokio::test]
+async fn test_delete_removes_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = SessionManager::new(dir.path()).unwrap();
+
+    let mut session = Session::new("del:test");
+    session.add_message("user", "goodbye", HashMap::new());
+    mgr.save(&session).await.unwrap();
+
+    let existed = mgr.delete("del:test").await.unwrap();
+    assert!(existed, "delete should return true for existing session");
+
+    // Should get a fresh empty session now
+    let reloaded = mgr.get_or_create("del:test").await.unwrap();
+    assert!(reloaded.messages.is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_nonexistent_returns_false() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = SessionManager::new(dir.path()).unwrap();
+
+    let existed = mgr.delete("no:such:key").await.unwrap();
+    assert!(!existed, "delete should return false for missing session");
+}
+
+// --- daily rotation tests ---
+
+#[tokio::test]
+async fn test_daily_rotation_fresh_session_not_rotated() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = SessionManager::new(dir.path()).unwrap();
+
+    let mut session = Session::new("rot:fresh");
+    session.add_message("user", "keep me", HashMap::new());
+    mgr.save(&session).await.unwrap();
+
+    let loaded = mgr.get_or_create("rot:fresh").await.unwrap();
+    assert_eq!(
+        loaded.messages.len(),
+        1,
+        "today's session should not rotate"
+    );
+}
+
+#[tokio::test]
+async fn test_daily_rotation_old_session_is_rotated() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = SessionManager::new(dir.path()).unwrap();
+
+    // Create a session backdated to yesterday
+    let mut session = Session::new("rot:old");
+    session.add_message("user", "stale data", HashMap::new());
+    session.created_at = Utc::now() - chrono::Duration::days(1);
+    mgr.save(&session).await.unwrap();
+
+    // Force eviction from cache so it reloads from DB
+    {
+        let mut cache = mgr.cache.lock().await;
+        cache.pop("rot:old");
+    }
+
+    let loaded = mgr.get_or_create("rot:old").await.unwrap();
+    assert!(
+        loaded.messages.is_empty(),
+        "yesterday's session should be rotated to fresh"
+    );
+    assert!(
+        loaded.created_at.date_naive() == Utc::now().date_naive(),
+        "rotated session should have today's date"
+    );
+}
+
+#[tokio::test]
+async fn test_daily_rotation_from_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = SessionManager::new(dir.path()).unwrap();
+
+    // Put a stale session directly in the cache
+    let mut session = Session::new("rot:cached");
+    session.add_message("user", "cached stale", HashMap::new());
+    session.created_at = Utc::now() - chrono::Duration::days(2);
+    {
+        let mut cache = mgr.cache.lock().await;
+        cache.put("rot:cached".to_string(), session);
+    }
+
+    let loaded = mgr.get_or_create("rot:cached").await.unwrap();
+    assert!(
+        loaded.messages.is_empty(),
+        "stale cached session should be rotated"
+    );
 }

@@ -1633,3 +1633,24 @@ fn test_max_pending_messages_per_session() {
         "pending queue should cap at 10 messages"
     );
 }
+
+// --- session reset command detection ---
+
+#[test]
+fn test_is_reset_command() {
+    use super::processing::is_reset_command;
+
+    assert!(is_reset_command("reset"));
+    assert!(is_reset_command("Reset"));
+    assert!(is_reset_command("  reset  "));
+    assert!(is_reset_command("clear history"));
+    assert!(is_reset_command("Clear History"));
+    assert!(is_reset_command("new session"));
+    assert!(is_reset_command("start over"));
+
+    assert!(!is_reset_command("reset my password"));
+    assert!(!is_reset_command("please reset"));
+    assert!(!is_reset_command("clear the history"));
+    assert!(!is_reset_command("hello"));
+    assert!(!is_reset_command(""));
+}

@@ -44,6 +44,19 @@ impl AgentLoop {
         self.handle_event_triggered_jobs(&msg);
 
         let session_key = msg.session_key();
+
+        // Handle session reset command before loading the session
+        if is_reset_command(&msg.content) {
+            info!("session reset requested: {}", session_key);
+            self.sessions.delete(&session_key).await?;
+            return Ok(Some(OutboundMessage {
+                channel: msg.channel.clone(),
+                chat_id: msg.chat_id.clone(),
+                content: "Session cleared. Starting fresh.".to_string(),
+                ..Default::default()
+            }));
+        }
+
         // Load session early — the router needs RouterContext from session metadata
         debug!("Loading session: {}", session_key);
         let session = self.sessions.get_or_create(&session_key).await?;
@@ -1741,4 +1754,13 @@ fn check_prompt_guard(
     } else {
         PromptGuardVerdict::Pass
     }
+}
+
+/// Check if a message is a session reset command.
+pub(super) fn is_reset_command(content: &str) -> bool {
+    let trimmed = content.trim().to_lowercase();
+    matches!(
+        trimmed.as_str(),
+        "reset" | "clear history" | "new session" | "start over"
+    )
 }

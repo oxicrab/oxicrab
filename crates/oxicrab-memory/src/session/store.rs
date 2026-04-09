@@ -11,4 +11,7 @@ pub trait SessionStore: Send + Sync {
 
     /// Save a session
     async fn save(&self, session: &Session) -> Result<()>;
+
+    /// Delete a session, returning whether it existed.
+    async fn delete(&self, key: &str) -> Result<bool>;
 }

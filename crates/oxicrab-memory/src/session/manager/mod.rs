@@ -311,6 +311,10 @@ impl SessionManager {
         };
 
         if let Some(session) = cached_session {
+            if self.should_rotate(&session) {
+                debug!("session daily rotation: {}", key);
+                return self.rotate_session(key).await;
+            }
             debug!("session cache hit: {}", key);
             return Ok(session);
         }
@@ -327,6 +331,12 @@ impl SessionManager {
                 .with_context(|| "failed to parse session JSON from database")?;
             // Ensure key matches (migration may have stored under a different key)
             s.key = key.to_string();
+
+            if self.should_rotate(&s) {
+                debug!("session daily rotation: {}", key);
+                return self.rotate_session(key).await;
+            }
+
             debug!("session loaded from database: {}", key);
             s
         } else {
@@ -346,6 +356,26 @@ impl SessionManager {
         Ok(session)
     }
 
+    /// Check whether a session should be rotated (created on a previous UTC day).
+    fn should_rotate(&self, session: &Session) -> bool {
+        session.created_at.date_naive() < Utc::now().date_naive()
+    }
+
+    /// Delete the old session and return a fresh one.
+    async fn rotate_session(&self, key: &str) -> Result<Session> {
+        info!("rotating session: {}", key);
+        let db = self.db.clone();
+        let key_owned = key.to_string();
+        tokio::task::spawn_blocking(move || db.delete_session(&key_owned))
+            .await
+            .map_err(|e| anyhow::anyhow!("session delete task failed: {e}"))??;
+
+        let session = Session::new(key.to_string());
+        let mut cache = self.cache.lock().await;
+        cache.put(key.to_string(), session.clone());
+        Ok(session)
+    }
+
     /// Delete sessions older than `ttl_days` days from the database.
     /// Selectively evicts deleted sessions from the LRU cache.
     pub async fn cleanup_old_sessions(&self, ttl_days: u32) -> Result<usize> {
@@ -359,6 +389,23 @@ impl SessionManager {
             }
         }
         Ok(count)
+    }
+
+    /// Delete a session from both the database and cache.
+    pub async fn delete(&self, key: &str) -> Result<bool> {
+        let db = self.db.clone();
+        let key_owned = key.to_string();
+        let existed = tokio::task::spawn_blocking(move || db.delete_session(&key_owned))
+            .await
+            .map_err(|e| anyhow::anyhow!("session delete task failed: {e}"))??;
+
+        let mut cache = self.cache.lock().await;
+        cache.pop(key);
+
+        if existed {
+            info!("session deleted: {}", key);
+        }
+        Ok(existed)
     }
 
     pub async fn save(&self, session: &Session) -> Result<()> {
@@ -399,6 +446,10 @@ impl SessionStore for SessionManager {
 
     async fn save(&self, session: &Session) -> Result<()> {
         SessionManager::save(self, session).await
+    }
+
+    async fn delete(&self, key: &str) -> Result<bool> {
+        SessionManager::delete(self, key).await
     }
 }
 
