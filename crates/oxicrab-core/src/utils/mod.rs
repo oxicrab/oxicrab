@@ -51,12 +51,16 @@ pub fn safe_filename(name: &str) -> String {
 /// Example: `truncate_label("View: ", "long title", 10)` → `"View: long title"`
 /// if ≤10 chars, or `"View: long ti..."` if over.
 pub fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
-    let boundary = text.floor_char_boundary(max_text_chars);
-    if boundary >= text.len() {
-        format!("{prefix}{text}")
-    } else {
-        let trim_boundary = text.floor_char_boundary(max_text_chars.saturating_sub(3));
-        format!("{prefix}{}...", &text[..trim_boundary])
+    match text.char_indices().nth(max_text_chars) {
+        None => format!("{prefix}{text}"),
+        Some(_) => {
+            let budget = max_text_chars.saturating_sub(3);
+            let byte_idx = text
+                .char_indices()
+                .nth(budget)
+                .map_or(text.len(), |(i, _)| i);
+            format!("{prefix}{}...", &text[..byte_idx])
+        }
     }
 }
 
@@ -64,10 +68,8 @@ pub fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String
 /// (e.g. `"..."`) if truncated. Returns the original string (owned) if short enough.
 /// Safe for multi-byte UTF-8.
 pub fn truncate_chars(s: &str, max_chars: usize, suffix: &str) -> String {
-    let boundary = s.floor_char_boundary(max_chars);
-    if boundary >= s.len() {
-        s.to_string()
-    } else {
-        format!("{}{suffix}", &s[..boundary])
+    match s.char_indices().nth(max_chars) {
+        None => s.to_string(),
+        Some((byte_idx, _)) => format!("{}{suffix}", &s[..byte_idx]),
     }
 }

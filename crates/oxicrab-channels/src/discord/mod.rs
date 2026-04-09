@@ -771,11 +771,9 @@ impl BaseChannel for DiscordChannel {
         let msg_id = message_id.parse::<u64>()?;
         let channel = serenity::model::id::ChannelId::new(channel_id);
         // Truncate to Discord's 2000-char message limit
-        let truncated = if content.len() > 2000 {
-            let boundary = content.floor_char_boundary(2000);
-            &content[..boundary]
-        } else {
-            content
+        let truncated = match content.char_indices().nth(2000) {
+            Some((idx, _)) => &content[..idx],
+            None => content,
         };
         let builder = serenity::builder::EditMessage::new().content(truncated);
         channel

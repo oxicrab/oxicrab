@@ -292,6 +292,18 @@ impl SlackChannel {
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse::<u32>().ok());
 
+        // Handle 429 and 5xx before attempting JSON parse — these may
+        // return non-JSON bodies that would cause a misleading reqwest error.
+        if status == 429 {
+            return Err(SlackApiError::RateLimited {
+                retry_after_secs: retry_after.unwrap_or(1),
+            }
+            .into());
+        }
+        if status >= 500 {
+            return Err(SlackApiError::ServerError(status).into());
+        }
+
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
             let error = json
@@ -403,9 +415,12 @@ impl SlackChannel {
             // Attach buttons (Block Kit) to the last chunk via JSON body
             let response = if is_last && !buttons.is_empty() {
                 // Block Kit section.text has a 3000-char limit
-                let block_text = if chunk.len() > 3000 {
-                    let boundary = chunk.floor_char_boundary(2997);
-                    format!("{}...", &chunk[..boundary])
+                let block_text = if chunk.chars().count() > 3000 {
+                    let byte_idx = chunk
+                        .char_indices()
+                        .nth(2997)
+                        .map_or(chunk.len(), |(i, _)| i);
+                    format!("{}...", &chunk[..byte_idx])
                 } else {
                     chunk.clone()
                 };

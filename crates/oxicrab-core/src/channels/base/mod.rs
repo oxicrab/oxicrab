@@ -47,26 +47,34 @@ pub trait BaseChannel: Send + Sync {
     }
 }
 
-/// Split a message into chunks respecting UTF-8 character boundaries.
+/// Split a message into chunks respecting a character (not byte) limit.
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     if text.is_empty() {
         return vec![];
     }
-    if text.len() <= limit {
+    if text.chars().count() <= limit {
         return vec![text.to_string()];
     }
 
     let mut chunks = Vec::new();
     let mut remaining = text;
 
-    while remaining.len() > limit {
-        let mut split_at = remaining.floor_char_boundary(limit);
+    while remaining.chars().count() > limit {
+        // Convert char limit to byte offset
+        let split_at = remaining
+            .char_indices()
+            .nth(limit)
+            .map_or(remaining.len(), |(i, _)| i);
+
         if split_at == 0 {
             // Degenerate case: single character wider than limit
-            split_at = remaining
+            let byte_end = remaining
                 .char_indices()
                 .nth(1)
                 .map_or(remaining.len(), |(i, _)| i);
+            chunks.push(remaining[..byte_end].to_string());
+            remaining = &remaining[byte_end..];
+            continue;
         }
 
         // Try paragraph boundary within the safe range

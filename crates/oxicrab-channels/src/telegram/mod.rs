@@ -429,11 +429,10 @@ impl BaseChannel for TelegramChannel {
         let chat_id = chat_id.parse::<i64>()?;
         let msg_id = message_id.parse::<i32>()?;
         let html = markdown_to_telegram_html(content);
-        // Fix #4: truncate to 4096 chars for edit_message_text
-        let truncated = if html.len() > 4096 {
-            &html[..html.floor_char_boundary(4096)]
-        } else {
-            &html
+        // Truncate to 4096 chars for edit_message_text
+        let truncated = match html.char_indices().nth(4096) {
+            Some((idx, _)) => &html[..idx],
+            None => &html,
         };
         self.bot
             .edit_message_text(
