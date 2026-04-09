@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.1] - 2026-04-09
+
+### Added
+- parallel tool execution, auto-continue, pre-flight tokens, chat queuing, slack threads ([09834b2](https://github.com/oxicrab/oxicrab/commit/09834b25bdef97054e6e041903a9e211c9252161))
+
+
+### Changed
+- replace hand-rolled implementations with crates and std patterns ([b78626c](https://github.com/oxicrab/oxicrab/commit/b78626ccad6a66e877858e3bdbe6f8e2287d78b0))
+
+
+### Fixed
+- correct bytes-vs-characters in truncation and message splitting ([c7dc312](https://github.com/oxicrab/oxicrab/commit/c7dc312e6b4c2a478d8258237a5e0e90806e38bd))
+- pre-flight token trimming respects compaction enabled flag ([cb74d7e](https://github.com/oxicrab/oxicrab/commit/cb74d7e649374b724746be61a8d1bfd404143612))
+- resolve 7 bugs from final review pass ([ba7e0b9](https://github.com/oxicrab/oxicrab/commit/ba7e0b938949f15ab17f729407b4ddc8ad22c3dc))
+- **tools:** correct concurrency classifications and add feature tests ([62f8ae5](https://github.com/oxicrab/oxicrab/commit/62f8ae5ce899cb2d1a912dee5c9bd154bbce7ee9))
+
 ## [0.17.0] - 2026-04-08
 
 ### Added
