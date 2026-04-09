@@ -76,9 +76,18 @@ impl LLMProvider for FallbackProvider {
                             "provider {} ({}) returned malformed tool calls{}",
                             i + 1,
                             model_name,
-                            if is_last { "" } else { ", trying next" }
+                            if is_last {
+                                ", stripping invalid calls"
+                            } else {
+                                ", trying next"
+                            }
                         );
                         if is_last {
+                            // Strip malformed tool calls from the last provider
+                            // rather than propagating them to the agent loop.
+                            response
+                                .tool_calls
+                                .retain(|tc| !tc.name.is_empty() && tc.arguments.is_object());
                             if i > 0 {
                                 response.actual_model = Some(model_name.clone());
                             }

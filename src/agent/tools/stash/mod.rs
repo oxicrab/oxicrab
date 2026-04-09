@@ -16,7 +16,6 @@ const DEFAULT_RETRIEVE_LIMIT: usize = 50_000;
 struct StashInner {
     entries: LruCache<String, String>,
     total_bytes: usize,
-    next_id: usize,
 }
 
 /// In-memory LRU cache for large tool outputs that would otherwise be lost
@@ -38,7 +37,6 @@ impl ToolOutputStash {
             inner: Mutex::new(StashInner {
                 entries: LruCache::new(NonZeroUsize::new(DEFAULT_MAX_ENTRIES).expect("non-zero")),
                 total_bytes: 0,
-                next_id: 1,
             }),
             max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
         }
@@ -48,9 +46,7 @@ impl ToolOutputStash {
     /// Returns `None` if the content exceeds the total byte budget.
     pub async fn stash(&self, content: String) -> Option<String> {
         let mut inner = self.inner.lock().await;
-        let id = inner.next_id;
-        inner.next_id += 1;
-        let key = format!("stash_{id}");
+        let key = format!("stash_{}", uuid::Uuid::new_v4().simple());
         let content_len = content.len();
 
         // Single entry larger than budget cannot fit — reject
