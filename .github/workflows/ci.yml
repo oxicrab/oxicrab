@@ -151,7 +151,9 @@ jobs:
           RUSTC_WRAPPER: sccache
 
       - name: Build reusable nextest archive
-        run: cargo nextest archive --workspace --all-features --archive-file nextest-linux.tar.zst
+        run: >
+          cargo nextest archive --workspace --archive-file nextest-linux.tar.zst
+          --features channel-telegram,channel-discord,channel-slack,channel-whatsapp,channel-twilio,keyring-store,embeddings,tool-rss
         env:
           RUSTC_WRAPPER: sccache
 
