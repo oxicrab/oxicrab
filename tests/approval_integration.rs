@@ -255,8 +255,9 @@ async fn test_approval_enabled_approve_flow() {
             tokio::time::sleep(Duration::from_millis(50)).await;
             let ids = store_clone.pending_ids();
             if let Some(id) = ids.first() {
-                // Resolve with Approved — empty source channel matches self-approval
-                let result = store_clone.resolve(id, "", ApprovalDecision::Approved);
+                // Self-approval: source channel must match the request's channel
+                let result =
+                    store_clone.resolve(id, "telegram:appr_approve", ApprovalDecision::Approved);
                 assert!(result.is_ok(), "resolve should succeed: {:?}", result);
                 return;
             }
@@ -328,7 +329,11 @@ async fn test_approval_enabled_deny_flow() {
             tokio::time::sleep(Duration::from_millis(50)).await;
             let ids = store_clone.pending_ids();
             if let Some(id) = ids.first() {
-                let result = store_clone.resolve(id, "", ApprovalDecision::Denied { reason: None });
+                let result = store_clone.resolve(
+                    id,
+                    "telegram:appr_deny",
+                    ApprovalDecision::Denied { reason: None },
+                );
                 assert!(result.is_ok(), "resolve should succeed: {:?}", result);
                 return;
             }

@@ -214,15 +214,14 @@ async fn test_multiple_tool_calls_in_sequence() {
 }
 
 #[tokio::test]
-async fn test_hallucination_detection_triggers_retry() {
+async fn test_text_response_returned_without_retry() {
     let tmp = TempDir::new().expect("create temp dir");
 
-    let provider = MockLLMProvider::with_responses(vec![
-        text_response("I've updated the configuration file for you."),
-        text_response(
-            "I can help you update the configuration. Which file would you like me to edit?",
-        ),
-    ]);
+    // LLM returns text claiming actions — should pass through directly
+    // (hallucination detection was removed as it caused false positives)
+    let provider = MockLLMProvider::with_responses(vec![text_response(
+        "I've updated the configuration file for you.",
+    )]);
     let calls = provider.calls.clone();
 
     let agent = default_agent(provider, &tmp).await;
@@ -230,32 +229,19 @@ async fn test_hallucination_detection_triggers_retry() {
     let response = agent
         .process_direct(
             "Update my config",
-            "test:hallucination",
+            "test:text_passthrough",
             "telegram",
-            "hallucination",
+            "text_passthrough",
         )
         .await
         .expect("process message");
 
-    // Should get the corrected (second) response, not the hallucinated one
-    assert_eq!(
-        response,
-        "I can help you update the configuration. Which file would you like me to edit?"
-    );
+    // Text response is returned as-is, no retry
+    assert_eq!(response, "I've updated the configuration file for you.");
 
-    // Should have made 2 calls — original + retry after correction
+    // Only 1 call — no retry
     let recorded = calls.lock().expect("lock recorded calls");
-    assert_eq!(recorded.len(), 2);
-
-    // Second call should contain the correction message
-    let second_msgs = &recorded[1].messages;
-    let has_correction = second_msgs
-        .iter()
-        .any(|m| m.role == "user" && m.content.contains("did not call any tools"));
-    assert!(
-        has_correction,
-        "Second call should contain the hallucination correction"
-    );
+    assert_eq!(recorded.len(), 1);
 }
 
 #[tokio::test]
