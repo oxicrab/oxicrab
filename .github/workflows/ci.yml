@@ -250,6 +250,8 @@ jobs:
 
       - name: Run unit tests
         run: cargo nextest run --archive-file nextest-linux.tar.zst -E 'kind(lib)' --profile default
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - name: Upload test results
         if: always()
@@ -289,6 +291,7 @@ jobs:
           -E 'kind(test)'
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+          TMPDIR: ${{ runner.temp }}
 
       - name: Upload test results
         if: always()
