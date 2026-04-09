@@ -369,17 +369,13 @@ async fn test_tool_choice_is_auto_on_all_iterations() {
 }
 
 #[tokio::test]
-async fn test_repeated_hallucination_corrected_each_time() {
-    // Layer 1 hallucination detection fires once per agent loop (single-retry guard).
-    // The first hallucination triggers a correction; the second passes through as
-    // the final response since layer1_fired prevents a second correction.
+async fn test_action_claim_text_passes_through() {
+    // Text responses with action claims pass through directly — no retry.
+    // Hallucination detection was removed (caused false positives).
     let tmp = TempDir::new().expect("create temp dir");
-    let provider = MockLLMProvider::with_responses(vec![
-        // Iteration 1: hallucinates → correction injected
-        text_response("I've updated the configuration file."),
-        // Iteration 2: hallucinates again → layer1_fired, passes through as final response
-        text_response("I've modified the database schema."),
-    ]);
+    let provider = MockLLMProvider::with_responses(vec![text_response(
+        "I've updated the configuration file.",
+    )]);
     let calls = provider.calls.clone();
     let agent = create_test_agent_with(
         provider,
@@ -396,28 +392,15 @@ async fn test_repeated_hallucination_corrected_each_time() {
         .await
         .expect("process");
 
-    // Second hallucination passes through once L1 guard is exhausted
+    // First response passes through directly
     assert_eq!(
-        resp, "I've modified the database schema.",
-        "should return second response after single-retry correction is exhausted"
+        resp, "I've updated the configuration file.",
+        "text response should pass through without retry"
     );
 
-    // Should have 2 LLM calls: hallucination → correction → second hallucination (returned)
+    // Only 1 LLM call — no correction retry
     let recorded = calls.lock().expect("lock");
-    assert_eq!(
-        recorded.len(),
-        2,
-        "should have 2 calls (one correction + final)"
-    );
-
-    // Second call should contain the correction
-    let second_msgs = &recorded[1].messages;
-    assert!(
-        second_msgs
-            .iter()
-            .any(|m| m.role == "user" && m.content.contains("did not call any tools")),
-        "second call should contain the hallucination correction"
-    );
+    assert_eq!(recorded.len(), 1, "should have 1 call (no retry)");
 }
 
 #[tokio::test]
