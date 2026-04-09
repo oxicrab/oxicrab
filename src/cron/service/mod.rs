@@ -539,7 +539,14 @@ impl CronService {
                 // update_job_status for the completion result.
                 let now = now_ms();
                 let new_next = compute_next_run_with_last(&job.schedule, now, Some(now));
-                self.db.fire_cron_job(job_id, new_next, now, now)?;
+                let claimed = self.db.fire_cron_job(job_id, new_next, now, now)?;
+                if !claimed {
+                    warn!(
+                        "cron job '{}' is already running, skipping manual run",
+                        job_id
+                    );
+                    return Ok(None);
+                }
                 self.db
                     .update_cron_job_status(job_id, status.as_str(), error_msg.as_deref())?;
 

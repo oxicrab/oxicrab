@@ -1511,6 +1511,7 @@ impl AgentLoop {
             return Ok(super::config::DirectResult {
                 content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
                 metadata: HashMap::new(),
+                media: Vec::new(),
             });
         }
 
@@ -1530,6 +1531,7 @@ impl AgentLoop {
                 return Ok(super::config::DirectResult {
                     content: self.render_router_replay(session_key, index).await?,
                     metadata: HashMap::new(),
+                    media: Vec::new(),
                 });
             }
 
@@ -1567,6 +1569,7 @@ impl AgentLoop {
                     return Ok(super::config::DirectResult {
                         content: err_msg,
                         metadata: HashMap::new(),
+                        media: Vec::new(),
                     });
                 }
             };
@@ -1600,6 +1603,7 @@ impl AgentLoop {
             return Ok(super::config::DirectResult {
                 content: final_content,
                 metadata: dispatch_result.suggested_buttons,
+                media: dispatch_result.media,
             });
         }
 
@@ -1673,6 +1677,7 @@ impl AgentLoop {
         Ok(super::config::DirectResult {
             content: response,
             metadata: loop_result.response_metadata,
+            media: loop_result.media,
         })
     }
 }

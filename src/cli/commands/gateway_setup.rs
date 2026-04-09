@@ -613,6 +613,7 @@ async fn cron_job_execute(
                         target.to.clone(),
                         result.content.clone(),
                     )
+                    .media(result.media.clone())
                     .merge_metadata(result.metadata.clone())
                     .build(),
                 )

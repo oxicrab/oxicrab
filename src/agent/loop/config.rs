@@ -116,6 +116,8 @@ pub struct DirectResult {
     pub content: String,
     /// Extra metadata (e.g. interactive buttons) to merge into outbound messages.
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Media paths (screenshots, generated files, etc.) to attach to outbound messages.
+    pub media: Vec<String>,
 }
 
 /// Lifecycle-related configuration (TTLs, intervals).

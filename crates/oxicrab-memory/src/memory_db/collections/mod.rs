@@ -280,10 +280,13 @@ fn validate_record_data(
     for field in &schema.fields {
         if let Some(value) = obj.get(&field.name) {
             if value.is_null() {
-                if field.required && !partial {
+                if partial {
+                    coerced.insert(field.name.clone(), serde_json::Value::Null);
+                    continue;
+                }
+                if field.required {
                     bail!("required field '{}' cannot be null", field.name);
                 }
-                // skip null values
                 continue;
             }
             let validated = validate_field_value(value, field)?;
@@ -760,7 +763,11 @@ impl MemoryDB {
             (existing.as_object_mut(), validated_partial.as_object())
         {
             for (k, v) in update {
-                base.insert(k.clone(), v.clone());
+                if v.is_null() {
+                    base.remove(k);
+                } else {
+                    base.insert(k.clone(), v.clone());
+                }
             }
         }
 
@@ -958,37 +965,7 @@ fn sqlite_value_to_json(val: rusqlite::types::Value) -> serde_json::Value {
 }
 
 fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let nanos = now.as_nanos();
-
-    // Simple pseudo-random UUID v4 using time + thread id
-    let thread_id = std::thread::current().id();
-    let thread_hash = format!("{thread_id:?}");
-    let mut hasher = sha2::Sha256::new();
-    use sha2::Digest;
-    hasher.update(nanos.to_le_bytes());
-    hasher.update(thread_hash.as_bytes());
-    // Add some extra entropy from the stack pointer
-    let stack_var = 0u8;
-    let ptr = std::ptr::addr_of!(stack_var) as usize;
-    hasher.update(ptr.to_le_bytes());
-    let hash = hasher.finalize();
-
-    // Format as UUID v4
-    format!(
-        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
-        u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]),
-        u16::from_le_bytes([hash[4], hash[5]]),
-        u16::from_le_bytes([hash[6], hash[7]]) & 0x0FFF,
-        (u16::from_le_bytes([hash[8], hash[9]]) & 0x3FFF) | 0x8000,
-        u64::from_le_bytes([
-            hash[10], hash[11], hash[12], hash[13], hash[14], hash[15], 0, 0
-        ]) & 0xFFFF_FFFF_FFFF,
-    )
+    uuid::Uuid::new_v4().to_string()
 }
 
 #[cfg(test)]

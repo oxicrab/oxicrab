@@ -1138,6 +1138,13 @@ async fn download_slack_file(
         if bytes.is_empty() {
             return Err(anyhow::anyhow!("Slack file download returned empty body"));
         }
+        if bytes.len() > max_size {
+            anyhow::bail!(
+                "downloaded file exceeds size limit ({} > {} bytes)",
+                bytes.len(),
+                max_size
+            );
+        }
         return Ok(bytes);
     }
 
@@ -1683,7 +1690,11 @@ async fn handle_slack_event(
         .media(media_paths)
         .meta("user_id", Value::String(user_id.to_string()))
         .is_group(is_group);
-    if let Some(ts) = event.get("ts").and_then(Value::as_str) {
+    let ts = event
+        .get("thread_ts")
+        .and_then(|v| v.as_str())
+        .or_else(|| event.get("ts").and_then(|v| v.as_str()));
+    if let Some(ts) = ts {
         builder = builder.meta("ts", Value::String(ts.to_string()));
     }
     let inbound_msg = builder.build();

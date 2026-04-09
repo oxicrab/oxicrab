@@ -192,6 +192,7 @@ impl AgentLoop {
                          trimming oldest messages",
                         estimated_tokens, context_limit
                     );
+                    let tool_tokens = tool_def_chars / CHARS_PER_TOKEN_ESTIMATE;
                     // Drop oldest non-system messages until under threshold.
                     // Keep system prompt (index 0) and the most recent messages.
                     while messages.len() > 2 {
@@ -200,7 +201,7 @@ impl AgentLoop {
                             .map(|m| m.content.len())
                             .sum::<usize>()
                             / CHARS_PER_TOKEN_ESTIMATE;
-                        if recalc <= threshold {
+                        if recalc + tool_tokens <= threshold {
                             break;
                         }
                         // Remove the first non-system message
