@@ -115,6 +115,10 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env:
+      # All features except local-whisper (whisper-rs-sys exhausts runner disk/RAM).
+      # Whisper compilation is verified during release builds on larger runners.
+      CI_FEATURES: channel-telegram,channel-discord,channel-slack,channel-whatsapp,channel-twilio,keyring-store,embeddings,tool-rss
     steps:
       - uses: actions/checkout@v6
 
@@ -140,8 +144,8 @@ jobs:
         run: |
           command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
-      - name: Build (all features)
-        run: cargo build --all-targets --all-features --timings
+      - name: Build (CI features)
+        run: cargo build --all-targets --features "$CI_FEATURES" --timings
         env:
           RUSTC_WRAPPER: sccache
 
@@ -151,9 +155,7 @@ jobs:
           RUSTC_WRAPPER: sccache
 
       - name: Build reusable nextest archive
-        run: >
-          cargo nextest archive --workspace --archive-file nextest-linux.tar.zst
-          --features channel-telegram,channel-discord,channel-slack,channel-whatsapp,channel-twilio,keyring-store,embeddings,tool-rss
+        run: cargo nextest archive --workspace --features "$CI_FEATURES" --archive-file nextest-linux.tar.zst
         env:
           RUSTC_WRAPPER: sccache
 
