@@ -188,7 +188,8 @@ impl Tool for AddButtonsTool {
         }
 
         Ok(ToolResult::new(
-            "Buttons will be attached to your next response message.",
+            "Buttons queued. Now provide your text response to the user — \
+             buttons will be attached to it automatically.",
         ))
     }
 }

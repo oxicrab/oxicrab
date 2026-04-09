@@ -952,7 +952,10 @@ impl AgentLoop {
         request_id: Option<&str>,
     ) -> Result<Option<String>> {
         messages.push(Message::user(
-            "Provide a brief summary of what you accomplished for the user.".to_string(),
+            "Present the tool results to the user. Show the actual data \
+             from the tool responses — do not summarize or describe what \
+             you did, just present the information."
+                .to_string(),
         ));
         match super::model_gateway::ModelGateway::invoke(
             effective_provider,
