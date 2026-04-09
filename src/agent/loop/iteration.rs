@@ -347,7 +347,18 @@ impl AgentLoop {
                     tool_metadata: collected_tool_metadata,
                 });
             } else {
-                // Empty response
+                // Empty response — if tools were already called, the LLM has
+                // the results but chose not to format them. Skip retries and
+                // go straight to the post-loop summary which will present the
+                // tool results to the user.
+                if any_tools_called {
+                    warn!(
+                        "LLM returned empty after tool calls on iteration {}, \
+                         falling through to post-loop summary",
+                        iteration
+                    );
+                    break;
+                }
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
                     let retry_num = EMPTY_RESPONSE_RETRIES - empty_retries_left;
