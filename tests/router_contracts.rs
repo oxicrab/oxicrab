@@ -49,7 +49,9 @@ async fn contract_policy_filters_tools_passed_to_model() {
         "expected list_dir in filtered set, got {:?}",
         names
     );
-    assert!(names.contains(&"add_buttons"));
+    // add_buttons is deferred (not in default tool list), so it should NOT
+    // appear unless explicitly activated via tool_search
+    assert!(!names.contains(&"add_buttons"));
     assert!(!names.contains(&"exec"));
 }
 
