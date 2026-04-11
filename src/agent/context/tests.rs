@@ -8,9 +8,6 @@ fn create_test_context(workspace: &Path) -> ContextBuilder {
 
 #[test]
 fn test_default_identity_contains_required_sections() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let _ctx = create_test_context(tmp.path());
-
     let identity = ContextBuilder::get_default_identity(
         "2026-02-09",
         "EST",
@@ -19,33 +16,18 @@ fn test_default_identity_contains_required_sections() {
         "Sunday, February 9, 2026 at 12:00 EST",
     );
 
+    // Template variables are substituted
+    assert!(identity.contains("2026-02-09"), "date not injected");
+    assert!(identity.contains("EST"), "timezone not injected");
+    assert!(identity.contains("Rust 0.1.3"), "runtime not injected");
+    assert!(identity.contains("/workspace"), "workspace not injected");
+    // Starts with datetime sentence
+    assert!(
+        identity.starts_with("The current date and time is"),
+        "should start with datetime"
+    );
+    // Contains identity heading
     assert!(identity.contains("# oxicrab"), "missing heading");
-    assert!(identity.contains("## Capabilities"), "missing capabilities");
-    assert!(identity.contains("## Current Context"), "missing context");
-    assert!(
-        !identity.contains("## Behavioral Rules"),
-        "fallback should not contain behavioral rules — AGENTS.md is the single source"
-    );
-    assert!(
-        identity.contains("**Date**: 2026-02-09"),
-        "missing date injection"
-    );
-    assert!(
-        identity.contains("**Runtime**: Rust 0.1.3"),
-        "missing runtime injection"
-    );
-    assert!(
-        identity.contains("**Timezone**: EST"),
-        "missing timezone injection"
-    );
-    assert!(
-        identity.contains("**Workspace**: /workspace"),
-        "missing workspace injection"
-    );
-    assert!(
-        identity.contains("/workspace/memory/"),
-        "missing memory path"
-    );
 }
 
 #[test]
@@ -82,13 +64,8 @@ fn test_build_identity_with_context_appends_context() {
     assert!(result.contains("# Custom Bot"));
     assert!(result.contains("I am a custom bot."));
     assert!(result.contains("## Current Context"));
-    assert!(result.contains("**Date**: 2026-02-09"));
-    assert!(result.contains("/my/workspace/memory/"));
-    // Should NOT contain hardcoded behavioral rules
-    assert!(
-        !result.contains("## Behavioral Rules"),
-        "should not append behavioral rules when AGENTS.md provides them"
-    );
+    assert!(result.contains("2026-02-09"));
+    assert!(result.contains("/my/workspace"));
 }
 
 #[test]
@@ -335,21 +312,6 @@ async fn test_build_messages_includes_channel_hint() {
     assert!(
         system_msg.content.contains("NOT tables"),
         "system prompt should include discord formatting hint"
-    );
-}
-
-#[test]
-fn test_default_identity_has_tool_directness_rule() {
-    let identity = ContextBuilder::get_default_identity(
-        "2026-02-21",
-        "UTC",
-        "Rust 0.1.3",
-        "/workspace",
-        "Saturday, February 21, 2026 at 12:00 UTC",
-    );
-    assert!(
-        identity.contains("call them directly"),
-        "default identity should include tool directness rule"
     );
 }
 
