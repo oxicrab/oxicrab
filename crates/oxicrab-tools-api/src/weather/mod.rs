@@ -11,6 +11,13 @@ use std::time::Duration;
 
 const OWM_API: &str = "https://api.openweathermap.org/data/2.5";
 
+struct DaySummary {
+    high: f64,
+    low: f64,
+    max_pop: f64,
+    conditions: Vec<String>,
+}
+
 pub struct WeatherTool {
     api_key: String,
     base_url: String,
@@ -81,7 +88,7 @@ impl WeatherTool {
                 ("q", location),
                 ("appid", &self.api_key),
                 ("units", units),
-                ("cnt", "8"), // 24 hours (3h intervals)
+                ("cnt", "40"), // 5 days (3h intervals, max for free tier)
             ])
             .timeout(Duration::from_secs(10))
             .send()
@@ -107,21 +114,54 @@ impl WeatherTool {
             _ => "K",
         };
 
-        let lines: Vec<String> = list
+        // Aggregate 3-hour intervals into daily summaries
+        let mut days: std::collections::BTreeMap<String, DaySummary> =
+            std::collections::BTreeMap::new();
+
+        for entry in list {
+            let dt_txt = entry["dt_txt"].as_str().unwrap_or("");
+            let date = dt_txt.split(' ').next().unwrap_or("?").to_string();
+            let temp = entry["main"]["temp"].as_f64().unwrap_or_default();
+            let desc = entry["weather"][0]["description"]
+                .as_str()
+                .unwrap_or("?")
+                .to_string();
+            let pop = entry["pop"].as_f64().unwrap_or_default();
+
+            let day = days.entry(date).or_insert_with(|| DaySummary {
+                high: f64::NEG_INFINITY,
+                low: f64::INFINITY,
+                max_pop: 0.0,
+                conditions: Vec::new(),
+            });
+            if temp > day.high {
+                day.high = temp;
+            }
+            if temp < day.low {
+                day.low = temp;
+            }
+            if pop > day.max_pop {
+                day.max_pop = pop;
+            }
+            if !day.conditions.contains(&desc) {
+                day.conditions.push(desc);
+            }
+        }
+
+        let lines: Vec<String> = days
             .iter()
-            .map(|entry| {
-                let dt_txt = entry["dt_txt"].as_str().unwrap_or("?");
-                let temp = entry["main"]["temp"].as_f64().unwrap_or_default();
-                let desc = entry["weather"][0]["description"].as_str().unwrap_or("?");
-                let pop = entry["pop"].as_f64().unwrap_or_default() * 100.0;
-                format!("{dt_txt}: {temp:.0}{unit_label} {desc} (rain: {pop:.0}%)")
+            .map(|(date, day)| {
+                let conditions = day.conditions.join(", ");
+                let rain = day.max_pop * 100.0;
+                format!(
+                    "{date}: High {:.0}{unit_label} / Low {:.0}{unit_label} — {conditions} (rain: {rain:.0}%)",
+                    day.high, day.low
+                )
             })
             .collect();
 
         Ok(format!(
-            "24h forecast for {}, {}:\n{}",
-            city,
-            country,
+            "5-day forecast for {city}, {country}:\n{}",
             lines.join("\n")
         ))
     }
@@ -134,7 +174,7 @@ impl Tool for WeatherTool {
     }
 
     fn description(&self) -> &'static str {
-        "Get current weather or forecast for a location. Uses OpenWeatherMap."
+        "Get current weather or 5-day daily forecast for a location. Uses OpenWeatherMap."
     }
 
     fn cacheable(&self) -> bool {
@@ -160,7 +200,7 @@ impl Tool for WeatherTool {
                     "type": "string",
                     "enum": ["current", "forecast"],
                     "default": "current",
-                    "description": "Get current weather or 24h forecast"
+                    "description": "current = now, forecast = 5-day daily with high/low temps and conditions"
                 },
                 "location": {
                     "type": "string",
