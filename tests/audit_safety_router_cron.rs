@@ -45,26 +45,22 @@ fn audit_srcr_04_pattern_trigger_not_lowercased() {
 // ---------------------------------------------------------------------------
 #[test]
 fn audit_srcr_05_cron_startup_empty_queue_latency() {
-    // Read constant via the source text — it is private. We pin the known
-    // value and document the expected fix (either lower the constant or add
-    // a notify/wakeup).
+    // After the fix: the poll loop waits on a `tokio::sync::Notify` alongside
+    // the sleep, so add_job/update_job/enable_job wake the loop immediately
+    // instead of making callers wait the full POLL_WHEN_EMPTY_SEC interval.
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/cron/service/mod.rs"
     ))
     .expect("read cron service source");
     assert!(
-        src.contains("const POLL_WHEN_EMPTY_SEC: u64 = 30"),
-        "cron service still polls with 30s empty-queue latency; a new job \
-         can wait up to 30s to fire. Expected fix: add a notify channel or \
-         lower the constant",
+        src.contains("tokio::sync::Notify"),
+        "cron service should use Notify to wake the poll loop on job changes",
     );
-    // There should be no `Notify` in the cron service yet — if/when one is
-    // added, this test must be updated because the latency is no longer
-    // load-bearing.
     assert!(
-        !src.contains("tokio::sync::Notify"),
-        "cron service now uses Notify; update this audit test",
+        src.contains("self.wake.notify_one()"),
+        "add_job/update_job/enable_job should signal `wake.notify_one()` so \
+         the poll loop re-polls immediately",
     );
 }
 
@@ -174,23 +170,17 @@ async fn audit_srcr_08_cron_timezone_silent_utc_fallback() {
         max_concurrent: None,
     };
 
-    // Today: accepted silently, next_run computed as UTC.
-    // Expected fix: reject invalid tz strings at add_job time.
+    // After the fix: add_job validates the timezone up front and rejects
+    // bogus zones with an error, rather than silently falling back to UTC
+    // at each fire (which would run the job at the wrong local time).
     let res = svc.add_job(job);
     assert!(
-        res.is_ok(),
-        "current behaviour is to silently accept invalid tz; when the fix \
-         lands, add_job should return Err for 'Not/A/Zone' and this test \
-         must be inverted",
+        res.is_err(),
+        "add_job should reject invalid timezone 'Not/A/Zone' at creation time",
     );
 
     let listed = svc.list_jobs(false).expect("list jobs");
-    assert_eq!(listed.len(), 1, "bad-tz job was accepted");
-    assert!(
-        listed[0].state.next_run_at_ms.is_some(),
-        "next_run was computed (as UTC) despite invalid timezone — silent \
-         fallback confirmed",
-    );
+    assert_eq!(listed.len(), 0, "job with invalid tz must not be persisted",);
 }
 
 // ---------------------------------------------------------------------------
