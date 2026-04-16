@@ -1101,10 +1101,13 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
     }
 
     if let Some((_, tx)) = state.pending.remove(&msg.chat_id) {
+        let chat_id = msg.chat_id.clone();
+        let content_bytes = msg.content.len();
         if tx.send(msg).is_err() {
             warn!(
-                "HTTP API client disconnected before receiving response (chat_id={})",
-                state.pending.len()
+                "HTTP API client disconnected before receiving response: \
+                 chat_id={} content_bytes={}",
+                chat_id, content_bytes
             );
         }
         true
