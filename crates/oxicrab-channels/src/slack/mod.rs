@@ -996,8 +996,10 @@ impl BaseChannel for SlackChannel {
             let thinking = self.config.thinking_emoji.clone();
             let done = self.config.done_emoji.clone();
             tokio::spawn(async move {
-                // Remove thinking reaction
-                let _ = client
+                // Remove thinking reaction — fire-and-forget, but surface
+                // failures so operators can see state-drift (e.g. missing
+                // `reactions:write` scope, deleted message, network blip).
+                match client
                     .post("https://slack.com/api/reactions.remove")
                     .form(&[
                         ("token", token.as_str()),
@@ -1006,9 +1008,28 @@ impl BaseChannel for SlackChannel {
                         ("name", thinking.as_str()),
                     ])
                     .send()
-                    .await;
+                    .await
+                {
+                    Ok(resp) if !resp.status().is_success() => {
+                        warn!(
+                            "slack: reactions.remove failed for thinking emoji \
+                             (status={}, channel={}, ts={}) — reaction may remain visible",
+                            resp.status(),
+                            channel,
+                            ts,
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "slack: reactions.remove network error for thinking emoji \
+                             (channel={}, ts={}): {}",
+                            channel, ts, e
+                        );
+                    }
+                    _ => {}
+                }
                 // Add done reaction
-                let _ = client
+                match client
                     .post("https://slack.com/api/reactions.add")
                     .form(&[
                         ("token", token.as_str()),
@@ -1017,7 +1038,26 @@ impl BaseChannel for SlackChannel {
                         ("name", done.as_str()),
                     ])
                     .send()
-                    .await;
+                    .await
+                {
+                    Ok(resp) if !resp.status().is_success() => {
+                        warn!(
+                            "slack: reactions.add failed for done emoji \
+                             (status={}, channel={}, ts={}) — user sees no completion signal",
+                            resp.status(),
+                            channel,
+                            ts,
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "slack: reactions.add network error for done emoji \
+                             (channel={}, ts={}): {}",
+                            channel, ts, e
+                        );
+                    }
+                    _ => {}
+                }
             });
         }
 
