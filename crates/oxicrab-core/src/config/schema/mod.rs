@@ -184,6 +184,13 @@ pub struct A2aConfig {
     pub agent_name: String,
     #[serde(default, rename = "agentDescription")]
     pub agent_description: String,
+    /// External URL clients should use to reach this agent. When unset, the
+    /// AgentCard returns the internal bind host:port, which may leak
+    /// deployment topology when the gateway sits behind a reverse proxy.
+    /// Set this to the public endpoint (e.g. `https://agents.example.com`)
+    /// in production.
+    #[serde(default, rename = "publicUrl")]
+    pub public_url: String,
 }
 
 /// Configuration for a named webhook receiver endpoint.

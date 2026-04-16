@@ -301,11 +301,41 @@ fn extract_rate_limit_client_ip(
                 .any(|net| net.contains(&remote_ip))
         })
     {
-        return headers
+        // Walk the X-Forwarded-For chain from right to left, skipping
+        // entries that match a configured trusted proxy. The rightmost
+        // untrusted entry is the real client from our trust boundary's
+        // perspective.
+        //
+        // Taking the leftmost entry is a classic bug: the header is
+        // attacker-controllable, so `X-Forwarded-For: evil, legit, our-lb`
+        // would let the attacker forge `evil` as the client IP for rate
+        // limiting, bypassing per-IP quotas.
+        let xff_client = headers
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.split(',').next())
-            .map(|s| s.trim().to_string())
+            .and_then(|raw| {
+                let mut rightmost_untrusted: Option<String> = None;
+                for entry in raw.split(',').rev() {
+                    let ip_str = entry.trim();
+                    if ip_str.is_empty() {
+                        continue;
+                    }
+                    // Non-trusted parseable IP: this is the real client from
+                    // our trust boundary's perspective.
+                    // Trusted proxy entry or malformed IP: skip and keep
+                    // walking leftward. An attacker injecting a malformed
+                    // or trusted-looking value to the right of a legit
+                    // client IP cannot mask it.
+                    if let Ok(ip) = ip_str.parse::<std::net::IpAddr>()
+                        && !state.trusted_proxies.iter().any(|net| net.contains(&ip))
+                    {
+                        rightmost_untrusted = Some(ip_str.to_string());
+                        break;
+                    }
+                }
+                rightmost_untrusted
+            });
+        return xff_client
             .or_else(|| socket_ip.map(|ip| ip.to_string()))
             .unwrap_or_else(|| "unknown".to_string());
     }

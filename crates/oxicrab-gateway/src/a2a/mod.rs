@@ -159,7 +159,16 @@ pub async fn agent_card_handler(State(state): State<A2aState>) -> impl IntoRespo
     } else {
         state.config.agent_description.clone()
     };
-    let url = format!("http://{}:{}", state.host, state.port);
+    // Prefer the explicitly configured public URL. Fall back to the
+    // internal bind host:port only when no public URL is set — that
+    // leaks deployment topology through the public AgentCard endpoint,
+    // so a startup warning is emitted if the gateway binds a non-
+    // loopback address without a configured public URL.
+    let url = if state.config.public_url.is_empty() {
+        format!("http://{}:{}", state.host, state.port)
+    } else {
+        state.config.public_url.clone()
+    };
 
     let card = AgentCard {
         name,
