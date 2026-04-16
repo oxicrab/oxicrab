@@ -138,6 +138,24 @@ impl MemoryDB {
             }
         }
 
+        // Windows: restricted DACLs require the `windows` crate which we
+        // don't depend on. Surface a single-shot warning so operators know
+        // the DB file inherits the parent directory's ACL. For
+        // multi-account Windows hosts, the workspace directory should be
+        // placed under a user-scoped path (e.g. %USERPROFILE%) rather
+        // than a world-readable shared location.
+        #[cfg(windows)]
+        {
+            static WINDOWS_PERMS_WARNED: std::sync::Once = std::sync::Once::new();
+            WINDOWS_PERMS_WARNED.call_once(|| {
+                warn!(
+                    "memory database file inherits directory ACL on Windows \
+                     (no 0600-equivalent applied); ensure workspace path is \
+                     under %USERPROFILE% on multi-account hosts"
+                );
+            });
+        }
+
         Ok(db)
     }
 

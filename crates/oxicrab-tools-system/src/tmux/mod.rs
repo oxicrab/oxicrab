@@ -78,7 +78,8 @@ impl TmuxTool {
     }
 
     async fn ensure_session(&self, session_name: &str) -> Result<()> {
-        let (code, _, stderr) = self.run_tmux(&["has-session", "-t", session_name]).await?;
+        let target = exact_target(session_name);
+        let (code, _, stderr) = self.run_tmux(&["has-session", "-t", &target]).await?;
         if code != 0 && Self::is_session_missing(&stderr) {
             debug!("Auto-creating missing tmux session '{}'", session_name);
             self.run_tmux(&["new-session", "-d", "-s", session_name])
@@ -86,6 +87,16 @@ impl TmuxTool {
         }
         Ok(())
     }
+}
+
+/// Format a tmux target string that forces exact-match semantics.
+///
+/// Tmux's `-t` target accepts prefix / fnmatch matches by default, so
+/// `has-session -t foo` would also match a session named `foo-prod`. The
+/// `=` prefix forces exact name comparison. Reference:
+/// <https://man.openbsd.org/tmux#TARGET-SESSION>
+fn exact_target(session_name: &str) -> String {
+    format!("={session_name}")
 }
 
 #[async_trait]
@@ -202,8 +213,9 @@ impl Tool for TmuxTool {
 
                 self.ensure_session(session_name).await?;
 
+                let target = exact_target(session_name);
                 let (code, _, stderr) = self
-                    .run_tmux(&["send-keys", "-t", session_name, command, "Enter"])
+                    .run_tmux(&["send-keys", "-t", &target, command, "Enter"])
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
@@ -225,11 +237,12 @@ impl Tool for TmuxTool {
 
                 self.ensure_session(session_name).await?;
 
+                let target = exact_target(session_name);
                 let (code, stdout, stderr) = self
                     .run_tmux(&[
                         "capture-pane",
                         "-t",
-                        session_name,
+                        &target,
                         "-p",
                         "-S",
                         &format!("-{lines}"),
@@ -278,8 +291,8 @@ impl Tool for TmuxTool {
                     ));
                 }
 
-                let (code, _, stderr) =
-                    self.run_tmux(&["kill-session", "-t", session_name]).await?;
+                let target = exact_target(session_name);
+                let (code, _, stderr) = self.run_tmux(&["kill-session", "-t", &target]).await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
                         "failed to kill session '{session_name}': {stderr}"

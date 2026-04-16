@@ -1102,11 +1102,22 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
 
     if let Some((_, tx)) = state.pending.remove(&msg.chat_id) {
         if tx.send(msg).is_err() {
-            warn!("HTTP API client disconnected before receiving response");
+            warn!(
+                "HTTP API client disconnected before receiving response (chat_id={})",
+                state.pending.len()
+            );
         }
         true
     } else {
-        warn!("no pending HTTP API request for chat_id={}", msg.chat_id);
+        // Orphan response — the client timed out or the pending entry was
+        // already removed by a drop guard. Include the content length so
+        // operators can reason about whether the work was lossy.
+        warn!(
+            "orphan HTTP response dropped: chat_id={} content_bytes={} \
+             (client likely timed out before agent finished)",
+            msg.chat_id,
+            msg.content.len()
+        );
         true // Still consumed — don't route to channel manager
     }
 }

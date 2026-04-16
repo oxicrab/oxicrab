@@ -1773,8 +1773,18 @@ fn check_prompt_guard(
 }
 
 /// Check if a message is a session reset command.
+///
+/// Matches these phrases (case-insensitive) with trailing punctuation
+/// (`.`, `!`, `?`) tolerated so the natural typing style still triggers:
+/// `reset`, `clear history`, `new session`, `start over`. Longer messages
+/// containing these phrases are NOT matched to avoid false positives on
+/// conversational mentions (e.g. "can you reset the counter in X?").
 pub(super) fn is_reset_command(content: &str) -> bool {
-    let trimmed = content.trim().to_lowercase();
+    let trimmed = content
+        .trim()
+        .trim_end_matches(['.', '!', '?'])
+        .trim()
+        .to_lowercase();
     matches!(
         trimmed.as_str(),
         "reset" | "clear history" | "new session" | "start over"
