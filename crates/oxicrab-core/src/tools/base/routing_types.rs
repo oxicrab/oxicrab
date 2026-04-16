@@ -47,8 +47,17 @@ impl DirectiveTrigger {
                     return false;
                 }
                 let anchored = format!("^(?:{pat})$");
-                let compiled =
-                    PATTERN_CACHE.get_with(anchored.clone(), || regex::Regex::new(&anchored).ok());
+                // Compile case-insensitive so author-written patterns match
+                // the same way Exact/OneOf triggers do (both lowercase the
+                // input). Without this, an uppercase class like `[A-Z]+`
+                // would never match because `normalized` is lowercased
+                // before we arrive here.
+                let compiled = PATTERN_CACHE.get_with(anchored.clone(), || {
+                    regex::RegexBuilder::new(&anchored)
+                        .case_insensitive(true)
+                        .build()
+                        .ok()
+                });
                 compiled.as_ref().is_some_and(|re| re.is_match(normalized))
             }
         }

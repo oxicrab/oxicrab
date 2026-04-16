@@ -82,13 +82,17 @@ fn audit_srcr_06_guidedllm_hardcoded_exemptions() {
         "/src/agent/loop/iteration.rs"
     ))
     .expect("read iteration.rs source");
+    // After the fix for finding #6: `add_buttons` stays exempt (UX-only
+    // helper, no side effects) but `tool_search` is no longer auto-allowed
+    // in GuidedLLM — it can escalate into activating deferred/MCP tools
+    // outside the routing policy. A policy that needs tool_search must
+    // list it explicitly in `allowed_tools`.
     let has_add_buttons = src.contains(r#"td.name == "add_buttons""#);
-    let has_tool_search = src.contains(r#"td.name == "tool_search""#);
+    let has_tool_search_exemption = src.contains(r#"td.name == "tool_search""#);
+    assert!(has_add_buttons, "add_buttons exemption should remain");
     assert!(
-        has_add_buttons && has_tool_search,
-        "expected hardcoded exemption strings to still exist; once the fix \
-         lands these should move to a tool-capability flag and this test \
-         must be updated accordingly",
+        !has_tool_search_exemption,
+        "tool_search exemption should be removed — privilege escalator",
     );
 }
 
