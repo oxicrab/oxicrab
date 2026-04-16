@@ -145,7 +145,7 @@ fn audit_memory_07_jaccard_threshold_too_aggressive() {
     // duplicate (different day), but under 0.55 it IS. The aggressive
     // threshold loses real information.
     assert!(
-        sim2 >= 0.55 && sim2 < 0.7,
+        (0.55..0.7).contains(&sim2),
         "test corpus invalid: jaccard={sim2}, expected 0.55 <= sim < 0.7",
     );
     assert!(

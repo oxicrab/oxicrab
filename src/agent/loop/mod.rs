@@ -765,9 +765,18 @@ impl AgentLoop {
     }
 
     /// Coalesce multiple pending messages into a single `InboundMessage`.
-    /// Joins content with newlines, merges media and metadata from all
-    /// messages, and preserves the first non-None action dispatch.
+    /// Joins content with newlines, merges media, and merges metadata with
+    /// explicit policy per key:
+    /// * Identity keys (`is_group`, `session_id`): first-message wins. These
+    ///   describe the session scope and must not drift.
+    /// * `ts` / timestamp: latest wins so threading refs the newest message.
+    /// * Other keys: last wins, with a debug log when values conflict so
+    ///   drift is visible in traces.
+    ///
+    /// Preserves the first non-None action dispatch.
     fn coalesce_messages(messages: Vec<InboundMessage>) -> InboundMessage {
+        const IDENTITY_KEYS: &[&str] = &[crate::bus::meta::IS_GROUP, crate::bus::meta::SESSION_ID];
+
         debug_assert!(!messages.is_empty());
         let content = messages
             .iter()
@@ -776,12 +785,28 @@ impl AgentLoop {
             .join("\n");
 
         let mut merged_media: Vec<String> = Vec::new();
-        let mut merged_metadata = std::collections::HashMap::new();
+        let mut merged_metadata: std::collections::HashMap<String, serde_json::Value> =
+            std::collections::HashMap::new();
         let mut first_action = None;
 
         for msg in &messages {
             merged_media.extend(msg.media.iter().cloned());
             for (k, v) in &msg.metadata {
+                if IDENTITY_KEYS.contains(&k.as_str()) {
+                    // First-message wins: session scope should not drift.
+                    merged_metadata
+                        .entry(k.clone())
+                        .or_insert_with(|| v.clone());
+                    continue;
+                }
+                if let Some(prev) = merged_metadata.get(k)
+                    && prev != v
+                {
+                    debug!(
+                        "coalesce: metadata key '{}' changed across queued messages ({:?} -> {:?})",
+                        k, prev, v
+                    );
+                }
                 merged_metadata.insert(k.clone(), v.clone());
             }
             if first_action.is_none() && msg.action.is_some() {

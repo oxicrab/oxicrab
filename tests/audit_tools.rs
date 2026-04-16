@@ -58,25 +58,28 @@ async fn audit_tools_01_nan_infinity_silent_skip() {
         .execute("param_echo", json!({"n": "NaN"}), &default_ctx())
         .await
         .expect("execute");
-    // The bug is present if the echoed params still contain the string "NaN"
-    // (i.e. coercion silently skipped). We assert the fixed behavior: either
-    // the registry returns an error, OR the coerced value is numeric.
-    let echoed: Value = serde_json::from_str(&result.content).expect("json");
-    assert!(
-        echoed["n"].is_number() || result.is_error,
-        "NaN string should either be rejected or coerced to a number, got: {echoed}"
-    );
+    // Fixed behavior: the registry returns an error rather than letting a
+    // string "NaN" pass through as a "number"-typed field.
+    if !result.is_error {
+        let echoed: Value = serde_json::from_str(&result.content).expect("echoed params json");
+        assert!(
+            echoed["n"].is_number(),
+            "NaN string should either be rejected or coerced to a number, got: {echoed}"
+        );
+    }
 
     // Same for "Infinity"
     let result = registry
         .execute("param_echo", json!({"n": "Infinity"}), &default_ctx())
         .await
         .expect("execute");
-    let echoed: Value = serde_json::from_str(&result.content).expect("json");
-    assert!(
-        echoed["n"].is_number() || result.is_error,
-        "Infinity string should either be rejected or coerced to a number, got: {echoed}"
-    );
+    if !result.is_error {
+        let echoed: Value = serde_json::from_str(&result.content).expect("echoed params json");
+        assert!(
+            echoed["n"].is_number(),
+            "Infinity string should either be rejected or coerced to a number, got: {echoed}"
+        );
+    }
 }
 
 /// Finding 7 (MED): ReadOnlyToolWrapper runtime check rejects tools that

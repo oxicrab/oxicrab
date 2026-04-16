@@ -109,6 +109,7 @@ fn test_enabled_webhook_rejects_agent_turn_and_dispatch_together() {
             dispatch: Some(WebhookDispatchConfig {
                 tool: "memory".into(),
                 params_template: serde_json::json!({}),
+                require_approval: true,
             }),
             ..Default::default()
         },

@@ -1071,6 +1071,22 @@ impl AgentLoop {
             return Err(format!("Action failed: tool '{tool}' requires approval."));
         }
 
+        // Privileged-source override: when the inbound metadata sets
+        // `approval_required=true` (e.g. webhook dispatch), force the
+        // dispatch through the approval gate regardless of the global
+        // `approval_config.covers` answer. Direct-dispatch cannot run the
+        // interactive flow, so refuse the action with a clear error.
+        if metadata
+            .get(crate::bus::meta::APPROVAL_REQUIRED)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "Action failed: tool '{tool}' action '{action}' requires operator approval \
+                 for dispatches from privileged sources (e.g. webhook)."
+            ));
+        }
+
         // Check interactive approval config
         if self
             .approval_config

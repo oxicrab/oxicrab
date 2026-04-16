@@ -243,6 +243,13 @@ pub struct WebhookDispatchConfig {
     /// Template for tool params. Use `{{key}}` for JSON payload substitution.
     #[serde(rename = "paramsTemplate")]
     pub params_template: serde_json::Value,
+    /// When true (the default), the dispatched action is routed through the
+    /// operator approval workflow regardless of whether the tool/action is
+    /// otherwise covered by `approval.actions`. Set to `false` only when the
+    /// webhook source is fully trusted (e.g. signed by an internal service
+    /// on a closed network).
+    #[serde(default = "default_true", rename = "requireApproval")]
+    pub require_approval: bool,
 }
 
 fn default_webhook_template() -> String {

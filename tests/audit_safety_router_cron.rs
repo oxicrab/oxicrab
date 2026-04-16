@@ -110,7 +110,7 @@ fn audit_srcr_07_telegram_short_prefix_correctness() {
     let matches = det.scan(benign);
     let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
     assert!(
-        !names.iter().any(|n| *n == "telegram_bot_token"),
+        !names.contains(&"telegram_bot_token"),
         "benign ':AA' occurrences must not be flagged as telegram tokens; \
          got matches: {names:?}",
     );
@@ -120,7 +120,7 @@ fn audit_srcr_07_telegram_short_prefix_correctness() {
     let real_matches = det.scan(real);
     let real_names: Vec<&str> = real_matches.iter().map(|m| m.name).collect();
     assert!(
-        real_names.iter().any(|n| *n == "telegram_bot_token"),
+        real_names.contains(&"telegram_bot_token"),
         "legitimate telegram token must still be detected; got: {real_names:?}",
     );
 }

@@ -128,11 +128,25 @@ impl BrowserTool {
             builder = builder.chrome_executable(path);
         }
 
-        // Disable DNS prefetch and speculative connections to reduce SSRF
-        // surface from in-page JS (fetch/XHR to internal IPs).
+        // Reduce SSRF surface from in-page JS (fetch/XHR to internal IPs):
+        // * Disable DNS prefetch and speculative connections.
+        // * Disable service workers and background sync — these can issue
+        //   network requests out-of-band from the page's main flow and
+        //   would otherwise bypass post-action URL validation.
+        // * Disable background networking (component updater, safe browsing
+        //   pings) so the only outbound traffic is the content the agent
+        //   explicitly navigates to.
+        // * Block new web contents (popups) so eval cannot open a new
+        //   target window that skips validation.
+        // Full SSRF prevention still requires network-level isolation
+        // (firewall rules or egress proxy) since Chrome's own URL filters
+        // do not cover direct-IP requests.
         builder = builder
-            .arg("--disable-features=NetworkPrediction")
-            .arg("--dns-prefetch-disable");
+            .arg("--disable-features=NetworkPrediction,ServiceWorker,BackgroundSync")
+            .arg("--dns-prefetch-disable")
+            .arg("--disable-background-networking")
+            .arg("--disable-component-update")
+            .arg("--block-new-web-contents");
 
         // Clean up stale SingletonLock files from previous crashes
         for lock_dir in [

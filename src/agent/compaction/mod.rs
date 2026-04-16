@@ -21,8 +21,11 @@ const PRE_FLUSH_TEMPERATURE: Option<f32> = Some(0.0);
 use super::agent_loop::CHARS_PER_TOKEN_ESTIMATE;
 
 pub fn estimate_tokens(text: &str) -> usize {
-    // Use char count for better accuracy with non-ASCII text
-    text.chars().count() / CHARS_PER_TOKEN_ESTIMATE
+    // Use byte length, not char count. BPE tokenizers allocate roughly one
+    // token per ~4 UTF-8 bytes across English and multi-byte scripts (CJK,
+    // Cyrillic, Arabic, emoji). Char count under-counts non-ASCII by 3-5×
+    // because one CJK char is one token but 3 bytes.
+    text.len() / CHARS_PER_TOKEN_ESTIMATE
 }
 
 #[allow(clippy::implicit_hasher)]

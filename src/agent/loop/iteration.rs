@@ -181,24 +181,24 @@ impl AgentLoop {
             // estimated token count exceeds 80% of the compaction threshold.
             // Prevents wasted API calls that would fail with context-length errors.
             if self.compaction_config.enabled && self.compaction_config.threshold_tokens > 0 {
-                let msg_chars: usize = messages
+                let msg_bytes: usize = messages
                     .iter()
                     .map(|m| {
-                        let mut chars = m.content.chars().count();
+                        let mut bytes = m.content.len();
                         if let Some(ref rc) = m.reasoning_content {
-                            chars += rc.chars().count();
+                            bytes += rc.len();
                         }
-                        chars
+                        bytes
                     })
                     .sum();
-                let tool_def_chars: usize = tools_arc
+                let tool_def_bytes: usize = tools_arc
                     .iter()
                     .map(|td| {
                         td.name.len() + td.description.len() + td.parameters.to_string().len()
                     })
                     .sum();
                 let estimated_tokens =
-                    (msg_chars + tool_def_chars) / CHARS_PER_TOKEN_ESTIMATE;
+                    (msg_bytes + tool_def_bytes) / CHARS_PER_TOKEN_ESTIMATE;
                 let context_limit = self.compaction_config.threshold_tokens as usize;
                 let threshold = context_limit * PREFLIGHT_COMPACTION_RATIO / 5;
                 if estimated_tokens > threshold {
@@ -207,18 +207,18 @@ impl AgentLoop {
                          trimming oldest messages",
                         estimated_tokens, context_limit
                     );
-                    let tool_tokens = tool_def_chars / CHARS_PER_TOKEN_ESTIMATE;
+                    let tool_tokens = tool_def_bytes / CHARS_PER_TOKEN_ESTIMATE;
                     // Drop oldest non-system messages until under threshold.
                     // Keep system prompt (index 0) and the most recent messages.
                     while messages.len() > 2 {
                         let recalc: usize = messages
                             .iter()
                             .map(|m| {
-                                let mut chars = m.content.chars().count();
+                                let mut bytes = m.content.len();
                                 if let Some(ref rc) = m.reasoning_content {
-                                    chars += rc.chars().count();
+                                    bytes += rc.len();
                                 }
-                                chars
+                                bytes
                             })
                             .sum::<usize>()
                             / CHARS_PER_TOKEN_ESTIMATE;
@@ -401,7 +401,7 @@ impl AgentLoop {
         // If tools were called but the loop ended without final content,
         // make one more LLM call with no tools to force a text summary.
         if any_tools_called
-            && let Some(content) = self
+            && let Some(summary) = self
                 .generate_post_loop_summary(
                     &mut messages,
                     effective_model,
@@ -410,7 +410,7 @@ impl AgentLoop {
                 )
                 .await?
         {
-            let content = strip_think_tags(&content);
+            let content = strip_think_tags(&summary.content);
             let content = prepend_display_text(
                 content,
                 &collected_tool_metadata,
@@ -424,8 +424,8 @@ impl AgentLoop {
                 input_tokens: last_input_tokens,
                 tools_used,
                 media: collected_media,
-                reasoning_content: None,
-                reasoning_signature: None,
+                reasoning_content: summary.reasoning_content,
+                reasoning_signature: summary.reasoning_signature,
                 response_metadata,
                 tool_metadata: collected_tool_metadata,
             });
@@ -979,7 +979,7 @@ impl AgentLoop {
         effective_model: &str,
         effective_provider: &dyn LLMProvider,
         request_id: Option<&str>,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<PostLoopSummary>> {
         messages.push(Message::user(
             "Present the tool results to the user. Show the actual data \
              from the tool responses — do not summarize or describe what \
@@ -1000,7 +1000,11 @@ impl AgentLoop {
             Ok(response) => {
                 let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
                 self.record_tokens_background(&response, cost_model, request_id);
-                Ok(response.content)
+                Ok(response.content.map(|content| PostLoopSummary {
+                    content,
+                    reasoning_content: response.reasoning_content,
+                    reasoning_signature: response.reasoning_signature,
+                }))
             }
             Err(e) => {
                 warn!("post-loop summary LLM call failed: {}", e);
@@ -1008,4 +1012,13 @@ impl AgentLoop {
             }
         }
     }
+}
+
+/// Structured return from `generate_post_loop_summary` so thinking-block
+/// content survives the final formatting step instead of being silently
+/// dropped.
+struct PostLoopSummary {
+    content: String,
+    reasoning_content: Option<String>,
+    reasoning_signature: Option<String>,
 }

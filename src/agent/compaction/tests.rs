@@ -257,15 +257,15 @@ proptest! {
     #[test]
     fn estimate_tokens_proportional_to_length(s in ".{0,1000}") {
         let tokens = estimate_tokens(&s);
-        let char_count = s.chars().count();
-        assert_eq!(tokens, char_count / CHARS_PER_TOKEN_ESTIMATE);
+        let byte_len = s.len();
+        assert_eq!(tokens, byte_len / CHARS_PER_TOKEN_ESTIMATE);
     }
 
     #[test]
     fn estimate_tokens_empty_is_zero(s in "\\s{0,10}") {
         let tokens = estimate_tokens(&s);
-        // Whitespace-only strings up to 3 chars should give 0 tokens
-        if s.chars().count() < CHARS_PER_TOKEN_ESTIMATE {
+        // Strings shorter than `CHARS_PER_TOKEN_ESTIMATE` *bytes* round to 0.
+        if s.len() < CHARS_PER_TOKEN_ESTIMATE {
             assert_eq!(tokens, 0);
         }
     }
@@ -284,8 +284,10 @@ fn estimate_tokens_ascii() {
 
 #[test]
 fn estimate_tokens_unicode() {
-    // Each emoji is 1 char (but 4 bytes). 4 emoji = 4 chars / 4 = 1 token
-    assert_eq!(estimate_tokens("\u{1F600}\u{1F601}\u{1F602}\u{1F603}"), 1);
+    // Each emoji is 4 UTF-8 bytes. 4 emoji = 16 bytes / 4 = 4 tokens. This
+    // over-counts slightly vs. real BPE tokenization but is far closer than
+    // the old `chars().count() / 4` which under-counted by ~4× for CJK.
+    assert_eq!(estimate_tokens("\u{1F600}\u{1F601}\u{1F602}\u{1F603}"), 4);
 }
 
 #[test]

@@ -38,6 +38,10 @@ const IGNORED_SUBTYPES: &[&str] = &[
     "me_message",
 ];
 
+/// Default Retry-After for rate-limited responses when Slack omits the header.
+/// Slack's tier-1 limit is 1 req/min; returning 1s risks a thundering herd.
+const DEFAULT_RATE_LIMIT_BACKOFF_SECS: u32 = 30;
+
 /// Classified Slack API errors for structured handling.
 #[derive(Debug)]
 enum SlackApiError {
@@ -78,7 +82,7 @@ fn classify_slack_error(
 ) -> SlackApiError {
     if http_status == 429 {
         return SlackApiError::RateLimited {
-            retry_after_secs: retry_after.unwrap_or(1),
+            retry_after_secs: retry_after.unwrap_or(DEFAULT_RATE_LIMIT_BACKOFF_SECS),
         };
     }
     if http_status >= 500 {
@@ -89,7 +93,7 @@ fn classify_slack_error(
         Some(e) if e.starts_with("missing_scope") => SlackApiError::MissingScope(e.to_string()),
         Some("channel_not_found") => SlackApiError::ChannelNotFound,
         Some("ratelimited") => SlackApiError::RateLimited {
-            retry_after_secs: retry_after.unwrap_or(1),
+            retry_after_secs: retry_after.unwrap_or(DEFAULT_RATE_LIMIT_BACKOFF_SECS),
         },
         Some(e) => SlackApiError::Other(e.to_string()),
         None if http_status >= 400 => SlackApiError::Other(format!("HTTP {http_status}")),
@@ -106,6 +110,9 @@ fn is_retryable(err: &SlackApiError) -> bool {
 
 /// Maximum age for tracked thread entries (24 hours).
 const THREAD_TRACK_TTL: std::time::Duration = std::time::Duration::from_secs(86400);
+/// Hard cap on tracked threads. Prevents unbounded growth in busy workspaces
+/// when most threads haven't hit the TTL yet; oldest entries are evicted.
+const THREAD_TRACK_MAX: usize = 10_000;
 
 pub struct SlackChannel {
     config: SlackConfig,
@@ -499,6 +506,17 @@ impl SlackChannel {
             // Prune entries older than 24 hours
             if let Some(cutoff) = now.checked_sub(THREAD_TRACK_TTL) {
                 threads.retain(|_, last| *last > cutoff);
+            }
+            // Enforce a hard cap — in high-volume channels, TTL alone can let
+            // the map balloon before entries age out.
+            if threads.len() > THREAD_TRACK_MAX {
+                let excess = threads.len() - THREAD_TRACK_MAX;
+                let mut oldest: Vec<(String, std::time::Instant)> =
+                    threads.iter().map(|(k, v)| (k.clone(), *v)).collect();
+                oldest.sort_by_key(|(_, t)| *t);
+                for (k, _) in oldest.into_iter().take(excess) {
+                    threads.remove(&k);
+                }
             }
         }
 
