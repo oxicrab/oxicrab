@@ -370,8 +370,12 @@ impl MemoryStore {
     /// Check if content is semantically similar to any recent daily entries
     /// using embedding cosine similarity. Returns true if a duplicate is found.
     /// Falls back to false if embeddings are unavailable or an error occurs.
+    ///
+    /// When `is_group` is true, personal daily: entries are excluded from the
+    /// search entirely, matching the group-chat memory isolation applied to
+    /// normal retrieval via `get_memory_context_scoped`.
     #[cfg_attr(not(feature = "embeddings"), allow(unused_variables))]
-    pub fn is_semantically_duplicate(&self, content: &str, threshold: f32) -> bool {
+    pub fn is_semantically_duplicate(&self, content: &str, threshold: f32, is_group: bool) -> bool {
         #[cfg(feature = "embeddings")]
         {
             let Some(svc) = self.embedding_service() else {
@@ -383,34 +387,56 @@ impl MemoryStore {
             };
             // Search recent daily entries using vector similarity only
             let keyword_weight = 0.0; // pure vector search
+            // In group mode, exclude personal daily: entries so dedup does
+            // not leak personal memory content into shared-context scoring.
+            let exclude_sources: Option<std::collections::HashSet<String>> = if is_group {
+                Some(
+                    self.db
+                        .list_daily_source_keys()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect(),
+                )
+            } else {
+                None
+            };
             match self.db.hybrid_search(
                 content,
                 &query_emb,
                 5,
-                None,
+                exclude_sources.as_ref(),
                 keyword_weight,
                 oxicrab_core::config::schema::FusionStrategy::WeightedScore,
                 60,
                 0, // no recency decay for dedup
             ) {
                 Ok(hits) => {
-                    // Check if any hit from daily: sources has high similarity
-                    for hit in &hits {
-                        if !hit.source_key.starts_with("daily:") {
-                            continue;
-                        }
-                        // Re-embed the hit content and compare
-                        if let Ok(hit_emb) = svc.embed_query(&hit.content) {
-                            let sim = crate::embeddings::cosine_similarity(&query_emb, &hit_emb);
-                            if sim >= threshold {
-                                debug!(
-                                    "semantic dedup: similarity {:.3} >= threshold {:.3} with '{}'",
-                                    sim,
-                                    threshold,
-                                    &hit.content[..hit.content.len().min(50)]
-                                );
-                                return true;
-                            }
+                    // Collect daily: hits and embed them in a single batch.
+                    // `embed_texts` is uncached (document embeddings, not
+                    // query reuse) — using `embed_query` here would pollute
+                    // the query LRU with one-off document content and starve
+                    // actual query cache entries.
+                    let daily_hits: Vec<&crate::memory_db::MemoryHit> = hits
+                        .iter()
+                        .filter(|h| h.source_key.starts_with("daily:"))
+                        .collect();
+                    if daily_hits.is_empty() {
+                        return false;
+                    }
+                    let texts: Vec<&str> = daily_hits.iter().map(|h| h.content.as_str()).collect();
+                    let Ok(hit_embs) = svc.embed_texts(&texts) else {
+                        return false;
+                    };
+                    for (hit, hit_emb) in daily_hits.iter().zip(hit_embs.iter()) {
+                        let sim = crate::embeddings::cosine_similarity(&query_emb, hit_emb);
+                        if sim >= threshold {
+                            debug!(
+                                "semantic dedup: similarity {:.3} >= threshold {:.3} with '{}'",
+                                sim,
+                                threshold,
+                                &hit.content[..hit.content.len().min(50)]
+                            );
+                            return true;
                         }
                     }
                     false
