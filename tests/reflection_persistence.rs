@@ -355,6 +355,46 @@ fn skill_index_prune_skill_index_drops_dead_paths() {
 }
 
 #[test]
+fn purge_old_tool_reflections_drops_rows_past_cutoff() {
+    // Without hygiene, tool_reflections grows unboundedly when
+    // reflection.persist_to_db is enabled. Verify the purge respects
+    // the day boundary and the days=0 no-op.
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("r.db")).unwrap();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let day_ms = 86_400_000_i64;
+
+    let insert = |request_id: &str, age_days: i64| {
+        db.insert_tool_reflection(&ReflectionRecord {
+            request_id: request_id.to_string(),
+            tool_name: "shell".into(),
+            action: Some("execute".into()),
+            attempt_number: 1,
+            error_excerpt: "x".into(),
+            hypothesis: "h".into(),
+            retry_strategy: "r".into(),
+            next_outcome: None,
+            created_at_ms: now_ms - age_days * day_ms,
+        })
+        .unwrap();
+    };
+    insert("recent", 1);
+    insert("old-A", 100);
+    insert("old-B", 365);
+
+    // days=0 must not delete anything (matches other purge helpers).
+    assert_eq!(db.purge_old_tool_reflections(0).unwrap(), 0);
+    assert_eq!(db.count_reflections_for_request("recent").unwrap(), 1);
+    assert_eq!(db.count_reflections_for_request("old-A").unwrap(), 1);
+
+    // 90-day cutoff: drop everything older.
+    assert_eq!(db.purge_old_tool_reflections(90).unwrap(), 2);
+    assert_eq!(db.count_reflections_for_request("recent").unwrap(), 1);
+    assert_eq!(db.count_reflections_for_request("old-A").unwrap(), 0);
+    assert_eq!(db.count_reflections_for_request("old-B").unwrap(), 0);
+}
+
+#[test]
 fn reflection_outcome_update_targets_latest_record() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("reflection.db");

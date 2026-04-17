@@ -41,6 +41,18 @@ fn open_no_follow(path: &Path) -> std::io::Result<File> {
     }
 }
 
+/// Read up to `max_bytes` from `path` as UTF-8. Anything beyond the
+/// cap is discarded — used by listing helpers where the caller only
+/// needs a prefix (e.g. to extract a description) and must not be
+/// allowed to read an attacker-staged multi-gigabyte file fully into
+/// memory.
+fn read_bounded(path: &Path, max_bytes: u64) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut buf = String::new();
+    file.by_ref().take(max_bytes).read_to_string(&mut buf)?;
+    Ok(buf)
+}
+
 /// Validate that a skill name is safe to use as a filesystem path
 /// component.
 fn validate_skill_name(name: &str) -> Result<()> {
@@ -104,9 +116,34 @@ pub fn propose_skill(workspace_skills: &Path, name: &str, body: &str) -> Result<
     std::fs::create_dir_all(&staged_dir)
         .with_context(|| format!("creating staged dir at {}", staged_dir.display()))?;
     let path = staged_dir.join(format!("{name}.md"));
-    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+    write_staged_file(&path, body).with_context(|| format!("writing {}", path.display()))?;
     info!("skill_propose: staged '{}' at {}", name, path.display());
     Ok(path)
+}
+
+/// Write `body` to `path` with restricted permissions on Unix (0600).
+/// Staged skill files may transit security review, so the default
+/// umask-derived 0644 would let any local user read or replace them
+/// before promotion. Mirrors the 0600 restriction applied to the
+/// memory database file.
+fn write_staged_file(path: &Path, body: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(body.as_bytes())?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, body)
+    }
 }
 
 /// Promote a staged skill to active by moving it into a per-skill
@@ -298,7 +335,20 @@ pub fn list_staged_with_metadata(workspace_skills: &Path) -> Vec<StagedSkill> {
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0_i64, |d| d.as_millis() as i64);
-        let description = std::fs::read_to_string(&path)
+        // Bound the read so an oversized file dropped into the staged
+        // dir (manually, outside `propose_skill`'s 32 KB cap) cannot
+        // OOM the listing call. Any file larger than the propose cap
+        // would be rejected at promote time anyway, so reading the
+        // first MAX_PROPOSED_SKILL_BYTES bytes is enough to extract a
+        // description.
+        if meta.len() > MAX_PROPOSED_SKILL_BYTES {
+            warn!(
+                "skill_propose: staged file {} exceeds {} bytes; skipping description extraction",
+                path.display(),
+                MAX_PROPOSED_SKILL_BYTES
+            );
+        }
+        let description = read_bounded(&path, MAX_PROPOSED_SKILL_BYTES)
             .ok()
             .and_then(|c| extract_description(&c))
             .unwrap_or_default();
@@ -441,6 +491,45 @@ mod tests {
             err.to_string().contains("too large"),
             "expected size rejection, got: {err}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn propose_writes_staged_file_with_0600() {
+        // Staged files might be read by the security scanner before an
+        // operator gets to them; default umask (0644) leaks them to
+        // any local user. Verify Unix permissions are 0600.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = propose_skill(dir.path(), "perm_check", "body").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "expected mode 0600, got {mode:o}");
+    }
+
+    #[test]
+    fn list_staged_with_metadata_caps_oversized_read() {
+        // An attacker-placed file in staged/ (outside propose_skill)
+        // could be much larger than MAX_PROPOSED_SKILL_BYTES. The
+        // listing call must not pull the whole thing into memory just
+        // to extract a description.
+        let dir = tempfile::tempdir().unwrap();
+        let staged_dir = dir.path().join("staged");
+        std::fs::create_dir_all(&staged_dir).unwrap();
+        // Write a file ~10x the cap.
+        let huge = staged_dir.join("huge.md");
+        let body = "description: oversized file for read-bounded test\n".to_string()
+            + &"x".repeat((MAX_PROPOSED_SKILL_BYTES * 10) as usize);
+        std::fs::write(&huge, body).unwrap();
+
+        let entries = list_staged_with_metadata(dir.path());
+        let entry = entries
+            .iter()
+            .find(|s| s.name == "huge")
+            .expect("listing should still surface the file");
+        // Size reflects on-disk reality; description was extracted
+        // from the bounded prefix only.
+        assert!(entry.bytes > MAX_PROPOSED_SKILL_BYTES * 5);
+        assert!(entry.description.contains("oversized file"));
     }
 
     #[cfg(unix)]

@@ -60,6 +60,11 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
         Err(e) => warn!("cost log purge failed: {}", e),
         _ => {}
     }
+    match db.purge_old_tool_reflections(purge_log_days) {
+        Ok(n) if n > 0 => info!("purged {} old tool reflection entries", n),
+        Err(e) => warn!("tool reflection purge failed: {}", e),
+        _ => {}
+    }
     // Purge old memory entries (keep knowledge: prefixed sources).
     match db.purge_old_memory_entries(memory_retention_days) {
         Ok(n) if n > 0 => info!("purged {} old memory entries", n),

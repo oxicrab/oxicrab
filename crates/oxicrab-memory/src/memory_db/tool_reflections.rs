@@ -99,6 +99,24 @@ impl MemoryDB {
         Ok(count as u64)
     }
 
+    /// Purge `tool_reflections` rows older than `days`. Returns the
+    /// number of rows deleted. Called from `run_hygiene` so the table
+    /// stays bounded under long-running deployments with reflection
+    /// enabled (without hygiene, every retry persists a row that's
+    /// never reaped).
+    pub fn purge_old_tool_reflections(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+        let conn = self.lock_conn()?;
+        let cutoff_ms = chrono::Utc::now().timestamp_millis() - i64::from(days) * 86_400_000;
+        let deleted = conn.execute(
+            "DELETE FROM tool_reflections WHERE created_at_ms < ?1",
+            rusqlite::params![cutoff_ms],
+        )?;
+        Ok(deleted)
+    }
+
     /// Aggregate reflection statistics per `(tool, action)` over the
     /// last `days_back` days. Used by `oxicrab stats reflections` and
     /// the hygiene job to surface tools where retries consistently
