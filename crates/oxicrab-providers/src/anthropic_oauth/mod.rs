@@ -208,14 +208,13 @@ impl AnthropicOAuthProvider {
                 };
                 if still_expired {
                     info!("OAuth token expired, refreshing...");
-                    match self.refresh_token_internal(&refresh_token).await {
-                        Ok(()) => {
-                            info!("OAuth token refreshed successfully");
-                        }
-                        Err(e) => {
-                            warn!("Token refresh failed: {}, using existing token", e);
-                        }
-                    }
+                    self.refresh_token_internal(&refresh_token)
+                        .await
+                        .map_err(|e| {
+                            warn!("OAuth token refresh failed: {e}");
+                            anyhow::anyhow!("oauth token refresh failed: {e}")
+                        })?;
+                    info!("OAuth token refreshed successfully");
                 }
             }
         }

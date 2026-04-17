@@ -77,17 +77,29 @@ impl Tool for ReadOnlyToolWrapper {
     }
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
-        let Some(action) = params.get("action").and_then(|a| a.as_str()) else {
-            return Ok(ToolResult::error(
-                "action parameter is required".to_string(),
-            ));
-        };
-        if !self.read_only_actions.contains(&action) {
-            return Ok(ToolResult::error(format!(
-                "action '{action}' is not available in this context (read-only access)"
-            )));
+        if let Some(action) = params.get("action").and_then(|a| a.as_str()) {
+            if !self.read_only_actions.contains(&action) {
+                return Ok(ToolResult::error(format!(
+                    "action '{action}' is not available in this context (read-only access)"
+                )));
+            }
+            return self.inner.execute(params, ctx).await;
         }
-        self.inner.execute(params, ctx).await
+        // Single-purpose read-only tool: exactly one read-only action
+        // descriptor and no `action` property in the schema. The capability
+        // descriptor is metadata-only; the inner tool doesn't dispatch on
+        // `action` and shouldn't be forced to.
+        let schema_has_action = self
+            .filtered_schema
+            .get("properties")
+            .and_then(|p| p.get("action"))
+            .is_some();
+        if self.read_only_actions.len() == 1 && !schema_has_action {
+            return self.inner.execute(params, ctx).await;
+        }
+        Ok(ToolResult::error(
+            "action parameter is required".to_string(),
+        ))
     }
 
     fn capabilities(&self) -> ToolCapabilities {

@@ -750,7 +750,7 @@ impl BaseChannel for DiscordChannel {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs() as i64);
-                now - ts > 14 * 60
+                now - ts >= 14 * 60
             });
 
         if let (Some(token), Some(app_id)) = (interaction_token, application_id) {

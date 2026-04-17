@@ -12,6 +12,7 @@ fn make_a2a_state() -> (A2aState, mpsc::Receiver<InboundMessage>) {
             enabled: true,
             agent_name: "test-agent".to_string(),
             agent_description: "A test agent".to_string(),
+            public_url: String::new(),
         },
         store: Arc::new(A2aTaskStore::new()),
         inbound_tx: Arc::new(tx),

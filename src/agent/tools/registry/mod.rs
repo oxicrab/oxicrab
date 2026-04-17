@@ -126,6 +126,51 @@ fn coerce_value_to_schema(value: &mut Value, schema: &Value) {
     }
 }
 
+/// Walk the coerced params and collect paths where a string sits in a
+/// number/integer slot and parses to a non-finite `f64` (NaN, ±Infinity).
+/// `Number::from_f64` rejects these, so the coerce pass silently leaves the
+/// string in place — any downstream code that calls `as_f64()` would see
+/// `None` and treat the value as missing. Surface it as a hard error instead.
+fn find_nonfinite_number_strings(value: &Value, schema: &Value, path: &str, out: &mut Vec<String>) {
+    let expected_type = schema.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    if (expected_type == "number" || expected_type == "integer")
+        && let Some(s) = value.as_str()
+        && let Ok(n) = s.parse::<f64>()
+        && !n.is_finite()
+    {
+        out.push(if path.is_empty() {
+            "$".to_string()
+        } else {
+            path.to_string()
+        });
+        return;
+    }
+    if expected_type == "object"
+        && let Some(Value::Object(properties)) = schema.get("properties")
+        && let Some(obj) = value.as_object()
+    {
+        for (key, prop_schema) in properties {
+            if let Some(child) = obj.get(key) {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                find_nonfinite_number_strings(child, prop_schema, &child_path, out);
+            }
+        }
+    }
+    if expected_type == "array"
+        && let Some(items_schema) = schema.get("items")
+        && let Some(arr) = value.as_array()
+    {
+        for (i, item) in arr.iter().enumerate() {
+            let child_path = format!("{path}[{i}]");
+            find_nonfinite_number_strings(item, items_schema, &child_path, out);
+        }
+    }
+}
+
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
     middleware: Vec<Arc<dyn ToolMiddleware>>,
@@ -453,7 +498,19 @@ impl ToolRegistry {
             .ok_or_else(|| anyhow::anyhow!("Tool '{name}' not found"))?;
 
         // Phase 0: Coerce LLM params to match schema types
-        let params = coerce_params_to_schema(params, &tool.parameters());
+        let schema = tool.parameters();
+        let params = coerce_params_to_schema(params, &schema);
+
+        // Phase 0.5: Reject non-finite numbers (NaN, ±Inf) that the coerce
+        // pass could not represent via `serde_json::Number::from_f64`.
+        let mut nonfinite = Vec::new();
+        find_nonfinite_number_strings(&params, &schema, "", &mut nonfinite);
+        if !nonfinite.is_empty() {
+            return Ok(ToolResult::error(format!(
+                "invalid parameter: non-finite number value(s) at {}",
+                nonfinite.join(", ")
+            )));
+        }
 
         // Phase 1: before_execute middleware chain
         for mw in &self.middleware {

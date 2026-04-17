@@ -128,6 +128,15 @@ impl OpenAIProvider {
             .and_then(|u| u.get("completion_tokens"))
             .and_then(serde_json::Value::as_u64);
 
+        // OpenAI automatic prompt caching (gpt-4o, gpt-4.1, o-series) reports
+        // cache hits via `usage.prompt_tokens_details.cached_tokens`. Surface
+        // it so cost tracking reflects real token consumption.
+        let cache_read_input_tokens = json
+            .get("usage")
+            .and_then(|u| u.get("prompt_tokens_details"))
+            .and_then(|d| d.get("cached_tokens"))
+            .and_then(serde_json::Value::as_u64);
+
         // DeepSeek-R1 and similar models return reasoning in this field
         let reasoning_content = message["reasoning_content"]
             .as_str()
@@ -143,6 +152,7 @@ impl OpenAIProvider {
             reasoning_content,
             input_tokens,
             output_tokens,
+            cache_read_input_tokens,
             finish_reason,
             ..Default::default()
         })

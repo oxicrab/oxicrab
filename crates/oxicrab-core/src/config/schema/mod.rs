@@ -184,6 +184,13 @@ pub struct A2aConfig {
     pub agent_name: String,
     #[serde(default, rename = "agentDescription")]
     pub agent_description: String,
+    /// External URL clients should use to reach this agent. When unset, the
+    /// AgentCard returns the internal bind host:port, which may leak
+    /// deployment topology when the gateway sits behind a reverse proxy.
+    /// Set this to the public endpoint (e.g. `https://agents.example.com`)
+    /// in production.
+    #[serde(default, rename = "publicUrl")]
+    pub public_url: String,
 }
 
 /// Configuration for a named webhook receiver endpoint.
@@ -243,6 +250,13 @@ pub struct WebhookDispatchConfig {
     /// Template for tool params. Use `{{key}}` for JSON payload substitution.
     #[serde(rename = "paramsTemplate")]
     pub params_template: serde_json::Value,
+    /// When true (the default), the dispatched action is routed through the
+    /// operator approval workflow regardless of whether the tool/action is
+    /// otherwise covered by `approval.actions`. Set to `false` only when the
+    /// webhook source is fully trusted (e.g. signed by an internal service
+    /// on a closed network).
+    #[serde(default = "default_true", rename = "requireApproval")]
+    pub require_approval: bool,
 }
 
 fn default_webhook_template() -> String {

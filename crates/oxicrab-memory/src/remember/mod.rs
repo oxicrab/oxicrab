@@ -66,9 +66,16 @@ pub fn jaccard_similarity(a: &str, b: &str) -> f64 {
     intersection as f64 / union as f64
 }
 
+/// Jaccard threshold for flagging content as a duplicate of an existing
+/// entry. Matches the documented value (CLAUDE.md) and the downstream
+/// `MemoryStore::is_semantically_duplicate` embedding threshold (0.85) in
+/// spirit — both should reject near-identical content without false-
+/// positively rejecting distinct facts that share common filler words.
+pub const JACCARD_DUPLICATE_THRESHOLD: f64 = 0.7;
+
 /// Check if content is a near-duplicate of any recent DB entries.
 pub fn is_duplicate_of_entries(content: &str, entries: &[String]) -> bool {
-    let threshold = 0.55;
+    let threshold = JACCARD_DUPLICATE_THRESHOLD;
     for entry in entries {
         let entry = entry.trim();
         if entry.is_empty() {

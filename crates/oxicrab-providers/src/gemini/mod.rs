@@ -130,6 +130,14 @@ impl GeminiProvider {
             .and_then(|u| u.get("candidatesTokenCount"))
             .and_then(serde_json::Value::as_u64);
 
+        // Gemini context caching reports cache hits via
+        // `usageMetadata.cachedContentTokenCount`. Surface it so cost
+        // tracking reflects real token consumption.
+        let cache_read_input_tokens = json
+            .get("usageMetadata")
+            .and_then(|u| u.get("cachedContentTokenCount"))
+            .and_then(serde_json::Value::as_u64);
+
         let finish_reason = candidate["finishReason"]
             .as_str()
             .map(std::string::ToString::to_string);
@@ -140,6 +148,7 @@ impl GeminiProvider {
             reasoning_content,
             input_tokens,
             output_tokens,
+            cache_read_input_tokens,
             finish_reason,
             ..Default::default()
         })

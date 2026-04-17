@@ -171,6 +171,7 @@ apiKey = ""
 enabled = false
 agentName = ""
 agentDescription = ""
+publicUrl = ""
 
 [gateway.rateLimit]
 enabled = false

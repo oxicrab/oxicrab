@@ -150,7 +150,10 @@ panic = "unwind"      # Unwind on panic (required for tool panic isolation via t
 
 [dev-dependencies]
 filetime = "0.2"
+hmac = { workspace = true }
 proptest = "1.4"
+reqwest = { workspace = true }
+sha2 = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 wiremock = { workspace = true }
 

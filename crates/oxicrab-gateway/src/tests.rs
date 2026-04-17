@@ -504,7 +504,18 @@ async fn test_webhook_agent_turn_routes_through_agent() {
 
     // Receive the inbound message (agent would normally process this)
     let inbound = inbound_rx.recv().await.unwrap();
-    assert_eq!(inbound.content, "Alert: server down");
+    // Webhook payload is now wrapped in a trust-boundary marker so the agent
+    // can distinguish operator template text from untrusted payload content.
+    assert!(
+        inbound.content.contains("Alert: server down"),
+        "wrapped message should carry the templated content: {}",
+        inbound.content
+    );
+    assert!(
+        inbound.content.contains("<webhook-payload>"),
+        "wrapped message should include the trust-boundary marker: {}",
+        inbound.content
+    );
     assert_eq!(inbound.sender_id, "webhook:alert");
 
     // Simulate agent response by sending to the pending oneshot

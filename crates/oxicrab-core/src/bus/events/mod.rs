@@ -35,6 +35,11 @@ pub mod meta {
     pub const SUGGESTED_BUTTONS: &str = "suggested_buttons";
     /// Action directives from tool result metadata (`array`).
     pub const ACTION_DIRECTIVES: &str = "action_directives";
+    /// When set to `true`, the agent loop must route the inbound dispatch
+    /// through the operator approval workflow regardless of whether the
+    /// tool/action is otherwise covered by the global approval config.
+    /// Used by privileged sources (e.g. webhook dispatch) to force approval.
+    pub const APPROVAL_REQUIRED: &str = "approval_required";
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

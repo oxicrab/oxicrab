@@ -765,9 +765,18 @@ impl AgentLoop {
     }
 
     /// Coalesce multiple pending messages into a single `InboundMessage`.
-    /// Joins content with newlines, merges media and metadata from all
-    /// messages, and preserves the first non-None action dispatch.
+    /// Joins content with newlines, merges media, and merges metadata with
+    /// explicit policy per key:
+    /// * Identity keys (`is_group`, `session_id`): first-message wins. These
+    ///   describe the session scope and must not drift.
+    /// * `ts` / timestamp: latest wins so threading refs the newest message.
+    /// * Other keys: last wins, with a debug log when values conflict so
+    ///   drift is visible in traces.
+    ///
+    /// Preserves the first non-None action dispatch.
     fn coalesce_messages(messages: Vec<InboundMessage>) -> InboundMessage {
+        const IDENTITY_KEYS: &[&str] = &[crate::bus::meta::IS_GROUP, crate::bus::meta::SESSION_ID];
+
         debug_assert!(!messages.is_empty());
         let content = messages
             .iter()
@@ -776,16 +785,45 @@ impl AgentLoop {
             .join("\n");
 
         let mut merged_media: Vec<String> = Vec::new();
-        let mut merged_metadata = std::collections::HashMap::new();
+        let mut merged_metadata: std::collections::HashMap<String, serde_json::Value> =
+            std::collections::HashMap::new();
         let mut first_action = None;
 
         for msg in &messages {
             merged_media.extend(msg.media.iter().cloned());
             for (k, v) in &msg.metadata {
+                if IDENTITY_KEYS.contains(&k.as_str()) {
+                    // First-message wins: session scope should not drift.
+                    merged_metadata
+                        .entry(k.clone())
+                        .or_insert_with(|| v.clone());
+                    continue;
+                }
+                if let Some(prev) = merged_metadata.get(k)
+                    && prev != v
+                {
+                    debug!(
+                        "coalesce: metadata key '{}' changed across queued messages ({:?} -> {:?})",
+                        k, prev, v
+                    );
+                }
                 merged_metadata.insert(k.clone(), v.clone());
             }
-            if first_action.is_none() && msg.action.is_some() {
-                first_action.clone_from(&msg.action);
+            match (&first_action, &msg.action) {
+                (None, Some(_)) => first_action.clone_from(&msg.action),
+                (Some(first), Some(later)) => {
+                    // Multiple queued messages carry action dispatches. Only
+                    // the first can be honoured (actions are not commutative
+                    // — running `shell:rm -rf a` after `shell:cp a b` would
+                    // execute two shell invocations for a single coalesced
+                    // turn). Warn so operators can see non-first drops.
+                    warn!(
+                        "coalesce: dropping subsequent action (tool={} source={:?}); \
+                         first action (tool={} source={:?}) wins",
+                        later.tool, later.source, first.tool, first.source
+                    );
+                }
+                _ => {}
             }
         }
 
@@ -836,9 +874,18 @@ impl AgentLoop {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if pending.len() >= MAX_PENDING_MESSAGES_PER_SESSION {
                     warn!(
-                        "pending queue full for session {}, dropping message",
-                        session_key
+                        "pending queue full for session {} (max={}), dropping message \
+                         from {}:{} ({} bytes); user will see no response for this message",
+                        session_key,
+                        MAX_PENDING_MESSAGES_PER_SESSION,
+                        msg.channel,
+                        msg.sender_id,
+                        msg.content.len()
                     );
+                    metrics::counter!("oxicrab_agent_pending_queue_dropped_total",
+                        "channel" => msg.channel.clone(),
+                    )
+                    .increment(1);
                     return Ok(None);
                 }
                 pending.push(msg);
