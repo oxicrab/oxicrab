@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.4] - 2026-04-17
+
+### Added
+- **weather:** upgrade forecast to 5-day daily summary ([89de937](https://github.com/oxicrab/oxicrab/commit/89de937a49368fdedf0bee9cedde72b271f86288))
+
+
+### CI/CD
+- bump trufflesecurity/trufflehog from 3.94.2 to 3.94.3 (#146) ([258d399](https://github.com/oxicrab/oxicrab/commit/258d39915fe2a1c01a466aeb092689934c00a4fd))
+
+
+### Changed
+- simplify system prompt and remove fragile identity tests ([cba80df](https://github.com/oxicrab/oxicrab/commit/cba80df107dd4a97384b2ca85d085f41d99f02f2))
+
+
+### Dependencies
+- bump metrics-exporter-prometheus from 0.17.2 to 0.18.1 (#154) ([0193790](https://github.com/oxicrab/oxicrab/commit/019379070f58f6e77af02c21b7e60e5ccf7495b8))
+- bump whatsapp-rust from 0.4.3 to 0.5.0 (#152) ([a3509cd](https://github.com/oxicrab/oxicrab/commit/a3509cd3ee28e7467dddab5258f1063be9daf3f6))
+- bump fastrand from 2.3.0 to 2.4.1 (#151) ([abbb682](https://github.com/oxicrab/oxicrab/commit/abbb682123986e7cb7465f6be1bd8d31639dede3))
+- bump clap_complete from 4.6.0 to 4.6.1 (#150) ([986f370](https://github.com/oxicrab/oxicrab/commit/986f370387f674158a0c33880f17366cd7d65100))
+- bump rmcp from 1.3.0 to 1.4.0 (#149) ([abd330f](https://github.com/oxicrab/oxicrab/commit/abd330f2a3e0ada1003f500722f5bdc807716c61))
+- bump toml from 0.9.12+spec-1.1.0 to 1.1.2+spec-1.1.0 (#147) ([2620c86](https://github.com/oxicrab/oxicrab/commit/2620c8696c883cd190034aede40d3132f65fbb3c))
+
+
+### Fixed
+- **audit:** MED channels UX group (#157) ([3563ca3](https://github.com/oxicrab/oxicrab/commit/3563ca3fef3345d830beecb5dad5f88805e2a991))
+- **audit:** address 13 HIGH-severity audit findings (#155) ([dfa4507](https://github.com/oxicrab/oxicrab/commit/dfa4507f3a7edffaa7f01b866c006a7605110c91))
+- **deps:** update rand 0.10.0 → 0.10.1 (RUSTSEC-2026-0097) ([5d0415c](https://github.com/oxicrab/oxicrab/commit/5d0415c3c6bf7155e8f535f4405a02247f77bd7f))
+- **ci:** use runner.temp for nextest archive extraction ([822f9a7](https://github.com/oxicrab/oxicrab/commit/822f9a7a41386500aa99544842975c36422bedbc))
+
+
+### Maintenance
+- **deps:** bump indexmap from 2.13.1 to 2.14.0 ([80d2083](https://github.com/oxicrab/oxicrab/commit/80d2083221fe6e82b3eef0ac2bddb8316bcf9d5e))
+
 ## [0.17.3] - 2026-04-09
 
 ### Fixed
