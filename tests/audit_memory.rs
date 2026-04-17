@@ -85,10 +85,11 @@ fn audit_memory_06_dedup_ignores_group_mode_daily_exclusion() {
     // exercise the new path and then flipped to PASS.
     let src = include_str!("../crates/oxicrab-memory/src/memory_store/mod.rs");
 
-    // The dedup function exists and takes only (content, threshold):
+    // After the fix: the dedup function takes an explicit `is_group` flag
+    // and, when set, filters out daily:* entries at search time.
     assert!(
-        src.contains("pub fn is_semantically_duplicate(&self, content: &str, threshold: f32)"),
-        "is_semantically_duplicate signature changed; re-evaluate this audit finding",
+        src.contains("is_semantically_duplicate") && src.contains("is_group: bool"),
+        "is_semantically_duplicate must take an is_group flag after the fix",
     );
 
     // The call site passes `None` for exclude_sources, i.e. it never
