@@ -12,6 +12,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 /// Hard cap on the size of a staged skill file read during promotion.
 /// Bounds memory consumption if an attacker swaps the staged file
 /// for something huge between propose and promote.
@@ -19,6 +22,24 @@ const MAX_STAGED_READ_BYTES: usize = 64 * 1024;
 
 /// Maximum size of a proposed skill file.
 const MAX_PROPOSED_SKILL_BYTES: u64 = 32_768;
+
+/// Open `path` for reading and refuse to follow symlinks at the kernel
+/// level. On Unix this uses `O_NOFOLLOW`; on other platforms the
+/// regular `File::open` is used (callers must rely on the prior
+/// `symlink_metadata` check there).
+fn open_no_follow(path: &Path) -> std::io::Result<File> {
+    #[cfg(unix)]
+    {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+    }
+    #[cfg(not(unix))]
+    {
+        File::open(path)
+    }
+}
 
 /// Validate that a skill name is safe to use as a filesystem path
 /// component.
@@ -127,12 +148,17 @@ pub fn promote_staged_skill(workspace_skills: &Path, name: &str) -> Result<PathB
         ));
     }
 
-    // Open and read with a bounded length. Open(read) on the path can
-    // still race with a symlink swap between symlink_metadata and
-    // open — read the bytes immediately and re-validate file type
-    // from the opened handle.
-    let mut file =
-        File::open(&staged_path).with_context(|| format!("opening {}", staged_path.display()))?;
+    // Open the staged file. On Unix we set `O_NOFOLLOW` so the kernel
+    // refuses any symlink at open time — `symlink_metadata` above only
+    // catches the link before the open syscall, and a `file.metadata()`
+    // (fstat) check on the resulting handle returns the *target's*
+    // attributes, so an attacker who swaps the regular file for a
+    // symlink-to-regular-file in the race window between `stat` and
+    // `open` would otherwise go undetected. `O_NOFOLLOW` closes that
+    // residual TOCTOU window. Non-Unix platforms keep the path-based
+    // open and rely on `symlink_metadata` alone.
+    let mut file = open_no_follow(&staged_path)
+        .with_context(|| format!("opening {}", staged_path.display()))?;
     let opened_meta = file
         .metadata()
         .with_context(|| format!("stat after open {}", staged_path.display()))?;
@@ -141,20 +167,25 @@ pub fn promote_staged_skill(workspace_skills: &Path, name: &str) -> Result<PathB
             "staged skill '{name}' lost its regular-file type between stat and open"
         ));
     }
-    let mut content = String::new();
-    let mut buf = vec![0u8; MAX_STAGED_READ_BYTES + 1];
-    let n = file
-        .read(&mut buf)
+    // `Read::read` is permitted to return fewer bytes than the buffer
+    // even for local regular files. A short read followed by `scan_skill`
+    // on the truncated slice would let an attacker promote unscanned
+    // tail content. `take(N).read_to_end` loops until EOF or the cap,
+    // guaranteeing the scan covers everything that will be promoted.
+    let mut buf: Vec<u8> = Vec::with_capacity(MAX_STAGED_READ_BYTES + 1);
+    let bytes_read = file
+        .by_ref()
+        .take((MAX_STAGED_READ_BYTES as u64) + 1)
+        .read_to_end(&mut buf)
         .with_context(|| format!("reading {}", staged_path.display()))?;
-    if n > MAX_STAGED_READ_BYTES {
+    if bytes_read > MAX_STAGED_READ_BYTES {
         return Err(anyhow!(
             "staged skill '{name}' grew past {MAX_STAGED_READ_BYTES} bytes during read"
         ));
     }
-    content.push_str(
-        std::str::from_utf8(&buf[..n])
-            .map_err(|e| anyhow!("staged skill '{name}' is not valid UTF-8: {e}"))?,
-    );
+    let content = std::str::from_utf8(&buf)
+        .map_err(|e| anyhow!("staged skill '{name}' is not valid UTF-8: {e}"))?
+        .to_string();
 
     let scan = scanner::scan_skill(&content);
     if !scan.blocked.is_empty() {
@@ -409,6 +440,31 @@ mod tests {
         assert!(
             err.to_string().contains("too large"),
             "expected size rejection, got: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_no_follow_rejects_symlinks() {
+        // Defense for the residual TOCTOU race: even if symlink_metadata
+        // saw a regular file and an attacker swapped it for a symlink
+        // before File::open ran, O_NOFOLLOW makes the open syscall fail
+        // with ELOOP. Verify directly against a known symlink path.
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        std::fs::write(&target, "real content").unwrap();
+        let link = dir.path().join("link.md");
+        symlink(&target, &link).unwrap();
+
+        let err = open_no_follow(&link).expect_err("open should fail on symlink");
+        // O_NOFOLLOW returns ELOOP on both Linux and macOS. Check the
+        // raw errno rather than ErrorKind::FilesystemLoop because the
+        // latter is unstable on the current MSRV.
+        assert_eq!(
+            err.raw_os_error(),
+            Some(libc::ELOOP),
+            "expected ELOOP, got: {err:?}"
         );
     }
 
