@@ -142,7 +142,12 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 println!(
                     "No reflection data in the last {days} days (min samples = {min_samples})."
                 );
-                println!("Enable reflection: set agents.defaults.reflection.enabled = true.");
+                println!(
+                    "Possible reasons:\n  \
+                     1. agents.defaults.reflection.enabled is false (default)\n  \
+                     2. agents.defaults.reflection.persistToDb is false\n  \
+                     3. No tool failures in the window, or fewer than min_samples per (tool, action)"
+                );
                 return Ok(());
             }
 
@@ -193,13 +198,52 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
 }
 
 fn truncate(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
     if s.len() <= max {
-        s.to_string()
-    } else {
-        let mut end = max - 1;
-        while !s.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}…", &s[..end])
+        return s.to_string();
+    }
+    if max == 1 {
+        return "…".to_string();
+    }
+    let mut end = max - 1;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_zero_returns_empty() {
+        // Regression: prior version computed `max - 1` unconditionally,
+        // which underflows usize for max == 0.
+        assert_eq!(truncate("anything", 0), "");
+    }
+
+    #[test]
+    fn truncate_one_returns_ellipsis() {
+        // `max - 1 = 0` is a valid char boundary, but slicing `s[..0]`
+        // gives an empty string and the result would be just `…`. Make
+        // this explicit so callers get something meaningful at width 1.
+        assert_eq!(truncate("anything", 1), "…");
+    }
+
+    #[test]
+    fn truncate_handles_multibyte_at_boundary() {
+        // The tail char must not split mid-codepoint.
+        let s = "héllo wörld";
+        let out = truncate(s, 6);
+        assert!(out.ends_with('…'));
+        assert!(out.is_char_boundary(out.len() - '…'.len_utf8()));
+    }
+
+    #[test]
+    fn truncate_short_input_passes_through() {
+        assert_eq!(truncate("hi", 100), "hi");
     }
 }

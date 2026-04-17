@@ -110,30 +110,29 @@ impl MemoryDB {
     ) -> Result<Vec<ReflectionStatRow>> {
         let conn = self.lock_conn()?;
         let cutoff_ms = chrono::Utc::now().timestamp_millis() - i64::from(days_back) * 86_400_000;
+        // Group on `action` directly — a NULL action (single-purpose
+        // tool) and an empty-string action (action-based tool with an
+        // empty value) are semantically distinct. `COALESCE(action,'')`
+        // would conflate them.
         let mut stmt = conn.prepare(
             "SELECT tool_name,
-                    COALESCE(action, ''),
+                    action,
                     COUNT(*) AS total,
                     SUM(CASE WHEN next_outcome = 'success' THEN 1 ELSE 0 END) AS successes,
                     SUM(CASE WHEN next_outcome = 'error' THEN 1 ELSE 0 END) AS errors,
                     SUM(CASE WHEN next_outcome IS NULL THEN 1 ELSE 0 END) AS pending
                FROM tool_reflections
               WHERE created_at_ms >= ?1
-              GROUP BY tool_name, COALESCE(action, '')
+              GROUP BY tool_name, action
              HAVING total >= ?2
               ORDER BY total DESC, tool_name ASC",
         )?;
         let mut out = Vec::new();
         let mut rows = stmt.query(rusqlite::params![cutoff_ms, min_samples as i64])?;
         while let Some(row) = rows.next()? {
-            let action: String = row.get(1)?;
             out.push(ReflectionStatRow {
                 tool_name: row.get(0)?,
-                action: if action.is_empty() {
-                    None
-                } else {
-                    Some(action)
-                },
+                action: row.get::<_, Option<String>>(1)?,
                 total: row.get::<_, i64>(2)? as u64,
                 successes: row.get::<_, i64>(3)? as u64,
                 errors: row.get::<_, i64>(4)? as u64,

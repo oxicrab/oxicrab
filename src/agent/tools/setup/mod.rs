@@ -43,6 +43,13 @@ pub struct ToolBuildContext {
     pub pending_buttons: crate::agent::tools::interactive::PendingButtons,
     pub rss_config: Option<config::RssConfig>,
     pub leak_detector: Arc<crate::safety::LeakDetector>,
+    /// Resolved embedding model id for the skills index. Threaded
+    /// here so `register_skill_propose` can construct a `SkillIndex`
+    /// whose `index_one` writes the same model id used by the agent
+    /// loop's startup rebuild — otherwise empty-id rows get
+    /// invalidated on the next rebuild and re-embedded for nothing.
+    /// Empty when skill indexing is disabled.
+    pub skills_embedding_model_id: String,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -403,16 +410,17 @@ fn register_skill_propose(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 
     let workspace_skills = ctx.workspace.join("skills");
     // Wire incremental indexing for promote — uses the shared memory
-    // store (`ctx.memory`) so post-promote `index_one` stays consistent
-    // with the agent-loop's startup rebuild. Empty model id is fine
-    // here; the model id only matters for invalidation, which the
-    // startup rebuild handles.
+    // store (`ctx.memory`) so post-promote `index_one` writes rows
+    // tagged with the same embedding model id the agent-loop rebuild
+    // uses. With an empty id, every promoted row would get marked as
+    // "different model" on the next rebuild and immediately re-embedded
+    // — wasted work, not data loss.
     let memory = ctx.memory.clone();
     let index = Arc::new(crate::agent::skills::index::SkillIndex::new(
         memory.db(),
         workspace_skills.clone(),
         None,
-        String::new(),
+        ctx.skills_embedding_model_id.clone(),
     ));
     let tool = SkillProposeTool::new(workspace_skills).with_index(index, memory);
     // Deferred so the tool is invisible by default. The LLM finds it

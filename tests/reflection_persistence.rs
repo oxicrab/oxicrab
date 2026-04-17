@@ -245,6 +245,84 @@ fn invalidate_skill_index_for_model_drops_other_models() {
 }
 
 #[test]
+fn invalidate_skill_index_for_model_rejects_empty() {
+    // An empty model id silently wiped the index in earlier versions —
+    // every row's `embedding_model_id != ""` deletes everything except
+    // pre-migration-#9 default rows. Force callers to provide a real
+    // identifier instead.
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("s.db")).unwrap();
+    db.upsert_skill_index(&SkillIndexEntry {
+        path: "a.md".into(),
+        name: "a".into(),
+        description: "x".into(),
+        embedding: vec![0.0],
+        file_sha256: "h".into(),
+        embedding_model_id: "real-model".into(),
+        use_count: 0,
+        last_used_ms: None,
+        created_at_ms: 1,
+        last_indexed_ms: 1,
+    })
+    .unwrap();
+    let err = db.invalidate_skill_index_for_model("").unwrap_err();
+    assert!(
+        err.to_string().contains("empty model id"),
+        "expected empty-model rejection, got: {err}"
+    );
+    // Index untouched.
+    assert_eq!(db.list_skill_index_entries().unwrap().len(), 1);
+}
+
+#[test]
+fn reflection_stats_distinguishes_null_action_from_empty_action() {
+    // Earlier versions used COALESCE(action,'') to group, conflating a
+    // single-purpose tool (NULL action) with an action-based tool that
+    // recorded an empty action string. Verify they bucket separately.
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("r.db")).unwrap();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    db.insert_tool_reflection(&ReflectionRecord {
+        request_id: "req-null".to_string(),
+        tool_name: "weather".to_string(),
+        action: None,
+        attempt_number: 1,
+        error_excerpt: "x".to_string(),
+        hypothesis: "h".to_string(),
+        retry_strategy: "r".to_string(),
+        next_outcome: None,
+        created_at_ms: now_ms,
+    })
+    .unwrap();
+    db.insert_tool_reflection(&ReflectionRecord {
+        request_id: "req-empty".to_string(),
+        tool_name: "weather".to_string(),
+        action: Some(String::new()),
+        attempt_number: 1,
+        error_excerpt: "x".to_string(),
+        hypothesis: "h".to_string(),
+        retry_strategy: "r".to_string(),
+        next_outcome: None,
+        created_at_ms: now_ms,
+    })
+    .unwrap();
+
+    let rows = db.reflection_stats(7, 1).unwrap();
+    assert_eq!(rows.len(), 2, "NULL and '' should bucket separately");
+    let null_row = rows
+        .iter()
+        .find(|r| r.action.is_none())
+        .expect("NULL action row");
+    let empty_row = rows
+        .iter()
+        .find(|r| r.action.as_deref() == Some(""))
+        .expect("empty-string action row");
+    assert_eq!(null_row.total, 1);
+    assert_eq!(empty_row.total, 1);
+}
+
+#[test]
 fn skill_index_prune_skill_index_drops_dead_paths() {
     use std::collections::HashSet;
     let dir = tempfile::tempdir().unwrap();

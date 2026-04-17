@@ -235,15 +235,20 @@ impl AgentLoop {
 
         // Wire up the embedding-indexed skill retriever (Track 2a).
         // The model id defaults to the configured embeddings model when
-        // not overridden in [agents.defaults.skills].
+        // not overridden in [agents.defaults.skills]. Resolved out
+        // here so it can also flow into `ToolBuildContext` for
+        // `register_skill_propose`'s incremental indexer.
+        let skills_embedding_model_id = if !skills_config.indexing_enabled {
+            String::new()
+        } else if skills_config.embedding_model_id.is_empty() {
+            memory_config
+                .as_ref()
+                .map_or_else(|| "default".to_string(), |c| c.embeddings_model.clone())
+        } else {
+            skills_config.embedding_model_id.clone()
+        };
         if skills_config.indexing_enabled {
-            let model_id = if skills_config.embedding_model_id.is_empty() {
-                memory_config
-                    .as_ref()
-                    .map_or_else(|| "default".to_string(), |c| c.embeddings_model.clone())
-            } else {
-                skills_config.embedding_model_id.clone()
-            };
+            let model_id = skills_embedding_model_id.clone();
             let workspace_skills = workspace.join("skills");
             let builtin_skills = std::env::current_exe()
                 .ok()
@@ -394,6 +399,7 @@ impl AgentLoop {
             pending_buttons: pending_buttons.clone(),
             rss_config: tool_configs.rss_config,
             leak_detector: leak_detector.clone(),
+            skills_embedding_model_id: skills_embedding_model_id.clone(),
         };
 
         let (

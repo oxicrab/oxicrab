@@ -136,7 +136,19 @@ impl MemoryDB {
     /// supplied id. Returns the number of rows removed. Called by
     /// `SkillIndex::rebuild` when the operator-configured model
     /// changes so the next pass re-embeds everything fresh.
+    ///
+    /// Refuses an empty `current_model` to prevent a misconfigured
+    /// (unset) embedding model id from silently wiping the entire
+    /// index — every existing row would be different from `""` if any
+    /// past embedding produced a non-empty id, and pre-migration-#9
+    /// rows that default to `''` would get spared while real data is
+    /// dropped. Either case is a foot-gun; require an explicit value.
     pub fn invalidate_skill_index_for_model(&self, current_model: &str) -> Result<u64> {
+        if current_model.is_empty() {
+            return Err(anyhow!(
+                "invalidate_skill_index_for_model: refusing to invalidate against empty model id"
+            ));
+        }
         let conn = self.lock_conn()?;
         let n = conn.execute(
             "DELETE FROM skills_index WHERE embedding_model_id != ?1",

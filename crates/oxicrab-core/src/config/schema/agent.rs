@@ -99,6 +99,11 @@ fn default_keep_recent() -> usize {
 /// LLM call to produce a structured hypothesis about what went wrong and
 /// inject it into the next iteration's context. Bounded per-request and
 /// per-tool to keep cost predictable.
+///
+/// The reflection call uses the same provider/model as the active run —
+/// it does NOT consult `model_routing.tasks` for a separate routing
+/// override. Use `max_per_request`, `max_per_tool`, and `max_tokens` to
+/// bound cost.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReflectionConfig {
     /// Master switch. Off by default while gathering data.

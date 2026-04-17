@@ -8,10 +8,23 @@
 //! offline analysis.
 //!
 //! Bounded both per-request and per-tool to keep cost predictable.
+//!
+//! ## Routing
+//!
+//! The reflection LLM call uses the **same provider and model** as the
+//! current agent run. It does **not** consult `model_routing.tasks` for
+//! a separate "reflection" task type — that level of indirection isn't
+//! configurable today. Operators who want to route reflections to a
+//! cheaper model should keep the per-request and per-tool budgets tight
+//! and use a small `max_tokens` cap. A future enhancement could add a
+//! `reflection` task type to `ResolvedRouting` and resolve it the same
+//! way `chat` and `subagent` are resolved.
 
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::providers::base::{ChatRequest, LLMProvider, Message};
 use crate::safety::LeakDetector;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 /// Maximum characters of the original error message to send to the
@@ -119,6 +132,9 @@ fn build_reflection_request(
 }
 
 fn cap(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
     if s.len() <= max {
         return s.to_string();
     }
@@ -211,6 +227,10 @@ fn strip_line_prefix(s: &str) -> &str {
 ///
 /// Output is sanitized through the leak detector before persisting and
 /// before being returned for injection into the agent context.
+///
+/// When `db` is `Some`, token usage from the reflection LLM call is
+/// recorded into `llm_cost_log` with caller `"reflection"` so operators
+/// can isolate reflection cost from main-loop cost.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn reflect_on_failure(
     config: &crate::config::ReflectionConfig,
@@ -218,6 +238,7 @@ pub(super) async fn reflect_on_failure(
     provider: &dyn LLMProvider,
     model: &str,
     leak_detector: &LeakDetector,
+    db: Option<&Arc<MemoryDB>>,
     request_id: &str,
     tool: &str,
     action: Option<&str>,
@@ -260,6 +281,36 @@ pub(super) async fn reflect_on_failure(
             return None;
         }
     };
+
+    // Record reflection token usage with a distinct caller tag so
+    // operators can break out reflection cost from main-loop cost in
+    // `oxicrab stats tokens`.
+    if let Some(db) = db {
+        let actual_model = response
+            .actual_model
+            .as_deref()
+            .unwrap_or(model)
+            .to_string();
+        let input = response.input_tokens.unwrap_or(0);
+        let output = response.output_tokens.unwrap_or(0);
+        let cache_create = response.cache_creation_input_tokens.unwrap_or(0);
+        let cache_read = response.cache_read_input_tokens.unwrap_or(0);
+        let req_id = request_id.to_string();
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = db.record_tokens(
+                &actual_model,
+                input,
+                output,
+                cache_create,
+                cache_read,
+                "reflection",
+                Some(&req_id),
+            ) {
+                warn!("reflection: failed to record token usage: {e}");
+            }
+        });
+    }
 
     let body = response.content.unwrap_or_default();
     let Some((hypothesis, retry_strategy)) = parse_reflection(&body) else {
@@ -358,6 +409,21 @@ mod tests {
         let s = "héllo wörld";
         let capped = cap(s, 6);
         assert!(capped.is_char_boundary(capped.find('…').unwrap_or(0)));
+    }
+
+    #[test]
+    fn cap_with_zero_returns_empty_without_panic() {
+        // Regression: previous version computed `max - 1` later in the
+        // function, which would underflow for max == 0. The early-return
+        // guard prevents that.
+        assert_eq!(cap("anything", 0), "");
+        assert_eq!(cap("", 0), "");
+    }
+
+    #[test]
+    fn cap_handles_short_input() {
+        assert_eq!(cap("hi", 100), "hi");
+        assert_eq!(cap("", 100), "");
     }
 
     #[test]

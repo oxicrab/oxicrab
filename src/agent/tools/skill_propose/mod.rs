@@ -205,7 +205,7 @@ impl Tool for SkillProposeTool {
                                 }
                                 Ok(_) => {}
                                 Err(e) => {
-                                    debug!("skill_propose: post-promote index_one failed: {e}")
+                                    debug!("skill_propose: post-promote index_one failed: {e}");
                                 }
                             }
                         }

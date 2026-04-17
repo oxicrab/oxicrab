@@ -191,13 +191,24 @@ pub fn list_staged(workspace_skills: &Path) -> Vec<String> {
         return Vec::new();
     }
     let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&staged_dir) {
-        for entry in entries.flatten() {
-            if let Some(file_name) = entry.file_name().to_str()
-                && let Some(name) = file_name.strip_suffix(".md")
-            {
-                out.push(name.to_string());
+    match std::fs::read_dir(&staged_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                if let Some(file_name) = entry.file_name().to_str()
+                    && let Some(name) = file_name.strip_suffix(".md")
+                {
+                    out.push(name.to_string());
+                }
             }
+        }
+        Err(e) => {
+            // Don't bubble up — listing is best-effort — but make the
+            // failure visible so a permission/storage problem on the
+            // staged dir doesn't masquerade as "no proposals".
+            warn!(
+                "skill_propose: read_dir({}) failed: {e}",
+                staged_dir.display()
+            );
         }
     }
     out.sort();
@@ -223,40 +234,49 @@ pub fn list_staged_with_metadata(workspace_skills: &Path) -> Vec<StagedSkill> {
         return Vec::new();
     }
     let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&staged_dir) {
-        for entry in entries.flatten() {
-            let Some(file_name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let Some(name) = file_name.strip_suffix(".md") else {
-                continue;
-            };
-            let path = entry.path();
-            let Ok(meta) = entry.metadata() else {
-                continue;
-            };
-            // Skip non-regular files defensively (a symlink leaked into
-            // the staged dir would be rejected at promote time anyway,
-            // but list_staged callers shouldn't see it as a real skill).
-            if !meta.is_file() {
-                continue;
-            }
-            let created_at_ms = meta
-                .created()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0_i64, |d| d.as_millis() as i64);
-            let description = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|c| extract_description(&c))
-                .unwrap_or_default();
-            out.push(StagedSkill {
-                name: name.to_string(),
-                bytes: meta.len(),
-                created_at_ms,
-                description,
-            });
+    let entries = match std::fs::read_dir(&staged_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(
+                "skill_propose: read_dir({}) failed: {e}",
+                staged_dir.display()
+            );
+            return out;
         }
+    };
+    for entry in entries.flatten() {
+        let Some(file_name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Some(name) = file_name.strip_suffix(".md") else {
+            continue;
+        };
+        let path = entry.path();
+        // Use symlink_metadata so a symlink in the staged dir reports
+        // as `is_file() == false` and gets filtered out — consistent
+        // with promote/reject which refuse symlinks for TOCTOU
+        // reasons. `entry.metadata()` would follow the link.
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let created_at_ms = meta
+            .created()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0_i64, |d| d.as_millis() as i64);
+        let description = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|c| extract_description(&c))
+            .unwrap_or_default();
+        out.push(StagedSkill {
+            name: name.to_string(),
+            bytes: meta.len(),
+            created_at_ms,
+            description,
+        });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
@@ -389,6 +409,32 @@ mod tests {
         assert!(
             err.to_string().contains("too large"),
             "expected size rejection, got: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_staged_with_metadata_skips_symlinks() {
+        // Listing must hide symlinked files for the same TOCTOU reason
+        // promote/reject refuse them. Using the entry's metadata()
+        // would follow the link and report the target as a regular
+        // file — verify symlink_metadata is in use.
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside.md");
+        std::fs::write(&outside, "real content").unwrap();
+        let staged_dir = dir.path().join("staged");
+        std::fs::create_dir_all(&staged_dir).unwrap();
+        // One real file, one symlink.
+        std::fs::write(staged_dir.join("real.md"), "body").unwrap();
+        symlink(&outside, staged_dir.join("link.md")).unwrap();
+
+        let entries = list_staged_with_metadata(dir.path());
+        let names: Vec<_> = entries.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"real"), "real file should be listed");
+        assert!(
+            !names.contains(&"link"),
+            "symlink should be excluded, got: {names:?}"
         );
     }
 }

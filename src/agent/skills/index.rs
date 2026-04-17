@@ -73,7 +73,7 @@ impl SkillIndex {
             .invalidate_skill_index_for_model(&self.embedding_model_id)
         {
             Ok(n) if n > 0 => {
-                debug!("skills_index: invalidated {n} entry/entries from previous embedding model")
+                debug!("skills_index: invalidated {n} entry/entries from previous embedding model");
             }
             Ok(_) => {}
             Err(e) => warn!("skills_index: model invalidation failed: {e}"),

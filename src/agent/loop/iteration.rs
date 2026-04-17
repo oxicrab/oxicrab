@@ -664,6 +664,7 @@ impl AgentLoop {
                 provider,
                 model,
                 &self.leak_detector,
+                Some(&self.memory.db()),
                 request_id.unwrap_or(""),
                 &tc.name,
                 action,
@@ -706,6 +707,12 @@ impl AgentLoop {
     /// iteration whose tool ran again now. Drains matching keys from
     /// `pending_outcomes` so a third iteration that re-runs the same
     /// tool doesn't double-write.
+    ///
+    /// Anything still in `pending_outcomes` after the matching pass was
+    /// not called again on this iteration — its "next outcome" is no
+    /// longer observable, so the entry is cleared. Without this, a
+    /// later iteration that happens to call the same `(tool, action)`
+    /// would be miscredited as the reflection's retry outcome.
     fn write_back_reflection_outcomes(
         &self,
         tool_calls: &[ToolCallRequest],
@@ -733,6 +740,10 @@ impl AgentLoop {
                 warn!("reflection: failed to update outcome: {e}");
             }
         }
+        // Drop unmatched pending entries: the "next outcome" semantics
+        // only apply to the immediately following iteration. Leaving
+        // them in the set would cross-credit a future unrelated call.
+        pending_outcomes.clear();
     }
 
     /// Execute tool calls using wave-based concurrency.
