@@ -6,7 +6,7 @@
 //! test focuses on the persistence pathway: given a `ReflectionRecord`,
 //! it lands in `tool_reflections` and round-trips correctly.
 
-use oxicrab::agent::memory::memory_db::{MemoryDB, ReflectionRecord};
+use oxicrab::agent::memory::memory_db::{MemoryDB, ReflectionRecord, SkillIndexEntry};
 
 #[test]
 fn reflection_record_persists_and_counts() {
@@ -35,6 +35,146 @@ fn reflection_record_persists_and_counts() {
     .unwrap();
     assert_eq!(db.count_reflections_for_request("req-1").unwrap(), 2);
     assert_eq!(db.count_reflections_for_request("req-other").unwrap(), 0);
+}
+
+#[test]
+fn reflection_outcome_update_handles_null_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("r.db")).unwrap();
+    db.insert_tool_reflection(&ReflectionRecord {
+        request_id: "req-A".to_string(),
+        tool_name: "shell".to_string(),
+        action: None,
+        attempt_number: 1,
+        error_excerpt: "boom".to_string(),
+        hypothesis: "h".to_string(),
+        retry_strategy: "r".to_string(),
+        next_outcome: None,
+        created_at_ms: 1,
+    })
+    .unwrap();
+    db.update_reflection_outcome("req-A", "shell", None, "success")
+        .unwrap();
+    let conn = db.lock_conn().unwrap();
+    let outcome: Option<String> = conn
+        .query_row(
+            "SELECT next_outcome FROM tool_reflections WHERE request_id = 'req-A'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(outcome.as_deref(), Some("success"));
+}
+
+#[test]
+fn skill_index_roundtrip_preserves_embedding() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("s.db")).unwrap();
+    let entry = SkillIndexEntry {
+        path: "/tmp/skill.md".to_string(),
+        name: "skill".to_string(),
+        description: "desc".to_string(),
+        embedding: vec![0.1, 0.2, -0.3, 1.5, f32::MAX],
+        file_sha256: "abc".to_string(),
+        use_count: 0,
+        last_used_ms: None,
+        created_at_ms: 1000,
+        last_indexed_ms: 1000,
+    };
+    db.upsert_skill_index(&entry).unwrap();
+    let back = db.list_skill_index_entries().unwrap();
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].embedding, entry.embedding);
+}
+
+#[test]
+fn skill_index_prune_unused_respects_min_uses() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("s.db")).unwrap();
+    let now_ms = 100_000_000_i64;
+    let day = 86_400_000_i64;
+    // Old & unused — should be pruned.
+    db.upsert_skill_index(&SkillIndexEntry {
+        path: "old_unused.md".into(),
+        name: "old_unused".into(),
+        description: "x".into(),
+        embedding: vec![0.0],
+        file_sha256: "a".into(),
+        use_count: 0,
+        last_used_ms: None,
+        created_at_ms: now_ms - 31 * day,
+        last_indexed_ms: now_ms - 31 * day,
+    })
+    .unwrap();
+    // Old & used — should be kept.
+    db.upsert_skill_index(&SkillIndexEntry {
+        path: "old_used.md".into(),
+        name: "old_used".into(),
+        description: "x".into(),
+        embedding: vec![0.0],
+        file_sha256: "b".into(),
+        use_count: 5,
+        last_used_ms: Some(now_ms - 1),
+        created_at_ms: now_ms - 31 * day,
+        last_indexed_ms: now_ms - 31 * day,
+    })
+    .unwrap();
+    // Young & unused — should be kept.
+    db.upsert_skill_index(&SkillIndexEntry {
+        path: "young_unused.md".into(),
+        name: "young_unused".into(),
+        description: "x".into(),
+        embedding: vec![0.0],
+        file_sha256: "c".into(),
+        use_count: 0,
+        last_used_ms: None,
+        created_at_ms: now_ms - 1,
+        last_indexed_ms: now_ms - 1,
+    })
+    .unwrap();
+
+    let dropped = db.prune_unused_skill_index(now_ms, 30 * day, 1).unwrap();
+    assert_eq!(dropped, vec!["old_unused.md".to_string()]);
+    let remaining: Vec<String> = db
+        .list_skill_index_entries()
+        .unwrap()
+        .into_iter()
+        .map(|e| e.path)
+        .collect();
+    assert!(remaining.contains(&"old_used.md".to_string()));
+    assert!(remaining.contains(&"young_unused.md".to_string()));
+    assert!(!remaining.contains(&"old_unused.md".to_string()));
+}
+
+#[test]
+fn skill_index_prune_skill_index_drops_dead_paths() {
+    use std::collections::HashSet;
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("s.db")).unwrap();
+    for path in ["live.md", "dead.md"] {
+        db.upsert_skill_index(&SkillIndexEntry {
+            path: path.into(),
+            name: path.to_string(),
+            description: "x".into(),
+            embedding: vec![0.0],
+            file_sha256: "a".into(),
+            use_count: 0,
+            last_used_ms: None,
+            created_at_ms: 1,
+            last_indexed_ms: 1,
+        })
+        .unwrap();
+    }
+    let live: HashSet<String> = ["live.md".to_string()].into_iter().collect();
+    let dropped = db.prune_skill_index(&live).unwrap();
+    assert_eq!(dropped, 1);
+    let remaining: Vec<String> = db
+        .list_skill_index_entries()
+        .unwrap()
+        .into_iter()
+        .map(|e| e.path)
+        .collect();
+    assert_eq!(remaining, vec!["live.md".to_string()]);
 }
 
 #[test]

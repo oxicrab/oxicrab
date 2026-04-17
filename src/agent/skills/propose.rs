@@ -7,8 +7,15 @@
 
 use crate::agent::skills::scanner;
 use anyhow::{Context, Result, anyhow};
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
+
+/// Hard cap on the size of a staged skill file read during promotion.
+/// Bounds memory consumption if an attacker swaps the staged file
+/// for something huge between propose and promote.
+const MAX_STAGED_READ_BYTES: usize = 64 * 1024;
 
 /// Maximum size of a proposed skill file.
 const MAX_PROPOSED_SKILL_BYTES: u64 = 32_768;
@@ -82,26 +89,91 @@ pub fn propose_skill(workspace_skills: &Path, name: &str, body: &str) -> Result<
 }
 
 /// Promote a staged skill to active by moving it into a per-skill
-/// directory. Re-runs `scanner::scan_skill` on the file content
-/// (defence against time-of-check / time-of-use) before promoting.
+/// directory.
+///
+/// Hardened against TOCTOU: opens the staged file with
+/// `std::fs::symlink_metadata` to verify it is a regular file (not a
+/// symlink), reads the bounded content, scans, and then moves. The
+/// symlink check is critical — without it, an attacker who can write
+/// to the staged dir could swap the file for a symlink to an
+/// arbitrary path between propose and promote.
 pub fn promote_staged_skill(workspace_skills: &Path, name: &str) -> Result<PathBuf> {
     validate_skill_name(name)?;
     let staged_path = workspace_skills.join("staged").join(format!("{name}.md"));
-    if !staged_path.exists() {
-        return Err(anyhow!(
+
+    // symlink_metadata does NOT follow symlinks (unlike metadata).
+    let meta = std::fs::symlink_metadata(&staged_path).with_context(|| {
+        format!(
             "no staged skill named '{name}' at {}",
             staged_path.display()
+        )
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(anyhow!(
+            "staged skill '{name}' is a symlink — refusing to promote (potential TOCTOU)"
         ));
     }
-    let content = std::fs::read_to_string(&staged_path)
+    if !meta.is_file() {
+        return Err(anyhow!(
+            "staged skill '{name}' is not a regular file (mode {:?})",
+            meta.file_type()
+        ));
+    }
+    if meta.len() as usize > MAX_STAGED_READ_BYTES {
+        return Err(anyhow!(
+            "staged skill '{name}' too large to promote ({} > {} bytes)",
+            meta.len(),
+            MAX_STAGED_READ_BYTES
+        ));
+    }
+
+    // Open and read with a bounded length. Open(read) on the path can
+    // still race with a symlink swap between symlink_metadata and
+    // open — read the bytes immediately and re-validate file type
+    // from the opened handle.
+    let mut file =
+        File::open(&staged_path).with_context(|| format!("opening {}", staged_path.display()))?;
+    let opened_meta = file
+        .metadata()
+        .with_context(|| format!("stat after open {}", staged_path.display()))?;
+    if !opened_meta.is_file() {
+        return Err(anyhow!(
+            "staged skill '{name}' lost its regular-file type between stat and open"
+        ));
+    }
+    let mut content = String::new();
+    let mut buf = vec![0u8; MAX_STAGED_READ_BYTES + 1];
+    let n = file
+        .read(&mut buf)
         .with_context(|| format!("reading {}", staged_path.display()))?;
+    if n > MAX_STAGED_READ_BYTES {
+        return Err(anyhow!(
+            "staged skill '{name}' grew past {MAX_STAGED_READ_BYTES} bytes during read"
+        ));
+    }
+    content.push_str(
+        std::str::from_utf8(&buf[..n])
+            .map_err(|e| anyhow!("staged skill '{name}' is not valid UTF-8: {e}"))?,
+    );
+
     let scan = scanner::scan_skill(&content);
     if !scan.blocked.is_empty() {
+        for finding in &scan.blocked {
+            warn!(
+                "skill_propose: blocked on promotion '{}' ({}:{}): {} at line {}",
+                name,
+                finding.category,
+                finding.pattern_name,
+                finding.matched_text,
+                finding.line_number
+            );
+        }
         return Err(anyhow!(
             "staged skill rejected on promotion: {} blocked pattern(s)",
             scan.blocked.len()
         ));
     }
+
     let target_dir = workspace_skills.join(name);
     std::fs::create_dir_all(&target_dir)
         .with_context(|| format!("creating skill dir {}", target_dir.display()))?;
@@ -168,5 +240,46 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let body = "x".repeat(MAX_PROPOSED_SKILL_BYTES as usize + 1);
         assert!(propose_skill(dir.path(), "big", &body).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn promote_rejects_symlinked_staged_file() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        // Create a target file outside the skills tree.
+        let outside = dir.path().join("outside.md");
+        std::fs::write(&outside, "totally fine content").unwrap();
+
+        // Stage a symlink pointing at the outside file.
+        let staged_dir = dir.path().join("staged");
+        std::fs::create_dir_all(&staged_dir).unwrap();
+        let link = staged_dir.join("evil.md");
+        symlink(&outside, &link).unwrap();
+
+        // Promotion must refuse — even though the linked-to content is
+        // benign, accepting symlinks defeats the propose+promote
+        // approval boundary.
+        let err = promote_staged_skill(dir.path(), "evil").unwrap_err();
+        assert!(
+            err.to_string().contains("symlink"),
+            "expected symlink rejection, got: {err}"
+        );
+        // Symlink should still be present (we did not move it).
+        assert!(link.exists());
+    }
+
+    #[test]
+    fn promote_rejects_oversized_staged_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged_dir = dir.path().join("staged");
+        std::fs::create_dir_all(&staged_dir).unwrap();
+        let big = staged_dir.join("big.md");
+        std::fs::write(&big, vec![b'x'; MAX_STAGED_READ_BYTES + 1]).unwrap();
+        let err = promote_staged_skill(dir.path(), "big").unwrap_err();
+        assert!(
+            err.to_string().contains("too large"),
+            "expected size rejection, got: {err}"
+        );
     }
 }

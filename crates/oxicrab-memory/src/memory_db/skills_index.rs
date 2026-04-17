@@ -1,6 +1,7 @@
 use super::MemoryDB;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use rusqlite::params;
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct SkillIndexEntry {
@@ -23,12 +24,22 @@ fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
     bytes
 }
 
-fn blob_to_embedding(blob: &[u8]) -> Vec<f32> {
+/// Decode a `f32` little-endian BLOB stored in `skills_index.embedding`.
+/// Returns `Err` when the byte length is not a multiple of 4 (the BLOB
+/// is corrupted; silently dropping trailing bytes would degrade search
+/// quality without warning).
+fn blob_to_embedding(blob: &[u8]) -> Result<Vec<f32>> {
+    if !blob.len().is_multiple_of(4) {
+        return Err(anyhow!(
+            "skills_index embedding blob has non-multiple-of-4 length ({} bytes); refusing to decode",
+            blob.len()
+        ));
+    }
     let mut out = Vec::with_capacity(blob.len() / 4);
     for chunk in blob.chunks_exact(4) {
         out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
     }
-    out
+    Ok(out)
 }
 
 impl MemoryDB {
@@ -87,12 +98,21 @@ impl MemoryDB {
         let mut out = Vec::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
+            let path: String = row.get(0)?;
             let embedding_blob: Vec<u8> = row.get(3)?;
+            let embedding = match blob_to_embedding(&embedding_blob) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("skills_index: skipping {path}: {e}");
+                    metrics::counter!("oxicrab_skill_index_blob_corrupt_total").increment(1);
+                    continue;
+                }
+            };
             out.push(SkillIndexEntry {
-                path: row.get(0)?,
+                path,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                embedding: blob_to_embedding(&embedding_blob),
+                embedding,
                 file_sha256: row.get(4)?,
                 use_count: row.get::<_, i64>(5)? as u64,
                 last_used_ms: row.get(6)?,
@@ -137,8 +157,13 @@ impl MemoryDB {
         Ok(to_drop.len() as u64)
     }
 
-    /// Delete entries last used > `max_age_ms` ago whose `use_count`
-    /// is below `min_uses`. Returns paths removed. Used by hygiene.
+    /// Delete entries last used at-or-before `max_age_ms` ago whose
+    /// `use_count` is below `min_uses`. Returns paths removed. Used by
+    /// hygiene.
+    ///
+    /// The boundary is inclusive (`<=`) so a skill exactly `max_age_ms`
+    /// old is treated as "older than the window" — semantically what
+    /// callers expect for a TTL like "30 days".
     pub fn prune_unused_skill_index(
         &self,
         now_ms: i64,
@@ -150,8 +175,8 @@ impl MemoryDB {
         let mut stmt = conn.prepare(
             "SELECT path FROM skills_index
               WHERE use_count < ?1
-                AND created_at_ms < ?2
-                AND (last_used_ms IS NULL OR last_used_ms < ?2)",
+                AND created_at_ms <= ?2
+                AND (last_used_ms IS NULL OR last_used_ms <= ?2)",
         )?;
         let mut to_drop = Vec::new();
         let mut rows = stmt.query(params![min_uses as i64, cutoff])?;

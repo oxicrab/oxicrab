@@ -129,17 +129,22 @@ fn cap(s: &str, max: usize) -> String {
     format!("{}…", &s[..end])
 }
 
-/// Parse the two-line response. Tolerates extra whitespace and empty
-/// fields. Returns `None` when neither field can be extracted.
+/// Parse the two-line response. Tolerates extra whitespace, list-style
+/// prefixes (`- `, `* `, `1. `), case differences (`Hypothesis:`,
+/// `RETRY_STRATEGY:`), and a single bold/italic marker around the
+/// label. Returns `None` when neither field can be extracted.
 fn parse_reflection(response: &str) -> Option<(String, String)> {
     let mut hypothesis = String::new();
     let mut retry_strategy = String::new();
     for line in response.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("hypothesis:") {
-            hypothesis = cap(rest.trim(), FIELD_CAP);
-        } else if let Some(rest) = trimmed.strip_prefix("retry_strategy:") {
-            retry_strategy = cap(rest.trim(), FIELD_CAP);
+        let trimmed = strip_line_prefix(line.trim());
+        let lower = trimmed.to_ascii_lowercase();
+        if let Some(idx) = lower.find("hypothesis:") {
+            let rest = &trimmed[idx + "hypothesis:".len()..];
+            hypothesis = cap(strip_value_decoration(rest.trim()), FIELD_CAP);
+        } else if let Some(idx) = lower.find("retry_strategy:") {
+            let rest = &trimmed[idx + "retry_strategy:".len()..];
+            retry_strategy = cap(strip_value_decoration(rest.trim()), FIELD_CAP);
         }
     }
     if hypothesis.is_empty() && retry_strategy.is_empty() {
@@ -152,6 +157,53 @@ fn parse_reflection(response: &str) -> Option<(String, String)> {
         retry_strategy = "(no retry strategy returned)".to_string();
     }
     Some((hypothesis, retry_strategy))
+}
+
+/// Strip leading and trailing markdown decoration (`**`, `__`, `*`, `_`)
+/// from a captured value. Used after the label is matched so the
+/// extracted value is the human-readable text only.
+fn strip_value_decoration(s: &str) -> &str {
+    let s = s
+        .trim_start_matches("**")
+        .trim_start_matches("__")
+        .trim_start_matches('*')
+        .trim_start_matches('_')
+        .trim_start();
+    s.trim_end_matches("**")
+        .trim_end_matches("__")
+        .trim_end_matches('*')
+        .trim_end_matches('_')
+        .trim_end()
+}
+
+/// Strip a leading list marker (`- `, `* `, `+ `, `1.`, `2.`, …),
+/// a leading single bold/italic marker (`*`, `_`, `**`), and any
+/// surrounding whitespace. Returns the cleaned slice.
+fn strip_line_prefix(s: &str) -> &str {
+    let mut s = s.trim_start();
+    // List marker.
+    if let Some(rest) = s
+        .strip_prefix("- ")
+        .or_else(|| s.strip_prefix("* "))
+        .or_else(|| s.strip_prefix("+ "))
+    {
+        s = rest;
+    } else if let Some((digits, rest)) =
+        s.find(|c: char| !c.is_ascii_digit()).map(|i| s.split_at(i))
+        && digits.chars().all(|c| c.is_ascii_digit())
+        && !digits.is_empty()
+        && let Some(rest) = rest.strip_prefix(". ").or_else(|| rest.strip_prefix(") "))
+    {
+        s = rest;
+    }
+    // Single bold/italic marker.
+    s = s
+        .strip_prefix("**")
+        .or_else(|| s.strip_prefix("__"))
+        .or_else(|| s.strip_prefix('*'))
+        .or_else(|| s.strip_prefix('_'))
+        .unwrap_or(s);
+    s.trim_start()
 }
 
 /// Generate one reflection for a failed tool call. Returns `None` when
@@ -299,5 +351,31 @@ mod tests {
         let s = "héllo wörld";
         let capped = cap(s, 6);
         assert!(capped.is_char_boundary(capped.find('…').unwrap_or(0)));
+    }
+
+    #[test]
+    fn parse_is_case_insensitive() {
+        let r = parse_reflection("Hypothesis: cause\nRETRY_STRATEGY: do thing");
+        assert_eq!(r, Some(("cause".to_string(), "do thing".to_string())));
+    }
+
+    #[test]
+    fn parse_strips_list_markers_and_bold() {
+        let r = parse_reflection("- **hypothesis:** something\n* retry_strategy: do thing");
+        assert_eq!(r, Some(("something".to_string(), "do thing".to_string())));
+    }
+
+    #[test]
+    fn parse_strips_numbered_list() {
+        let r = parse_reflection("1. hypothesis: cause\n2. retry_strategy: do thing");
+        assert_eq!(r, Some(("cause".to_string(), "do thing".to_string())));
+    }
+
+    #[test]
+    fn budget_allows_returns_false_when_exhausted() {
+        let mut b = ReflectionBudget::new();
+        b.record("shell", Some("execute"));
+        assert!(!b.allows("shell", Some("execute"), 1, 1));
+        assert!(b.allows("shell", Some("write"), 5, 1));
     }
 }

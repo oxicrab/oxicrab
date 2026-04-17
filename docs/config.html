@@ -263,6 +263,8 @@
             <li><a href="#cognitive-routines">Cognitive Routines</a></li>
             <li><a href="#exfiltration-guard">Exfiltration Guard</a></li>
             <li><a href="#prompt-guard">Prompt Guard</a></li>
+            <li><a href="#reflection">Reflection</a></li>
+            <li><a href="#skills">Skills</a></li>
             <li><a href="#gateway">Gateway</a></li>
             <li><a href="#observability">Observability</a></li>
             <li><a href="#sandbox">Sandbox</a></li>
@@ -841,6 +843,67 @@ actions = ["google_mail.send", "google_mail.reply"]</code></pre>
             <li><strong>Enabled, empty actions</strong> &mdash; interactive approval for all mutating actions. The hard-block is replaced with the interactive flow.</li>
             <li><strong>Enabled, explicit actions</strong> &mdash; interactive approval only for listed actions. Unlisted mutating actions fall through to the legacy hard-block.</li>
         </ul>
+    </div>
+
+    <!-- REFLECTION -->
+    <div id="reflection" class="cfg-section">
+        <h2>Reflection on tool failures</h2>
+        <p>Reflexion-style failure reflection. When a tool call returns an error, the agent loop optionally invokes a small LLM call that produces a <em>hypothesis</em> (one-sentence cause) and a <em>retry strategy</em> (one concrete instruction for the next attempt). The reflection is appended to the failed result content as a <code>&lt;reflection&gt;</code> block so the next iteration sees it explicitly, and persisted to the <code>tool_reflections</code> table for offline analysis.</p>
+
+        <p>Off by default. Bounded per-request and per-tool to keep cost predictable.</p>
+
+        <p>Config path: <code>agents.defaults.reflection</code></p>
+        <pre><code>[agents.defaults.reflection]
+enabled = false
+maxPerRequest = 2
+maxPerTool = 1
+temperature = 0.2
+maxTokens = 200
+persistToDb = true</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Master switch. Off while gathering data; turn on once metrics show retries are succeeding.</td></tr>
+            <tr><td>maxPerRequest</td><td>integer</td><td>2</td><td>Maximum reflections produced within a single agent run. Hard cap on per-request cost.</td></tr>
+            <tr><td>maxPerTool</td><td>integer</td><td>1</td><td>Maximum reflections per <code>(tool, action)</code> pair within a single run. Prevents reflecting on the same broken call repeatedly.</td></tr>
+            <tr><td>temperature</td><td>float</td><td>0.2</td><td>Sampling temperature for the reflection call. Low for determinism.</td></tr>
+            <tr><td>maxTokens</td><td>integer</td><td>200</td><td>Maximum response tokens for the reflection call.</td></tr>
+            <tr><td>persistToDb</td><td>bool</td><td>true</td><td>Persist each reflection to the <code>tool_reflections</code> table. Disable in tests; leave on in production for offline analysis.</td></tr>
+        </table>
+
+        <h3>Output format</h3>
+        <p>The injected block looks like:</p>
+        <pre><code>&lt;reflection&gt;
+attempt: 1
+hypothesis: file path was relative to the wrong directory
+retry_strategy: pass the absolute path or chdir first
+&lt;/reflection&gt;</code></pre>
+
+        <h3>Metrics</h3>
+        <ul class="plain">
+            <li><code>oxicrab_reflection_triggered_total{tool, action}</code> &mdash; reflections produced</li>
+            <li><code>oxicrab_reflection_llm_error_total{tool}</code> &mdash; reflection LLM call failed</li>
+        </ul>
+
+        <h3>Safety</h3>
+        <p>The original error string is redacted through the leak detector before being sent to the reflection model, and the model's hypothesis and retry-strategy are redacted again before being appended to the tool result and persisted. Both the prompt and the result share the existing safety perimeter.</p>
+    </div>
+
+    <!-- SKILLS -->
+    <div id="skills" class="cfg-section">
+        <h2>Skills</h2>
+        <p>Markdown-based knowledge files loaded into the system prompt. Each skill lives at <code>~/.oxicrab/workspace/skills/&lt;name&gt;/&lt;name&gt;.md</code> with optional YAML frontmatter (name, description, hints). Skills are pre-scanned for prompt-injection and credential-exfiltration patterns before injection.</p>
+
+        <h3>Embedding-indexed retrieval</h3>
+        <p>The <code>skills_index</code> SQLite table stores a per-skill embedding keyed by file SHA256. <code>SkillIndex::rebuild()</code> re-embeds only changed files (the SHA mismatch triggers a re-index). <code>SkillIndex::top_k_for_query()</code> ranks indexed skills by cosine similarity against the embedded user query. Usage counters (<code>use_count</code>, <code>last_used_ms</code>) are bumped on each retrieval.</p>
+
+        <h3>Proposing new skills</h3>
+        <p>The <code>propose_skill</code> helper writes a candidate file to <code>workspace/skills/staged/&lt;name&gt;.md</code>. Staged skills are <strong>not</strong> loaded into the system prompt. <code>promote_staged_skill</code> moves a staged file into its active per-skill directory after re-running the safety scanner and verifying the staged path is a regular file (not a symlink).</p>
+
+        <h3>Hygiene</h3>
+        <p>Startup hygiene calls <code>prune_unused_skill_index</code> with a 30-day cutoff and <code>min_uses = 1</code>: any indexed skill that is &ge;30 days old, has been used zero times, and has not been touched since creation is dropped from the index. Skills with any usage history are kept regardless of age.</p>
+
+        <p>Skill names must match <code>[A-Za-z0-9][A-Za-z0-9_-]{0,63}</code>: alphanumeric plus <code>_</code> and <code>-</code>, 1&ndash;64 characters, no leading <code>_</code> or <code>-</code>, no path components.</p>
     </div>
 
     <!-- CONTEXT PROVIDERS -->

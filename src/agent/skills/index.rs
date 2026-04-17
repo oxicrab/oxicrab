@@ -138,16 +138,26 @@ impl SkillIndex {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
+        let mut dim_mismatch = 0_u64;
         let mut scored: Vec<(f32, SkillIndexEntry)> = entries
             .drain(..)
             .filter_map(|e| {
                 if e.embedding.len() != query_emb.len() {
+                    dim_mismatch += 1;
                     return None;
                 }
                 let s = cosine_similarity(&query_emb, &e.embedding);
                 Some((s, e))
             })
             .collect();
+        if dim_mismatch > 0 {
+            warn!(
+                "skills_index: {dim_mismatch} skill(s) skipped due to embedding dimension \
+                 mismatch (query={}); rebuild the index after changing the embedding model",
+                query_emb.len()
+            );
+            metrics::counter!("oxicrab_skill_index_dim_mismatch_total").increment(dim_mismatch);
+        }
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(k);
 

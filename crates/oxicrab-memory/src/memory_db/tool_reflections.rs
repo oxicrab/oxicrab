@@ -42,6 +42,11 @@ impl MemoryDB {
     /// Update the next_outcome for the most recent reflection on a given
     /// (request_id, tool, action) tuple. Used to record whether the retry
     /// succeeded after the reflection was injected.
+    ///
+    /// Action matching uses an explicit branch on `Option`: SQL's
+    /// `=` does not match NULL on either side, so a single
+    /// `(action IS ?4 OR action = ?4)` clause is fragile and depends on
+    /// the bound type round-trip — use two prepared statements instead.
     pub fn update_reflection_outcome(
         &self,
         request_id: &str,
@@ -50,19 +55,35 @@ impl MemoryDB {
         outcome: &str,
     ) -> Result<()> {
         let conn = self.lock_conn()?;
-        conn.execute(
-            "UPDATE tool_reflections
-                SET next_outcome = ?1
-              WHERE id = (
-                SELECT id FROM tool_reflections
-                 WHERE request_id = ?2
-                   AND tool_name = ?3
-                   AND (action IS ?4 OR action = ?4)
-                   AND next_outcome IS NULL
-                 ORDER BY id DESC LIMIT 1
-              )",
-            params![outcome, request_id, tool_name, action],
-        )?;
+        if let Some(action) = action {
+            conn.execute(
+                "UPDATE tool_reflections
+                    SET next_outcome = ?1
+                  WHERE id = (
+                    SELECT id FROM tool_reflections
+                     WHERE request_id = ?2
+                       AND tool_name = ?3
+                       AND action = ?4
+                       AND next_outcome IS NULL
+                     ORDER BY id DESC LIMIT 1
+                  )",
+                params![outcome, request_id, tool_name, action],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE tool_reflections
+                    SET next_outcome = ?1
+                  WHERE id = (
+                    SELECT id FROM tool_reflections
+                     WHERE request_id = ?2
+                       AND tool_name = ?3
+                       AND action IS NULL
+                       AND next_outcome IS NULL
+                     ORDER BY id DESC LIMIT 1
+                  )",
+                params![outcome, request_id, tool_name],
+            )?;
+        }
         Ok(())
     }
 
