@@ -572,13 +572,21 @@ impl AgentLoop {
             });
         }
 
-        // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
+        // Router tool filter: constrain available tools for GuidedLLM/
+        // SemanticFilter paths. `add_buttons` is always available because
+        // it's a UX-only helper (no side effects, no data access) — the
+        // routing policy shouldn't block interactive affordances.
+        //
+        // `tool_search` is deliberately NOT exempt here: it would let a
+        // constrained turn activate arbitrary deferred/MCP tools that the
+        // policy did not approve, and those tools then match via
+        // `activated.contains()` on subsequent iterations. Allow it only
+        // when the policy explicitly lists it.
         if let Some(policy) = routing_policy {
             tool_defs.retain(|td| {
                 policy.allowed_tools.contains(&td.name)
                     || activated.contains(&td.name)
                     || td.name == "add_buttons"
-                    || td.name == "tool_search"
             });
         }
     }
