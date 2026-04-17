@@ -376,6 +376,17 @@ impl MemoryStore {
     /// normal retrieval via `get_memory_context_scoped`.
     #[cfg_attr(not(feature = "embeddings"), allow(unused_variables))]
     pub fn is_semantically_duplicate(&self, content: &str, threshold: f32, is_group: bool) -> bool {
+        // Group-mode isolation: personal `daily:` entries must not gate
+        // writes in a shared context. The filter below only scores daily:
+        // hits, and in group mode those are exactly the entries to
+        // exclude. Skip the embedding + search round-trip and fail-open
+        // (write permitted) — including on the DB-error path where
+        // `list_daily_source_keys` would otherwise silently return an
+        // empty exclude set and defeat isolation.
+        if is_group {
+            return false;
+        }
+
         #[cfg(feature = "embeddings")]
         {
             let Some(svc) = self.embedding_service() else {
@@ -387,24 +398,11 @@ impl MemoryStore {
             };
             // Search recent daily entries using vector similarity only
             let keyword_weight = 0.0; // pure vector search
-            // In group mode, exclude personal daily: entries so dedup does
-            // not leak personal memory content into shared-context scoring.
-            let exclude_sources: Option<std::collections::HashSet<String>> = if is_group {
-                Some(
-                    self.db
-                        .list_daily_source_keys()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .collect(),
-                )
-            } else {
-                None
-            };
             match self.db.hybrid_search(
                 content,
                 &query_emb,
                 5,
-                exclude_sources.as_ref(),
+                None,
                 keyword_weight,
                 oxicrab_core::config::schema::FusionStrategy::WeightedScore,
                 60,
