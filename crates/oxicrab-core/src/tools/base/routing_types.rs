@@ -85,7 +85,8 @@ impl StaticRule {
     /// Use this when checking multiple rules against the same message to
     /// avoid redundant `to_lowercase()` allocations.
     pub fn matches_normalized(&self, normalized: &str, active_tool: Option<&str>) -> bool {
-        if self.requires_context && active_tool != Some(self.tool.as_str()) {
+        if self.requires_context && !active_tool.is_some_and(|a| a.eq_ignore_ascii_case(&self.tool))
+        {
             return false;
         }
         self.trigger.matches_normalized(normalized)
