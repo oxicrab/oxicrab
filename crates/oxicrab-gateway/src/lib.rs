@@ -301,11 +301,41 @@ fn extract_rate_limit_client_ip(
                 .any(|net| net.contains(&remote_ip))
         })
     {
-        return headers
+        // Walk the X-Forwarded-For chain from right to left, skipping
+        // entries that match a configured trusted proxy. The rightmost
+        // untrusted entry is the real client from our trust boundary's
+        // perspective.
+        //
+        // Taking the leftmost entry is a classic bug: the header is
+        // attacker-controllable, so `X-Forwarded-For: evil, legit, our-lb`
+        // would let the attacker forge `evil` as the client IP for rate
+        // limiting, bypassing per-IP quotas.
+        let xff_client = headers
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.split(',').next())
-            .map(|s| s.trim().to_string())
+            .and_then(|raw| {
+                let mut rightmost_untrusted: Option<String> = None;
+                for entry in raw.split(',').rev() {
+                    let ip_str = entry.trim();
+                    if ip_str.is_empty() {
+                        continue;
+                    }
+                    // Non-trusted parseable IP: this is the real client from
+                    // our trust boundary's perspective.
+                    // Trusted proxy entry or malformed IP: skip and keep
+                    // walking leftward. An attacker injecting a malformed
+                    // or trusted-looking value to the right of a legit
+                    // client IP cannot mask it.
+                    if let Ok(ip) = ip_str.parse::<std::net::IpAddr>()
+                        && !state.trusted_proxies.iter().any(|net| net.contains(&ip))
+                    {
+                        rightmost_untrusted = Some(ip_str.to_string());
+                        break;
+                    }
+                }
+                rightmost_untrusted
+            });
+        return xff_client
             .or_else(|| socket_ip.map(|ip| ip.to_string()))
             .unwrap_or_else(|| "unknown".to_string());
     }
@@ -601,7 +631,13 @@ fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Valu
         if let Some(end) = after_open.find("}}") {
             let key = &after_open[..end];
             if key == "body" {
-                result.push_str(body_str);
+                // Apply the same sanitization used for named fields.
+                // `{{body}}` is opt-in raw but still operator-untrusted data
+                // (it's the full webhook payload); failing to strip zero-
+                // width / control characters here would leave a prompt-
+                // injection bypass while every `{{key}}` substitution is
+                // protected.
+                result.push_str(&sanitize_webhook_field(body_str));
             } else if let Some(m) = map {
                 if let Some(value) = m.get(key) {
                     match value {
@@ -1101,12 +1137,26 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
     }
 
     if let Some((_, tx)) = state.pending.remove(&msg.chat_id) {
+        let chat_id = msg.chat_id.clone();
+        let content_bytes = msg.content.len();
         if tx.send(msg).is_err() {
-            warn!("HTTP API client disconnected before receiving response");
+            warn!(
+                "HTTP API client disconnected before receiving response: \
+                 chat_id={} content_bytes={}",
+                chat_id, content_bytes
+            );
         }
         true
     } else {
-        warn!("no pending HTTP API request for chat_id={}", msg.chat_id);
+        // Orphan response — the client timed out or the pending entry was
+        // already removed by a drop guard. Include the content length so
+        // operators can reason about whether the work was lossy.
+        warn!(
+            "orphan HTTP response dropped: chat_id={} content_bytes={} \
+             (client likely timed out before agent finished)",
+            msg.chat_id,
+            msg.content.len()
+        );
         true // Still consumed — don't route to channel manager
     }
 }

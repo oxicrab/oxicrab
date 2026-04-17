@@ -4,9 +4,12 @@ unmaintained = "workspace"
 unsound = "workspace"
 ignore = [
     # rustls-webpki 0.102.8 via serenity → rustls 0.22. No 0.102.x patch exists;
-    # fix requires >=0.103.10. Blocked on serenity upgrading to rustls 0.23.
-    # Low impact: requires compromised CA + CRL with multiple distribution points.
+    # fix requires >=0.103.12. Blocked on serenity upgrading to rustls 0.23.
+    # Low impact on Name-constraint advisories: reachable only after signature
+    # verification and requires misissuance from a trusted CA to exploit.
     { id = "RUSTSEC-2026-0049", reason = "no patch for 0.102.x; blocked on serenity upstream" },
+    { id = "RUSTSEC-2026-0098", reason = "no patch for 0.102.x; blocked on serenity upstream (URI name constraints)" },
+    { id = "RUSTSEC-2026-0099", reason = "no patch for 0.102.x; blocked on serenity upstream (wildcard name constraints)" },
 ]
 
 [sources]

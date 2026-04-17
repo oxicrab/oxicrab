@@ -758,6 +758,7 @@ impl AgentLoop {
         &self,
         content: &str,
         session_key: &str,
+        is_group: bool,
     ) -> Result<Option<String>> {
         use crate::agent::memory::quality::{QualityVerdict, check_quality};
 
@@ -775,9 +776,9 @@ impl AgentLoop {
                     .to_string()
             }
             QualityVerdict::Reframed(reframed) => {
-                self.write_memory_entry(&reframed, "written_reframed")?
+                self.write_memory_entry(&reframed, "written_reframed", is_group)?
             }
-            QualityVerdict::Pass => self.write_memory_entry(content, "written")?,
+            QualityVerdict::Pass => self.write_memory_entry(content, "written", is_group)?,
         };
 
         // Single session load + save for all branches
@@ -796,7 +797,12 @@ impl AgentLoop {
 
     /// Deduplicate, scan, and write a memory entry for the remember fast path.
     /// Returns the user-facing response message.
-    fn write_memory_entry(&self, content: &str, metric_label: &'static str) -> Result<String> {
+    fn write_memory_entry(
+        &self,
+        content: &str,
+        metric_label: &'static str,
+        is_group: bool,
+    ) -> Result<String> {
         use crate::agent::memory::remember::is_duplicate_of_entries;
 
         let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
@@ -810,7 +816,10 @@ impl AgentLoop {
             info!("remember fast path: duplicate detected, skipping write");
             return Ok("I already have that noted.".to_string());
         }
-        if self.memory.is_semantically_duplicate(content, 0.85) {
+        if self
+            .memory
+            .is_semantically_duplicate(content, 0.85, is_group)
+        {
             metrics::counter!(
                 "oxicrab_memory_remember_write_total",
                 "path" => "fast",
@@ -1245,8 +1254,13 @@ impl AgentLoop {
             let remember_content =
                 crate::agent::memory::remember::extract_remember_content(&msg_content)
                     .unwrap_or_else(|| msg_content.clone());
+            let is_group = msg
+                .metadata
+                .get(crate::bus::meta::IS_GROUP)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or_default();
             let response = if let Ok(Some(text)) = self
-                .try_remember_fast_path(&remember_content, session_key)
+                .try_remember_fast_path(&remember_content, session_key, is_group)
                 .await
             {
                 text
@@ -1773,8 +1787,18 @@ fn check_prompt_guard(
 }
 
 /// Check if a message is a session reset command.
+///
+/// Matches these phrases (case-insensitive) with trailing punctuation
+/// (`.`, `!`, `?`) tolerated so the natural typing style still triggers:
+/// `reset`, `clear history`, `new session`, `start over`. Longer messages
+/// containing these phrases are NOT matched to avoid false positives on
+/// conversational mentions (e.g. "can you reset the counter in X?").
 pub(super) fn is_reset_command(content: &str) -> bool {
-    let trimmed = content.trim().to_lowercase();
+    let trimmed = content
+        .trim()
+        .trim_end_matches(['.', '!', '?'])
+        .trim()
+        .to_lowercase();
     matches!(
         trimmed.as_str(),
         "reset" | "clear history" | "new session" | "start over"

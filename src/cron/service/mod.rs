@@ -114,6 +114,11 @@ pub struct CronService {
     on_job: Arc<Mutex<Option<CronJobCallback>>>,
     running: Arc<Mutex<bool>>,
     task_tracker: Arc<TaskTracker>,
+    /// Notified when a job is added, updated, enabled, or removed so the
+    /// poll loop wakes immediately instead of waiting the full empty-queue
+    /// poll interval (`POLL_WHEN_EMPTY_SEC`). Prevents a freshly added
+    /// one-shot job from sitting for up to 30s before its first tick.
+    wake: Arc<tokio::sync::Notify>,
 }
 
 impl CronService {
@@ -123,6 +128,7 @@ impl CronService {
             on_job: Arc::new(Mutex::new(None)),
             running: Arc::new(Mutex::new(false)),
             task_tracker: Arc::new(TaskTracker::new()),
+            wake: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -451,8 +457,13 @@ impl CronService {
                     POLL_WHEN_EMPTY_SEC * 1000
                 };
 
-                tokio::time::sleep(tokio::time::Duration::from_millis(delay.min(MAX_SLEEP_MS)))
-                    .await;
+                let sleep_ms = delay.min(MAX_SLEEP_MS);
+                tokio::select! {
+                    () = tokio::time::sleep(tokio::time::Duration::from_millis(sleep_ms)) => {}
+                    () = service.wake.notified() => {
+                        // A job was added / updated / enabled / removed — re-poll now
+                    }
+                }
             }
         });
 
@@ -472,6 +483,19 @@ impl CronService {
     }
 
     pub fn add_job(&self, mut job: CronJob) -> Result<()> {
+        // Validate timezone at creation time instead of silently falling
+        // back to UTC at each fire (typos like "America/New_Yorkk" would
+        // otherwise produce jobs that run at the wrong local time with
+        // only a warn log).
+        if let CronSchedule::Cron { tz: Some(tz), .. } = &job.schedule
+            && !tz.is_empty()
+            && tz.parse::<Tz>().is_err()
+        {
+            anyhow::bail!(
+                "invalid timezone '{tz}' — expected an IANA zone id like 'America/New_York'",
+            );
+        }
+
         // Auto-deduplicate names (case-insensitive) by appending suffix.
         // Single query fetches all matching names, dedup happens in memory.
         if let Some(n) = self.db.next_cron_job_name_suffix(&job.name)? {
@@ -484,6 +508,9 @@ impl CronService {
         }
 
         self.db.insert_cron_job(&job)?;
+        // Wake the poll loop so a newly scheduled job fires promptly
+        // instead of waiting out the empty-queue poll interval.
+        self.wake.notify_one();
         Ok(())
     }
 
@@ -517,6 +544,7 @@ impl CronService {
         };
         self.db
             .update_cron_job_enabled(job_id, enabled, next_run, now)?;
+        self.wake.notify_one();
         self.db.get_cron_job(job_id)
     }
 
@@ -526,6 +554,16 @@ impl CronService {
             return Ok(None);
         };
         let now = now_ms();
+
+        // Reject invalid timezones at update time too — same guard as add_job.
+        if let Some(CronSchedule::Cron { tz: Some(tz), .. }) = params.schedule.as_ref()
+            && !tz.is_empty()
+            && tz.parse::<Tz>().is_err()
+        {
+            anyhow::bail!(
+                "invalid timezone '{tz}' — expected an IANA zone id like 'America/New_York'",
+            );
+        }
 
         // If schedule changed and job is enabled, recompute next_run in the same write
         let next_run = params.schedule.as_ref().and_then(|new_schedule| {
@@ -537,6 +575,7 @@ impl CronService {
         });
 
         self.db.update_cron_job(job_id, params, next_run, now)?;
+        self.wake.notify_one();
         self.db.get_cron_job(job_id)
     }
 

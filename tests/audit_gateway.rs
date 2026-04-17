@@ -210,6 +210,7 @@ async fn audit_gateway_03_a2a_body_limit_layering() {
         enabled: true,
         agent_name: "test".into(),
         agent_description: "t".into(),
+        public_url: String::new(),
     };
     let (addr, _inbound_rx, _out) =
         spawn_gateway(None, HashMap::new(), Some(a2a), RateLimitConfig::default()).await;
@@ -242,6 +243,7 @@ async fn audit_gateway_04_a2a_task_get_requires_auth_when_configured() {
         enabled: true,
         agent_name: "test".into(),
         agent_description: "t".into(),
+        public_url: String::new(),
     };
     let (addr, _i, _o) = spawn_gateway(
         Some(key),
@@ -455,10 +457,13 @@ async fn audit_gateway_10_rate_limit_exemption_matches_docs() {
 //   bound to 0.0.0.0 or an internal IP the card exposes it verbatim.
 #[tokio::test]
 async fn audit_gateway_11_agent_card_exposes_host_port() {
+    // When `public_url` is unset, AgentCard falls back to bind host:port
+    // (legacy behaviour, still supported for development).
     let a2a = A2aConfig {
         enabled: true,
         agent_name: "scrumpy".into(),
         agent_description: "desc".into(),
+        public_url: String::new(),
     };
     let (addr, _i, _o) =
         spawn_gateway(None, HashMap::new(), Some(a2a), RateLimitConfig::default()).await;
@@ -473,7 +478,38 @@ async fn audit_gateway_11_agent_card_exposes_host_port() {
     let url = card["url"].as_str().unwrap_or_default();
     assert!(
         url.contains(&addr.ip().to_string()) && url.contains(&addr.port().to_string()),
-        "agent card currently reveals the bind host:port (finding 11): {url}"
+        "agent card falls back to bind host:port when no public_url is set: {url}"
+    );
+
+    // When `public_url` is set, the card advertises it verbatim — no host:
+    // port leak. This is the fixed behaviour.
+    let a2a_public = A2aConfig {
+        enabled: true,
+        agent_name: "scrumpy".into(),
+        agent_description: "desc".into(),
+        public_url: "https://agents.example.com".to_string(),
+    };
+    let (addr2, _i, _o) = spawn_gateway(
+        None,
+        HashMap::new(),
+        Some(a2a_public),
+        RateLimitConfig::default(),
+    )
+    .await;
+    let resp = client
+        .get(format!("http://{addr2}/.well-known/agent.json"))
+        .send()
+        .await
+        .unwrap();
+    let card: serde_json::Value = resp.json().await.unwrap();
+    let url = card["url"].as_str().unwrap_or_default();
+    assert_eq!(
+        url, "https://agents.example.com",
+        "agent card should advertise the configured public_url when set",
+    );
+    assert!(
+        !url.contains(&addr2.ip().to_string()) && !url.contains(&addr2.port().to_string()),
+        "agent card must not leak bind host:port when public_url is configured: {url}"
     );
 }
 

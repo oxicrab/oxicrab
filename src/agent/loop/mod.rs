@@ -809,8 +809,21 @@ impl AgentLoop {
                 }
                 merged_metadata.insert(k.clone(), v.clone());
             }
-            if first_action.is_none() && msg.action.is_some() {
-                first_action.clone_from(&msg.action);
+            match (&first_action, &msg.action) {
+                (None, Some(_)) => first_action.clone_from(&msg.action),
+                (Some(first), Some(later)) => {
+                    // Multiple queued messages carry action dispatches. Only
+                    // the first can be honoured (actions are not commutative
+                    // — running `shell:rm -rf a` after `shell:cp a b` would
+                    // execute two shell invocations for a single coalesced
+                    // turn). Warn so operators can see non-first drops.
+                    warn!(
+                        "coalesce: dropping subsequent action (tool={} source={:?}); \
+                         first action (tool={} source={:?}) wins",
+                        later.tool, later.source, first.tool, first.source
+                    );
+                }
+                _ => {}
             }
         }
 
@@ -861,9 +874,18 @@ impl AgentLoop {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if pending.len() >= MAX_PENDING_MESSAGES_PER_SESSION {
                     warn!(
-                        "pending queue full for session {}, dropping message",
-                        session_key
+                        "pending queue full for session {} (max={}), dropping message \
+                         from {}:{} ({} bytes); user will see no response for this message",
+                        session_key,
+                        MAX_PENDING_MESSAGES_PER_SESSION,
+                        msg.channel,
+                        msg.sender_id,
+                        msg.content.len()
                     );
+                    metrics::counter!("oxicrab_agent_pending_queue_dropped_total",
+                        "channel" => msg.channel.clone(),
+                    )
+                    .increment(1);
                     return Ok(None);
                 }
                 pending.push(msg);
