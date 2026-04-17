@@ -631,7 +631,13 @@ fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Valu
         if let Some(end) = after_open.find("}}") {
             let key = &after_open[..end];
             if key == "body" {
-                result.push_str(body_str);
+                // Apply the same sanitization used for named fields.
+                // `{{body}}` is opt-in raw but still operator-untrusted data
+                // (it's the full webhook payload); failing to strip zero-
+                // width / control characters here would leave a prompt-
+                // injection bypass while every `{{key}}` substitution is
+                // protected.
+                result.push_str(&sanitize_webhook_field(body_str));
             } else if let Some(m) = map {
                 if let Some(value) = m.get(key) {
                     match value {
