@@ -165,6 +165,44 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 8 {
+        run_migration(conn, 8, || {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS tool_reflections (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id      TEXT NOT NULL,
+                tool_name       TEXT NOT NULL,
+                action          TEXT,
+                attempt_number  INTEGER NOT NULL,
+                error_excerpt   TEXT NOT NULL,
+                hypothesis      TEXT NOT NULL,
+                retry_strategy  TEXT NOT NULL,
+                next_outcome    TEXT,
+                created_at_ms   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_tool_reflections_tool
+                ON tool_reflections(tool_name, action);
+            CREATE INDEX IF NOT EXISTS idx_tool_reflections_request
+                ON tool_reflections(request_id);
+
+            CREATE TABLE IF NOT EXISTS skills_index (
+                path             TEXT PRIMARY KEY,
+                name             TEXT NOT NULL,
+                description      TEXT NOT NULL,
+                embedding        BLOB NOT NULL,
+                file_sha256      TEXT NOT NULL,
+                use_count        INTEGER NOT NULL DEFAULT 0,
+                last_used_ms     INTEGER,
+                created_at_ms    INTEGER NOT NULL,
+                last_indexed_ms  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_skills_index_name ON skills_index(name);
+            CREATE INDEX IF NOT EXISTS idx_skills_index_use ON skills_index(use_count, last_used_ms);",
+            )?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 

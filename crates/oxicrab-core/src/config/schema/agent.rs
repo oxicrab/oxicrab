@@ -93,6 +93,67 @@ fn default_keep_recent() -> usize {
     10
 }
 
+/// Configuration for Reflexion-style failure reflection.
+///
+/// When a tool call returns `is_error = true`, optionally invoke a small
+/// LLM call to produce a structured hypothesis about what went wrong and
+/// inject it into the next iteration's context. Bounded per-request and
+/// per-tool to keep cost predictable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReflectionConfig {
+    /// Master switch. Off by default while gathering data.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum reflections produced within a single agent run.
+    #[serde(
+        default = "default_reflection_max_per_request",
+        rename = "maxPerRequest"
+    )]
+    pub max_per_request: u8,
+    /// Maximum reflections per (tool, action) within a single agent run.
+    #[serde(default = "default_reflection_max_per_tool", rename = "maxPerTool")]
+    pub max_per_tool: u8,
+    /// Sampling temperature for the reflection call.
+    #[serde(default = "default_reflection_temperature")]
+    pub temperature: f32,
+    /// Maximum response tokens for the reflection call.
+    #[serde(default = "default_reflection_max_tokens", rename = "maxTokens")]
+    pub max_tokens: u32,
+    /// Persist reflections to the `tool_reflections` table for offline
+    /// analysis. Disabled in tests; enabled in production.
+    #[serde(default = "super::default_true", rename = "persistToDb")]
+    pub persist_to_db: bool,
+}
+
+impl Default for ReflectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_per_request: default_reflection_max_per_request(),
+            max_per_tool: default_reflection_max_per_tool(),
+            temperature: default_reflection_temperature(),
+            max_tokens: default_reflection_max_tokens(),
+            persist_to_db: true,
+        }
+    }
+}
+
+fn default_reflection_max_per_request() -> u8 {
+    2
+}
+
+fn default_reflection_max_per_tool() -> u8 {
+    1
+}
+
+fn default_reflection_temperature() -> f32 {
+    0.2
+}
+
+fn default_reflection_max_tokens() -> u32 {
+    200
+}
+
 /// Action to take when prompt injection is detected.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -706,6 +767,8 @@ pub struct AgentDefaults {
     pub model_routing: ModelRoutingConfig,
     #[serde(default)]
     pub approval: ApprovalConfig,
+    #[serde(default)]
+    pub reflection: ReflectionConfig,
 }
 
 impl Default for AgentDefaults {
@@ -726,6 +789,7 @@ impl Default for AgentDefaults {
             workspace_ttl: WorkspaceTtlConfig::default(),
             model_routing: ModelRoutingConfig::default(),
             approval: ApprovalConfig::default(),
+            reflection: ReflectionConfig::default(),
         }
     }
 }

@@ -48,6 +48,14 @@ enabled = false
 timeout = 300
 actions = []
 
+[agents.defaults.reflection]
+enabled = false
+maxPerRequest = 2
+maxPerTool = 1
+temperature = 0.20000000298023224
+maxTokens = 200
+persistToDb = true
+
 [agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"
 fallbacks = []

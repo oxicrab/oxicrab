@@ -6,6 +6,7 @@ mod iteration;
 mod metadata;
 mod model_gateway;
 mod processing;
+mod reflection;
 mod replay;
 
 #[cfg(test)]
@@ -153,6 +154,8 @@ pub struct AgentLoop {
     approval_store: Arc<crate::agent::approval::ApprovalStore>,
     /// Operator approval workflow configuration.
     approval_config: crate::config::ApprovalConfig,
+    /// Reflexion-style failure reflection configuration.
+    reflection_config: crate::config::ReflectionConfig,
     /// Sender for outbound messages (approval requests, user feedback).
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
 }
@@ -194,6 +197,7 @@ impl AgentLoop {
             leak_detector: shared_leak_detector,
             router_config,
             approval_config,
+            reflection_config,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -539,6 +543,7 @@ impl AgentLoop {
             semantic_index_cache: Arc::new(tokio::sync::Mutex::new(None)),
             approval_store: Arc::new(crate::agent::approval::ApprovalStore::new()),
             approval_config,
+            reflection_config,
             outbound_tx,
         })
     }

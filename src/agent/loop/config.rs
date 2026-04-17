@@ -185,6 +185,8 @@ pub struct AgentLoopConfig {
     pub router_config: crate::config::RouterConfig,
     /// Operator approval workflow configuration.
     pub approval_config: crate::config::ApprovalConfig,
+    /// Reflexion-style failure reflection configuration.
+    pub reflection_config: crate::config::ReflectionConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -294,6 +296,7 @@ impl AgentLoopConfig {
             leak_detector: params.leak_detector,
             router_config: config.router.clone(),
             approval_config: config.agents.defaults.approval.clone(),
+            reflection_config: config.agents.defaults.reflection.clone(),
         }
     }
 
@@ -369,6 +372,7 @@ impl AgentLoopConfig {
             leak_detector: None,
             router_config: crate::config::RouterConfig::default(),
             approval_config: crate::config::ApprovalConfig::default(),
+            reflection_config: crate::config::ReflectionConfig::default(),
         }
     }
 }

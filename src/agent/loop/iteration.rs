@@ -132,6 +132,7 @@ impl AgentLoop {
         let mut collected_tool_metadata: Vec<(String, HashMap<String, serde_json::Value>)> =
             Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
+        let mut reflection_budget = super::reflection::ReflectionBudget::new();
 
         // Clear request-scoped deferred tool activations from previous retries/reuse.
         self.tool_search_activated.clear(&activation_scope).await;
@@ -301,7 +302,7 @@ impl AgentLoop {
                 } else {
                     None
                 };
-                let results = self
+                let mut results = self
                     .execute_tools(
                         &response.tool_calls,
                         &tool_names,
@@ -313,6 +314,22 @@ impl AgentLoop {
 
                 // Stop typing indicator after tool execution (guard aborts on drop)
                 drop(typing_guard);
+
+                // Reflection pass: for each error result, optionally produce
+                // a structured hypothesis + retry strategy and inject it
+                // into the result content for the next iteration. Bounded
+                // by `ReflectionConfig` per-request and per-tool caps.
+                if self.reflection_config.enabled {
+                    self.augment_results_with_reflection(
+                        &response.tool_calls,
+                        &mut results,
+                        &mut reflection_budget,
+                        effective_provider.as_ref(),
+                        effective_model,
+                        overrides.request_id.as_deref(),
+                    )
+                    .await;
+                }
 
                 self.handle_tool_results(
                     &mut messages,
@@ -588,6 +605,69 @@ impl AgentLoop {
                     || activated.contains(&td.name)
                     || td.name == "add_buttons"
             });
+        }
+    }
+
+    /// For each tool result with `is_error = true`, attempt to produce a
+    /// reflection (hypothesis + retry strategy) and append it to the
+    /// result content as a `<reflection>…</reflection>` block. Bounded
+    /// by `ReflectionConfig` per-request and per-tool caps.
+    ///
+    /// When `ReflectionConfig.persist_to_db` is true and the agent has
+    /// a memory database, the reflection is persisted to the
+    /// `tool_reflections` table so operators can analyse failure modes
+    /// over time.
+    async fn augment_results_with_reflection(
+        &self,
+        tool_calls: &[ToolCallRequest],
+        results: &mut [ToolResult],
+        budget: &mut super::reflection::ReflectionBudget,
+        provider: &dyn LLMProvider,
+        model: &str,
+        request_id: Option<&str>,
+    ) {
+        debug_assert_eq!(tool_calls.len(), results.len());
+        for (tc, result) in tool_calls.iter().zip(results.iter_mut()) {
+            if !result.is_error {
+                continue;
+            }
+            let action = tc.arguments.get("action").and_then(|v| v.as_str());
+            let Some(reflection) = super::reflection::reflect_on_failure(
+                &self.reflection_config,
+                budget,
+                provider,
+                model,
+                &self.leak_detector,
+                request_id.unwrap_or(""),
+                &tc.name,
+                action,
+                &result.content,
+            )
+            .await
+            else {
+                continue;
+            };
+
+            let block = reflection.render_block();
+            result.content.push_str(&block);
+
+            if self.reflection_config.persist_to_db {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let rec = crate::agent::memory::memory_db::ReflectionRecord {
+                    request_id: request_id.unwrap_or("").to_string(),
+                    tool_name: reflection.tool.clone(),
+                    action: reflection.action.clone(),
+                    attempt_number: reflection.attempt_number,
+                    error_excerpt: reflection.error_excerpt.clone(),
+                    hypothesis: reflection.hypothesis.clone(),
+                    retry_strategy: reflection.retry_strategy.clone(),
+                    next_outcome: None,
+                    created_at_ms: now_ms,
+                };
+                if let Err(e) = self.memory.db().insert_tool_reflection(&rec) {
+                    warn!("reflection: failed to persist record: {e}");
+                }
+            }
         }
     }
 
