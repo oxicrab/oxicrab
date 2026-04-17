@@ -226,6 +226,13 @@ pub(super) async fn reflect_on_failure(
     if !config.enabled {
         return None;
     }
+    if !config.covers_tool(tool) {
+        debug!(
+            "reflection: tool='{}' filtered by allowed/blocked list",
+            tool
+        );
+        return None;
+    }
     if !budget.allows(tool, action, config.max_per_request, config.max_per_tool) {
         debug!(
             "reflection: budget exhausted for tool='{}' action={:?}",

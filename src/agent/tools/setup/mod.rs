@@ -81,6 +81,7 @@ pub async fn register_all_tools(
     register_memory_search(&mut tools, ctx);
     register_workspace(&mut tools, ctx);
     register_interactive(&mut tools, ctx);
+    register_skill_propose(&mut tools, ctx);
     #[cfg(feature = "tool-rss")]
     register_rss(&mut tools, ctx);
 
@@ -395,6 +396,30 @@ fn register_interactive(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     // needs add_buttons for custom/ad-hoc buttons and can discover it via
     // tool_search when needed.
     registry.register_deferred(Arc::new(AddButtonsTool::new(ctx.pending_buttons.clone())));
+}
+
+fn register_skill_propose(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::skill_propose::SkillProposeTool;
+
+    let workspace_skills = ctx.workspace.join("skills");
+    // Wire incremental indexing for promote — uses the shared memory
+    // store (`ctx.memory`) so post-promote `index_one` stays consistent
+    // with the agent-loop's startup rebuild. Empty model id is fine
+    // here; the model id only matters for invalidation, which the
+    // startup rebuild handles.
+    let memory = ctx.memory.clone();
+    let index = Arc::new(crate::agent::skills::index::SkillIndex::new(
+        memory.db(),
+        workspace_skills.clone(),
+        None,
+        String::new(),
+    ));
+    let tool = SkillProposeTool::new(workspace_skills).with_index(index, memory);
+    // Deferred so the tool is invisible by default. The LLM finds it
+    // via `tool_search` when an operator or skill mentions skill
+    // proposals. Promote/reject are mutating and routed through the
+    // approval workflow when configured.
+    registry.register_deferred(Arc::new(tool));
 }
 
 #[cfg(feature = "tool-rss")]

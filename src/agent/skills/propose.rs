@@ -204,6 +204,115 @@ pub fn list_staged(workspace_skills: &Path) -> Vec<String> {
     out
 }
 
+/// One staged proposal with summary metadata for the operator UI.
+#[derive(Debug, Clone)]
+pub struct StagedSkill {
+    pub name: String,
+    pub bytes: u64,
+    pub created_at_ms: i64,
+    /// First non-blank line under `description:` in the frontmatter,
+    /// or the first body line, or empty.
+    pub description: String,
+}
+
+/// Return staged proposals with size + description so a tool wrapper
+/// can build human-friendly listings without re-reading every file.
+pub fn list_staged_with_metadata(workspace_skills: &Path) -> Vec<StagedSkill> {
+    let staged_dir = workspace_skills.join("staged");
+    if !staged_dir.exists() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&staged_dir) {
+        for entry in entries.flatten() {
+            let Some(file_name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let Some(name) = file_name.strip_suffix(".md") else {
+                continue;
+            };
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            // Skip non-regular files defensively (a symlink leaked into
+            // the staged dir would be rejected at promote time anyway,
+            // but list_staged callers shouldn't see it as a real skill).
+            if !meta.is_file() {
+                continue;
+            }
+            let created_at_ms = meta
+                .created()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0_i64, |d| d.as_millis() as i64);
+            let description = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|c| extract_description(&c))
+                .unwrap_or_default();
+            out.push(StagedSkill {
+                name: name.to_string(),
+                bytes: meta.len(),
+                created_at_ms,
+                description,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Discard a staged proposal without promoting. Used by the operator
+/// "reject" path (e.g. a button click). Symmetric counterpart to
+/// `promote_staged_skill`. Refuses symlinks for the same TOCTOU
+/// reasons promote does.
+pub fn reject_staged_skill(workspace_skills: &Path, name: &str) -> Result<()> {
+    validate_skill_name(name)?;
+    let staged_path = workspace_skills.join("staged").join(format!("{name}.md"));
+    let meta = std::fs::symlink_metadata(&staged_path).with_context(|| {
+        format!(
+            "no staged skill named '{name}' at {}",
+            staged_path.display()
+        )
+    })?;
+    if meta.file_type().is_symlink() {
+        // Don't follow a symlink target on reject either — let the
+        // operator manually clean it up after investigating.
+        return Err(anyhow!(
+            "staged skill '{name}' is a symlink — refusing to delete (manual cleanup required)"
+        ));
+    }
+    std::fs::remove_file(&staged_path)
+        .with_context(|| format!("removing {}", staged_path.display()))?;
+    info!("skill_propose: rejected staged '{}'", name);
+    Ok(())
+}
+
+/// Re-extract the description from a body string. Mirrors the logic
+/// in `SkillIndex` so both produce the same value for the same file.
+fn extract_description(content: &str) -> Option<String> {
+    if let Some(rest) = content.strip_prefix("---")
+        && let Some(end_idx) = rest.find("\n---\n")
+    {
+        let frontmatter = &rest[..end_idx];
+        for line in frontmatter.lines() {
+            if let Some(value) = line.trim().strip_prefix("description:") {
+                let v = value.trim().trim_matches('"').trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("---") {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

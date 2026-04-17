@@ -13,8 +13,8 @@ pub use schema::{
     FusionStrategy, GatewayConfig, GitHubConfig, GoogleConfig, HttpUrl, ImageGenConfig, McpConfig,
     McpTrust, MediaConfig, MemoryConfig, ModelRoutingConfig, ObsidianConfig, PromptGuardAction,
     PromptGuardConfig, ProviderConfig, ProvidersConfig, ReflectionConfig, RouterConfig, RssConfig,
-    SandboxConfig, SlackConfig, TaskRouting, TelegramConfig, TodoistConfig, ToolsConfig,
-    TranscriptionConfig, TwilioConfig, VoiceConfig, WeatherConfig, WebSearchConfig, WebhookConfig,
-    WebhookTarget, WhatsAppConfig, WorkspaceTtlConfig, infer_provider_from_model,
+    SandboxConfig, SkillsConfig, SlackConfig, TaskRouting, TelegramConfig, TodoistConfig,
+    ToolsConfig, TranscriptionConfig, TwilioConfig, VoiceConfig, WeatherConfig, WebSearchConfig,
+    WebhookConfig, WebhookTarget, WhatsAppConfig, WorkspaceTtlConfig, infer_provider_from_model,
     normalize_provider, parse_model_ref,
 };

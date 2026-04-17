@@ -199,6 +199,15 @@ pub(super) enum StatsCommands {
         #[arg(long, short = 'd', default_value = "7")]
         days: u32,
     },
+    /// Show reflection (Track 1 self-improvement) statistics
+    Reflections {
+        /// Number of days to look back (default: 7)
+        #[arg(long, short = 'd', default_value = "7")]
+        days: u32,
+        /// Minimum samples per (tool, action) to report
+        #[arg(long, default_value = "1")]
+        min_samples: u64,
+    },
 }
 
 #[derive(Subcommand)]

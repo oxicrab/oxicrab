@@ -2,6 +2,7 @@ pub mod providers;
 
 use crate::agent::memory::MemoryStore;
 use crate::agent::skills::SkillsLoader;
+use crate::agent::skills::index::SkillIndex;
 use aho_corasick::AhoCorasick;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local};
@@ -25,6 +26,13 @@ pub struct ContextBuilder {
     bootstrap_mtimes: HashMap<String, u64>,
     providers: Option<Arc<providers::ContextProviderRunner>>,
     cached_provider_context: Option<String>,
+    /// Optional embedding-indexed skill retrieval. When present and the
+    /// embedding service is ready, used instead of (additive to)
+    /// keyword/hint matching.
+    skill_index: Option<Arc<SkillIndex>>,
+    /// Cap on skills returned per turn from the embedding index.
+    /// Mirrors `agents.defaults.skills.maxSystemPromptSkills`.
+    skill_index_top_k: usize,
 }
 
 impl ContextBuilder {
@@ -72,6 +80,8 @@ impl ContextBuilder {
             memory,
             skills,
             skill_hint_ac,
+            skill_index: None,
+            skill_index_top_k: 5,
             skill_hint_names,
             skill_summary,
             bootstrap_cache: None,
@@ -105,6 +115,52 @@ impl ContextBuilder {
 
     pub fn set_providers(&mut self, runner: Arc<providers::ContextProviderRunner>) {
         self.providers = Some(runner);
+    }
+
+    /// Wire up an embedding-indexed skill retriever. When set, system-
+    /// prompt construction prefers `top_k_for_query` over keyword/hint
+    /// matching. The keyword path remains as a fallback.
+    pub fn set_skill_index(&mut self, index: Arc<SkillIndex>, top_k: usize) {
+        self.skill_index = Some(index);
+        self.skill_index_top_k = top_k.clamp(1, 10);
+    }
+
+    /// Pick the skill names to inject for the given user message.
+    /// Combines embedding-indexed retrieval (when ready) with the
+    /// existing keyword/hint matcher; embedding hits take priority but
+    /// matcher hits are appended so high-signal hints still pull in
+    /// their skill even when the embedding score is low.
+    fn select_skills_for_query(&self, user_message: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+
+        #[cfg(feature = "embeddings")]
+        if let Some(ref index) = self.skill_index
+            && let Some(svc) = self.memory.embedding_service()
+        {
+            match index.top_k_for_query(svc, user_message, self.skill_index_top_k) {
+                Ok(hits) => {
+                    for hit in hits {
+                        if !out.contains(&hit.name) {
+                            out.push(hit.name);
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("skill_index: top_k_for_query failed: {e}");
+                }
+            }
+        }
+
+        let matcher_hits =
+            self.skills
+                .match_skills(user_message, &self.skill_hint_ac, &self.skill_hint_names);
+        for name in matcher_hits {
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+
+        out
     }
 
     pub async fn refresh_provider_context(&mut self) {
@@ -155,11 +211,11 @@ impl ContextBuilder {
             parts.push(format!("# Skills\n\n{}", self.skill_summary));
         }
 
-        // 2. Load full content for skills whose hints match the current message
+        // 2. Load full content for skills selected for this turn.
+        // Prefer embedding-indexed retrieval when the index is wired
+        // and ready; fall back to keyword/hint matching otherwise.
         if let Some(user_message) = query {
-            let matched =
-                self.skills
-                    .match_skills(user_message, &self.skill_hint_ac, &self.skill_hint_names);
+            let matched = self.select_skills_for_query(user_message);
             if !matched.is_empty() {
                 let skill_content = self.skills.load_skills_for_context(&matched);
                 if !skill_content.is_empty() {

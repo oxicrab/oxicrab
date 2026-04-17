@@ -6,7 +6,9 @@
 //! test focuses on the persistence pathway: given a `ReflectionRecord`,
 //! it lands in `tool_reflections` and round-trips correctly.
 
-use oxicrab::agent::memory::memory_db::{MemoryDB, ReflectionRecord, SkillIndexEntry};
+use oxicrab::agent::memory::memory_db::{
+    MemoryDB, ReflectionRecord, ReflectionStatRow, SkillIndexEntry,
+};
 
 #[test]
 fn reflection_record_persists_and_counts() {
@@ -76,6 +78,7 @@ fn skill_index_roundtrip_preserves_embedding() {
         description: "desc".to_string(),
         embedding: vec![0.1, 0.2, -0.3, 1.5, f32::MAX],
         file_sha256: "abc".to_string(),
+        embedding_model_id: "test-model".to_string(),
         use_count: 0,
         last_used_ms: None,
         created_at_ms: 1000,
@@ -100,6 +103,7 @@ fn skill_index_prune_unused_respects_min_uses() {
         description: "x".into(),
         embedding: vec![0.0],
         file_sha256: "a".into(),
+        embedding_model_id: "test-model".into(),
         use_count: 0,
         last_used_ms: None,
         created_at_ms: now_ms - 31 * day,
@@ -113,6 +117,7 @@ fn skill_index_prune_unused_respects_min_uses() {
         description: "x".into(),
         embedding: vec![0.0],
         file_sha256: "b".into(),
+        embedding_model_id: "test-model".into(),
         use_count: 5,
         last_used_ms: Some(now_ms - 1),
         created_at_ms: now_ms - 31 * day,
@@ -126,6 +131,7 @@ fn skill_index_prune_unused_respects_min_uses() {
         description: "x".into(),
         embedding: vec![0.0],
         file_sha256: "c".into(),
+        embedding_model_id: "test-model".into(),
         use_count: 0,
         last_used_ms: None,
         created_at_ms: now_ms - 1,
@@ -147,6 +153,98 @@ fn skill_index_prune_unused_respects_min_uses() {
 }
 
 #[test]
+fn reflection_stats_aggregates_per_tool_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("r.db")).unwrap();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    for (i, outcome) in ["success", "success", "error"].iter().enumerate() {
+        db.insert_tool_reflection(&ReflectionRecord {
+            request_id: format!("req-{i}"),
+            tool_name: "shell".to_string(),
+            action: Some("execute".to_string()),
+            attempt_number: 1,
+            error_excerpt: "x".to_string(),
+            hypothesis: "h".to_string(),
+            retry_strategy: "r".to_string(),
+            next_outcome: None,
+            created_at_ms: now_ms,
+        })
+        .unwrap();
+        db.update_reflection_outcome(&format!("req-{i}"), "shell", Some("execute"), outcome)
+            .unwrap();
+    }
+    db.insert_tool_reflection(&ReflectionRecord {
+        request_id: "req-gh".to_string(),
+        tool_name: "github".to_string(),
+        action: Some("list_prs".to_string()),
+        attempt_number: 1,
+        error_excerpt: "x".to_string(),
+        hypothesis: "h".to_string(),
+        retry_strategy: "r".to_string(),
+        next_outcome: None,
+        created_at_ms: now_ms,
+    })
+    .unwrap();
+
+    let rows: Vec<ReflectionStatRow> = db.reflection_stats(7, 1).unwrap();
+    assert_eq!(rows.len(), 2);
+    let shell = rows
+        .iter()
+        .find(|r| r.tool_name == "shell")
+        .expect("shell row");
+    assert_eq!(shell.total, 3);
+    assert_eq!(shell.successes, 2);
+    assert_eq!(shell.errors, 1);
+    assert_eq!(shell.pending, 0);
+    assert!((shell.failure_rate().unwrap() - 1.0 / 3.0).abs() < 1e-6);
+    let gh = rows
+        .iter()
+        .find(|r| r.tool_name == "github")
+        .expect("github row");
+    assert_eq!(gh.pending, 1);
+    assert!(gh.failure_rate().is_none());
+
+    let filtered = db.reflection_stats(7, 2).unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].tool_name, "shell");
+}
+
+#[test]
+fn invalidate_skill_index_for_model_drops_other_models() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("s.db")).unwrap();
+    for (path, model) in [
+        ("a.md", "old-model"),
+        ("b.md", "new-model"),
+        ("c.md", "old-model"),
+    ] {
+        db.upsert_skill_index(&SkillIndexEntry {
+            path: path.into(),
+            name: path.to_string(),
+            description: "x".into(),
+            embedding: vec![0.0],
+            file_sha256: "h".into(),
+            embedding_model_id: model.to_string(),
+            use_count: 0,
+            last_used_ms: None,
+            created_at_ms: 1,
+            last_indexed_ms: 1,
+        })
+        .unwrap();
+    }
+    let n = db.invalidate_skill_index_for_model("new-model").unwrap();
+    assert_eq!(n, 2);
+    let remaining: Vec<String> = db
+        .list_skill_index_entries()
+        .unwrap()
+        .into_iter()
+        .map(|e| e.path)
+        .collect();
+    assert_eq!(remaining, vec!["b.md".to_string()]);
+}
+
+#[test]
 fn skill_index_prune_skill_index_drops_dead_paths() {
     use std::collections::HashSet;
     let dir = tempfile::tempdir().unwrap();
@@ -158,6 +256,7 @@ fn skill_index_prune_skill_index_drops_dead_paths() {
             description: "x".into(),
             embedding: vec![0.0],
             file_sha256: "a".into(),
+            embedding_model_id: "test-model".into(),
             use_count: 0,
             last_used_ms: None,
             created_at_ms: 1,

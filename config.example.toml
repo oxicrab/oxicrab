@@ -55,6 +55,15 @@ maxPerTool = 1
 temperature = 0.20000000298023224
 maxTokens = 200
 persistToDb = true
+allowedTools = []
+blockedTools = []
+
+[agents.defaults.skills]
+indexingEnabled = true
+autoRebuildOnStartup = true
+maxSystemPromptSkills = 5
+pruneUnusedDays = 30
+embeddingModelId = ""
 
 [agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"

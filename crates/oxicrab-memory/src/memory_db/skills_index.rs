@@ -10,6 +10,10 @@ pub struct SkillIndexEntry {
     pub description: String,
     pub embedding: Vec<f32>,
     pub file_sha256: String,
+    /// Identifier for the embedding model that produced this row's
+    /// `embedding`. Used to bulk-invalidate when the model changes.
+    /// Empty string means "unknown" (pre-migration #9 rows).
+    pub embedding_model_id: String,
     pub use_count: u64,
     pub last_used_ms: Option<i64>,
     pub created_at_ms: i64,
@@ -51,13 +55,14 @@ impl MemoryDB {
         conn.execute(
             "INSERT INTO skills_index (
                 path, name, description, embedding, file_sha256,
-                use_count, last_used_ms, created_at_ms, last_indexed_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                embedding_model_id, use_count, last_used_ms, created_at_ms, last_indexed_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             ON CONFLICT(path) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
                 embedding = excluded.embedding,
                 file_sha256 = excluded.file_sha256,
+                embedding_model_id = excluded.embedding_model_id,
                 last_indexed_ms = excluded.last_indexed_ms",
             params![
                 entry.path,
@@ -65,6 +70,7 @@ impl MemoryDB {
                 entry.description,
                 embedding_to_blob(&entry.embedding),
                 entry.file_sha256,
+                entry.embedding_model_id,
                 entry.use_count as i64,
                 entry.last_used_ms,
                 entry.created_at_ms,
@@ -74,14 +80,15 @@ impl MemoryDB {
         Ok(())
     }
 
-    /// Look up the indexed sha256 for a skill path. Returns `None` when
-    /// the skill has never been indexed.
-    pub fn get_skill_index_sha(&self, path: &str) -> Result<Option<String>> {
+    /// Look up the indexed `(sha256, embedding_model_id)` for a skill
+    /// path. Returns `None` when the skill has never been indexed.
+    pub fn get_skill_index_meta(&self, path: &str) -> Result<Option<(String, String)>> {
         let conn = self.lock_conn()?;
-        let mut stmt = conn.prepare("SELECT file_sha256 FROM skills_index WHERE path = ?1")?;
+        let mut stmt = conn
+            .prepare("SELECT file_sha256, embedding_model_id FROM skills_index WHERE path = ?1")?;
         let mut rows = stmt.query([path])?;
         if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
+            Ok(Some((row.get(0)?, row.get(1)?)))
         } else {
             Ok(None)
         }
@@ -92,6 +99,7 @@ impl MemoryDB {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT path, name, description, embedding, file_sha256,
+                    embedding_model_id,
                     use_count, last_used_ms, created_at_ms, last_indexed_ms
                FROM skills_index",
         )?;
@@ -114,13 +122,27 @@ impl MemoryDB {
                 description: row.get(2)?,
                 embedding,
                 file_sha256: row.get(4)?,
-                use_count: row.get::<_, i64>(5)? as u64,
-                last_used_ms: row.get(6)?,
-                created_at_ms: row.get(7)?,
-                last_indexed_ms: row.get(8)?,
+                embedding_model_id: row.get(5)?,
+                use_count: row.get::<_, i64>(6)? as u64,
+                last_used_ms: row.get(7)?,
+                created_at_ms: row.get(8)?,
+                last_indexed_ms: row.get(9)?,
             });
         }
         Ok(out)
+    }
+
+    /// Drop every row whose `embedding_model_id` differs from the
+    /// supplied id. Returns the number of rows removed. Called by
+    /// `SkillIndex::rebuild` when the operator-configured model
+    /// changes so the next pass re-embeds everything fresh.
+    pub fn invalidate_skill_index_for_model(&self, current_model: &str) -> Result<u64> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "DELETE FROM skills_index WHERE embedding_model_id != ?1",
+            params![current_model],
+        )?;
+        Ok(n as u64)
     }
 
     /// Bump `use_count` and update `last_used_ms` when a skill is selected

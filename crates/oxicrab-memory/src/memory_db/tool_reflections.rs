@@ -98,4 +98,73 @@ impl MemoryDB {
         )?;
         Ok(count as u64)
     }
+
+    /// Aggregate reflection statistics per `(tool, action)` over the
+    /// last `days_back` days. Used by `oxicrab stats reflections` and
+    /// the hygiene job to surface tools where retries consistently
+    /// fail (high `errors` / `total` ratio with `total >= min_samples`).
+    pub fn reflection_stats(
+        &self,
+        days_back: u32,
+        min_samples: u64,
+    ) -> Result<Vec<ReflectionStatRow>> {
+        let conn = self.lock_conn()?;
+        let cutoff_ms = chrono::Utc::now().timestamp_millis() - i64::from(days_back) * 86_400_000;
+        let mut stmt = conn.prepare(
+            "SELECT tool_name,
+                    COALESCE(action, ''),
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN next_outcome = 'success' THEN 1 ELSE 0 END) AS successes,
+                    SUM(CASE WHEN next_outcome = 'error' THEN 1 ELSE 0 END) AS errors,
+                    SUM(CASE WHEN next_outcome IS NULL THEN 1 ELSE 0 END) AS pending
+               FROM tool_reflections
+              WHERE created_at_ms >= ?1
+              GROUP BY tool_name, COALESCE(action, '')
+             HAVING total >= ?2
+              ORDER BY total DESC, tool_name ASC",
+        )?;
+        let mut out = Vec::new();
+        let mut rows = stmt.query(rusqlite::params![cutoff_ms, min_samples as i64])?;
+        while let Some(row) = rows.next()? {
+            let action: String = row.get(1)?;
+            out.push(ReflectionStatRow {
+                tool_name: row.get(0)?,
+                action: if action.is_empty() {
+                    None
+                } else {
+                    Some(action)
+                },
+                total: row.get::<_, i64>(2)? as u64,
+                successes: row.get::<_, i64>(3)? as u64,
+                errors: row.get::<_, i64>(4)? as u64,
+                pending: row.get::<_, i64>(5)? as u64,
+            });
+        }
+        Ok(out)
+    }
+}
+
+/// One aggregated row returned by `reflection_stats`.
+#[derive(Debug, Clone)]
+pub struct ReflectionStatRow {
+    pub tool_name: String,
+    pub action: Option<String>,
+    pub total: u64,
+    pub successes: u64,
+    pub errors: u64,
+    pub pending: u64,
+}
+
+impl ReflectionStatRow {
+    /// `errors / (errors + successes)` — pending rows are excluded.
+    /// Returns `None` when no resolved samples exist.
+    #[must_use]
+    pub fn failure_rate(&self) -> Option<f64> {
+        let resolved = self.successes + self.errors;
+        if resolved == 0 {
+            None
+        } else {
+            Some(self.errors as f64 / resolved as f64)
+        }
+    }
 }

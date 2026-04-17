@@ -123,6 +123,15 @@ pub struct ReflectionConfig {
     /// analysis. Disabled in tests; enabled in production.
     #[serde(default = "super::default_true", rename = "persistToDb")]
     pub persist_to_db: bool,
+    /// When non-empty, reflection only fires for tools in this list.
+    /// Use to roll out per-tool. Mutually exclusive with `blockedTools`
+    /// (allow wins if both are set).
+    #[serde(default, rename = "allowedTools")]
+    pub allowed_tools: Vec<String>,
+    /// Tools that never get reflection even when `enabled = true`.
+    /// Use to silence chronic-failure tools without disabling globally.
+    #[serde(default, rename = "blockedTools")]
+    pub blocked_tools: Vec<String>,
 }
 
 impl Default for ReflectionConfig {
@@ -134,7 +143,25 @@ impl Default for ReflectionConfig {
             temperature: default_reflection_temperature(),
             max_tokens: default_reflection_max_tokens(),
             persist_to_db: true,
+            allowed_tools: vec![],
+            blocked_tools: vec![],
         }
+    }
+}
+
+impl ReflectionConfig {
+    /// True when reflection should fire for `tool`. Honours the
+    /// allowlist/blocklist filters. Allow-wins-over-block when both
+    /// are configured.
+    #[must_use]
+    pub fn covers_tool(&self, tool: &str) -> bool {
+        if !self.allowed_tools.is_empty() {
+            return self.allowed_tools.iter().any(|t| t == tool);
+        }
+        if self.blocked_tools.iter().any(|t| t == tool) {
+            return false;
+        }
+        true
     }
 }
 
@@ -152,6 +179,56 @@ fn default_reflection_temperature() -> f32 {
 
 fn default_reflection_max_tokens() -> u32 {
     200
+}
+
+/// Configuration for the skill library (Track 2 of self-improvement).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillsConfig {
+    /// Maintain the embedding-indexed `skills_index` table. When false,
+    /// `SkillIndex::rebuild` and `top_k_for_query` are no-ops and the
+    /// system-prompt selection falls back to keyword/hint matching.
+    #[serde(default = "super::default_true", rename = "indexingEnabled")]
+    pub indexing_enabled: bool,
+    /// Run `SkillIndex::rebuild` once at agent startup. Skipping this
+    /// is fine for short-lived processes that script their own rebuild.
+    #[serde(default = "super::default_true", rename = "autoRebuildOnStartup")]
+    pub auto_rebuild_on_startup: bool,
+    /// Hard cap on the number of skills retrieved per turn. Bounds
+    /// system-prompt growth.
+    #[serde(
+        default = "default_skills_max_inject",
+        rename = "maxSystemPromptSkills"
+    )]
+    pub max_system_prompt_skills: usize,
+    /// Hygiene: drop indexed skills older than this many days that
+    /// have a `use_count` of zero.
+    #[serde(default = "default_skills_prune_days", rename = "pruneUnusedDays")]
+    pub prune_unused_days: u32,
+    /// Identifier for the embedding model. Used to bulk-invalidate
+    /// indexed embeddings when the model changes. Empty = use the
+    /// `agents.defaults.memory.embeddingsModel` value.
+    #[serde(default, rename = "embeddingModelId")]
+    pub embedding_model_id: String,
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            indexing_enabled: true,
+            auto_rebuild_on_startup: true,
+            max_system_prompt_skills: default_skills_max_inject(),
+            prune_unused_days: default_skills_prune_days(),
+            embedding_model_id: String::new(),
+        }
+    }
+}
+
+fn default_skills_max_inject() -> usize {
+    5
+}
+
+fn default_skills_prune_days() -> u32 {
+    30
 }
 
 /// Action to take when prompt injection is detected.
@@ -769,6 +846,8 @@ pub struct AgentDefaults {
     pub approval: ApprovalConfig,
     #[serde(default)]
     pub reflection: ReflectionConfig,
+    #[serde(default)]
+    pub skills: SkillsConfig,
 }
 
 impl Default for AgentDefaults {
@@ -790,6 +869,7 @@ impl Default for AgentDefaults {
             model_routing: ModelRoutingConfig::default(),
             approval: ApprovalConfig::default(),
             reflection: ReflectionConfig::default(),
+            skills: SkillsConfig::default(),
         }
     }
 }

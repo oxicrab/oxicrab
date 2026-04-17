@@ -136,7 +136,70 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 }
             }
         }
+        StatsCommands::Reflections { days, min_samples } => {
+            let stats = db.reflection_stats(*days, *min_samples)?;
+            if stats.is_empty() {
+                println!(
+                    "No reflection data in the last {days} days (min samples = {min_samples})."
+                );
+                println!("Enable reflection: set agents.defaults.reflection.enabled = true.");
+                return Ok(());
+            }
+
+            println!("Tool Reflections (last {days} days)");
+            println!("{}", "\u{2500}".repeat(80));
+            println!(
+                "{:<22} {:<14} {:>6} {:>6} {:>6} {:>7} {:>9}",
+                "tool", "action", "total", "ok", "err", "pending", "fail_rate"
+            );
+            for row in &stats {
+                let action = row.action.as_deref().unwrap_or("");
+                let rate = row
+                    .failure_rate()
+                    .map_or_else(|| "    n/a".to_string(), |r| format!("{:>8.1}%", r * 100.0));
+                println!(
+                    "{:<22} {:<14} {:>6} {:>6} {:>6} {:>7} {}",
+                    truncate(&row.tool_name, 22),
+                    truncate(action, 14),
+                    row.total,
+                    row.successes,
+                    row.errors,
+                    row.pending,
+                    rate
+                );
+            }
+            // Highlight tools where retries fail more than half the
+            // time — these are candidates for `blockedTools` in
+            // ReflectionConfig or for upstream tool-error tightening.
+            let bad: Vec<&_> = stats
+                .iter()
+                .filter(|r| r.failure_rate().is_some_and(|f| f >= 0.5))
+                .collect();
+            if !bad.is_empty() {
+                println!();
+                println!("Hot spots (failure rate >= 50%):");
+                for row in bad {
+                    println!(
+                        "  {} {} — consider adding to ReflectionConfig.blockedTools",
+                        row.tool_name,
+                        row.action.as_deref().unwrap_or("")
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let mut end = max - 1;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &s[..end])
+    }
 }

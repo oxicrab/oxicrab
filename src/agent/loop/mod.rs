@@ -179,6 +179,7 @@ impl AgentLoop {
             max_concurrent_subagents,
             voice_config,
             memory_config,
+            skills_config,
             cognitive_config,
             context_providers,
             tool_configs,
@@ -230,6 +231,68 @@ impl AgentLoop {
             use crate::agent::context::providers::ContextProviderRunner;
             let runner = Arc::new(ContextProviderRunner::new(context_providers));
             context_builder.set_providers(runner);
+        }
+
+        // Wire up the embedding-indexed skill retriever (Track 2a).
+        // The model id defaults to the configured embeddings model when
+        // not overridden in [agents.defaults.skills].
+        if skills_config.indexing_enabled {
+            let model_id = if skills_config.embedding_model_id.is_empty() {
+                memory_config
+                    .as_ref()
+                    .map_or_else(|| "default".to_string(), |c| c.embeddings_model.clone())
+            } else {
+                skills_config.embedding_model_id.clone()
+            };
+            let workspace_skills = workspace.join("skills");
+            let builtin_skills = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join("skills")))
+                .filter(|p| p.exists());
+            let index = Arc::new(crate::agent::skills::index::SkillIndex::new(
+                memory.db(),
+                workspace_skills,
+                builtin_skills,
+                model_id,
+            ));
+            context_builder.set_skill_index(index.clone(), skills_config.max_system_prompt_skills);
+
+            // Best-effort startup rebuild (only when embeddings are
+            // ready). Spawn so it doesn't block agent startup.
+            if skills_config.auto_rebuild_on_startup {
+                let mem = memory.clone();
+                let idx = index;
+                tokio::spawn(async move {
+                    #[cfg(feature = "embeddings")]
+                    {
+                        // Wait briefly for the embedding service to come
+                        // up; LazyEmbeddingService initialises in the
+                        // background.
+                        for _ in 0..30 {
+                            if mem.has_embeddings() {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                        if let Some(svc) = mem.embedding_service() {
+                            match idx.rebuild(svc) {
+                                Ok(n) if n > 0 => info!("skill_index: rebuilt {n} entries"),
+                                Ok(_) => {}
+                                Err(e) => warn!("skill_index: startup rebuild failed: {e}"),
+                            }
+                        } else {
+                            debug!(
+                                "skill_index: embeddings not ready after 15s, skipping startup rebuild"
+                            );
+                        }
+                    }
+                    #[cfg(not(feature = "embeddings"))]
+                    {
+                        let _ = mem;
+                        let _ = idx;
+                    }
+                });
+            }
         }
         let context = Arc::new(Mutex::new(context_builder));
 

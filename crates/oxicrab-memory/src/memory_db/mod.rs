@@ -39,7 +39,7 @@ pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, SearchStats,
 };
 pub use subagent_log::SubagentLogEntry;
-pub use tool_reflections::ReflectionRecord;
+pub use tool_reflections::{ReflectionRecord, ReflectionStatRow};
 pub use traces::{CronTrace, TraceEvent, summarize_params, summarize_result};
 pub use workspace::WorkspaceFileEntry;
 

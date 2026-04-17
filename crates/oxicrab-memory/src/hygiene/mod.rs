@@ -99,6 +99,10 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
         Err(e) => warn!("skill_index prune failed: {}", e),
         _ => {}
     }
+    // Skill re-scan and stat-based flagging are run by the agent loop
+    // (it owns the SkillIndex + scanner pattern set and the
+    // tool_reflections table) — see SkillIndex::rescan_active_skills
+    // and MemoryDB::skill_failure_stats.
     // Update query planner statistics after bulk deletions.
     if let Err(e) = db.optimize() {
         warn!("failed to optimize database: {e}");

@@ -203,6 +203,25 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 9 {
+        run_migration(conn, 9, || {
+            // Track which embedding model produced each row's embedding.
+            // When the operator changes models, all rows with a different
+            // model id are bulk-invalidated and re-embedded by the next
+            // `SkillIndex::rebuild`. Empty default ('') matches "unknown
+            // model" — pre-existing rows from migration 8 are eligible
+            // for invalidation when the operator first sets the
+            // configured model id.
+            add_column_if_missing(
+                conn,
+                "skills_index",
+                "embedding_model_id",
+                "TEXT NOT NULL DEFAULT ''",
+            )?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 
@@ -290,6 +309,10 @@ fn ensure_allowed_column_addition(
             "llm_cost_log" | "intent_metrics" | "memory_access_log",
             "request_id",
             "TEXT"
+        ) | (
+            "skills_index",
+            "embedding_model_id",
+            "TEXT NOT NULL DEFAULT ''"
         )
     ) {
         return Ok(());

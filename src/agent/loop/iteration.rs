@@ -133,6 +133,11 @@ impl AgentLoop {
             Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
         let mut reflection_budget = super::reflection::ReflectionBudget::new();
+        // (tool, action) keys that produced a reflection in the previous
+        // iteration whose outcome is not yet written back. Drained on
+        // the next iteration's tool results.
+        let mut pending_reflection_outcomes: std::collections::HashSet<(String, Option<String>)> =
+            std::collections::HashSet::new();
 
         // Clear request-scoped deferred tool activations from previous retries/reuse.
         self.tool_search_activated.clear(&activation_scope).await;
@@ -315,6 +320,24 @@ impl AgentLoop {
                 // Stop typing indicator after tool execution (guard aborts on drop)
                 drop(typing_guard);
 
+                // First: write back outcomes for any reflections produced
+                // in the previous iteration whose tools just ran again.
+                // Done before the new reflection pass so the metric
+                // ("did the retry succeed") reflects this iteration's
+                // outcome, not a future one.
+                if self.reflection_config.enabled
+                    && self.reflection_config.persist_to_db
+                    && !pending_reflection_outcomes.is_empty()
+                    && let Some(req_id) = overrides.request_id.as_deref()
+                {
+                    self.write_back_reflection_outcomes(
+                        &response.tool_calls,
+                        &results,
+                        &mut pending_reflection_outcomes,
+                        req_id,
+                    );
+                }
+
                 // Reflection pass: for each error result, optionally produce
                 // a structured hypothesis + retry strategy and inject it
                 // into the result content for the next iteration. Bounded
@@ -324,6 +347,7 @@ impl AgentLoop {
                         &response.tool_calls,
                         &mut results,
                         &mut reflection_budget,
+                        &mut pending_reflection_outcomes,
                         effective_provider.as_ref(),
                         effective_model,
                         overrides.request_id.as_deref(),
@@ -617,11 +641,13 @@ impl AgentLoop {
     /// a memory database, the reflection is persisted to the
     /// `tool_reflections` table so operators can analyse failure modes
     /// over time.
+    #[allow(clippy::too_many_arguments)]
     async fn augment_results_with_reflection(
         &self,
         tool_calls: &[ToolCallRequest],
         results: &mut [ToolResult],
         budget: &mut super::reflection::ReflectionBudget,
+        pending_outcomes: &mut std::collections::HashSet<(String, Option<String>)>,
         provider: &dyn LLMProvider,
         model: &str,
         request_id: Option<&str>,
@@ -667,6 +693,44 @@ impl AgentLoop {
                 if let Err(e) = self.memory.db().insert_tool_reflection(&rec) {
                     warn!("reflection: failed to persist record: {e}");
                 }
+            }
+
+            // Mark this (tool, action) as having a pending outcome so the
+            // next iteration's tool result can be written back via
+            // `update_reflection_outcome`.
+            pending_outcomes.insert((reflection.tool.clone(), reflection.action.clone()));
+        }
+    }
+
+    /// Write `next_outcome` for any reflection produced in the previous
+    /// iteration whose tool ran again now. Drains matching keys from
+    /// `pending_outcomes` so a third iteration that re-runs the same
+    /// tool doesn't double-write.
+    fn write_back_reflection_outcomes(
+        &self,
+        tool_calls: &[ToolCallRequest],
+        results: &[ToolResult],
+        pending_outcomes: &mut std::collections::HashSet<(String, Option<String>)>,
+        request_id: &str,
+    ) {
+        for (tc, result) in tool_calls.iter().zip(results.iter()) {
+            let action = tc
+                .arguments
+                .get("action")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let key = (tc.name.clone(), action.clone());
+            if !pending_outcomes.remove(&key) {
+                continue;
+            }
+            let outcome = if result.is_error { "error" } else { "success" };
+            if let Err(e) = self.memory.db().update_reflection_outcome(
+                request_id,
+                &tc.name,
+                action.as_deref(),
+                outcome,
+            ) {
+                warn!("reflection: failed to update outcome: {e}");
             }
         }
     }
