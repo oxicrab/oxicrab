@@ -108,6 +108,51 @@ fn is_retryable(err: &SlackApiError) -> bool {
     ) || matches!(err, SlackApiError::RateLimited { .. })
 }
 
+/// Issue a Slack `reactions.remove` / `reactions.add` call and surface any
+/// failure — HTTP-layer (5xx, network) *and* application-layer (HTTP 200
+/// with `ok:false`, the common case for missing scopes or deleted
+/// messages). Mirrors the inspection logic in `parse_slack_response` but
+/// does not require a `SlackChannel` handle, so it can run inside the
+/// fire-and-forget spawn used by the thinking/done reaction swap.
+async fn run_reaction_call(
+    client: &reqwest::Client,
+    method: &str,
+    token: &str,
+    channel: &str,
+    ts: &str,
+    name: &str,
+) -> std::result::Result<(), String> {
+    let url = format!("https://slack.com/api/{method}");
+    let resp = client
+        .post(url)
+        .form(&[
+            ("token", token),
+            ("channel", channel),
+            ("timestamp", ts),
+            ("name", name),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("network error: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    let json: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("response body parse error: {e}"))?;
+    if json.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+    let error = json
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    Err(format!("slack error: {error}"))
+}
+
 /// Maximum age for tracked thread entries (24 hours).
 const THREAD_TRACK_TTL: std::time::Duration = std::time::Duration::from_secs(86400);
 /// Hard cap on tracked threads. Prevents unbounded growth in busy workspaces
@@ -996,28 +1041,35 @@ impl BaseChannel for SlackChannel {
             let thinking = self.config.thinking_emoji.clone();
             let done = self.config.done_emoji.clone();
             tokio::spawn(async move {
-                // Remove thinking reaction
-                let _ = client
-                    .post("https://slack.com/api/reactions.remove")
-                    .form(&[
-                        ("token", token.as_str()),
-                        ("channel", channel.as_str()),
-                        ("timestamp", ts.as_str()),
-                        ("name", thinking.as_str()),
-                    ])
-                    .send()
-                    .await;
-                // Add done reaction
-                let _ = client
-                    .post("https://slack.com/api/reactions.add")
-                    .form(&[
-                        ("token", token.as_str()),
-                        ("channel", channel.as_str()),
-                        ("timestamp", ts.as_str()),
-                        ("name", done.as_str()),
-                    ])
-                    .send()
-                    .await;
+                // Fire-and-forget but surface failures so operators can see
+                // state-drift (missing scope, deleted message, network blip,
+                // or application-layer errors that return HTTP 200 with
+                // `ok:false` in the body).
+                if let Err(e) = run_reaction_call(
+                    &client,
+                    "reactions.remove",
+                    &token,
+                    &channel,
+                    &ts,
+                    &thinking,
+                )
+                .await
+                {
+                    warn!(
+                        "slack: reactions.remove failed for thinking emoji \
+                         (channel={channel} ts={ts}): {e} — \
+                         reaction may remain visible"
+                    );
+                }
+                if let Err(e) =
+                    run_reaction_call(&client, "reactions.add", &token, &channel, &ts, &done).await
+                {
+                    warn!(
+                        "slack: reactions.add failed for done emoji \
+                         (channel={channel} ts={ts}): {e} — \
+                         user sees no completion signal"
+                    );
+                }
             });
         }
 

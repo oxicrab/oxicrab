@@ -67,15 +67,38 @@ fn build_inline_keyboard(
                 let inline = format!("{id}|{ctx}");
                 if inline.len() <= CALLBACK_DATA_MAX_BYTES {
                     inline
-                } else if let Some(store) = dispatch_store
-                    && let Ok(payload) =
+                } else if let Some(store) = dispatch_store {
+                    // Store is configured — try to parse as ActionDispatchPayload
+                    // so the full context can be recovered on click.
+                    if let Ok(payload) =
                         serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(ctx)
-                {
-                    // Store full context, use just the ID in callback_data
-                    store.insert(id.to_string(), payload);
-                    id.to_string()
+                    {
+                        store.insert(id.to_string(), payload);
+                        id.to_string()
+                    } else {
+                        // Store exists but context isn't a dispatch payload —
+                        // truncate and fall back to LLM routing.
+                        warn!(
+                            "telegram: button '{}' context exceeds {}B callback_data \
+                             limit and is not a valid ActionDispatchPayload \
+                             (store is configured); truncating to {}B — \
+                             button click will fall back to LLM",
+                            id,
+                            CALLBACK_DATA_MAX_BYTES,
+                            inline.len()
+                        );
+                        inline[..inline.floor_char_boundary(CALLBACK_DATA_MAX_BYTES)].to_string()
+                    }
                 } else {
-                    // No store or not a dispatch payload — truncate (lossy fallback to LLM)
+                    // No dispatch_store available — truncate (lossy).
+                    warn!(
+                        "telegram: button '{}' context exceeds {}B callback_data \
+                         limit and no dispatch_store is available; truncating \
+                         (was {}B) — button click will fall back to LLM",
+                        id,
+                        CALLBACK_DATA_MAX_BYTES,
+                        inline.len()
+                    );
                     inline[..inline.floor_char_boundary(CALLBACK_DATA_MAX_BYTES)].to_string()
                 }
             } else {
@@ -876,14 +899,29 @@ async fn is_bot_mentioned(
                     // Extract the mention text from the message
                     // Telegram uses UTF-16 offsets, not byte offsets
                     let text = msg.text().unwrap_or_default();
-                    if let Some(mention) = utf16_substr(text, entity.offset, entity.length) {
-                        // Telegram mentions include the @ prefix
-                        if mention
-                            .strip_prefix('@')
-                            .unwrap_or(&mention)
-                            .eq_ignore_ascii_case(bot_name)
-                        {
-                            return true;
+                    match utf16_substr(text, entity.offset, entity.length) {
+                        Some(mention) => {
+                            // Telegram mentions include the @ prefix
+                            if mention
+                                .strip_prefix('@')
+                                .unwrap_or(&mention)
+                                .eq_ignore_ascii_case(bot_name)
+                            {
+                                return true;
+                            }
+                        }
+                        None => {
+                            // Malformed entity (offset+length out of UTF-16
+                            // bounds). Log so mention-filter drops are
+                            // visible instead of silently treating the
+                            // message as "not a mention".
+                            debug!(
+                                "telegram: dropped malformed mention entity \
+                                 (offset={}, length={}, text_len={})",
+                                entity.offset,
+                                entity.length,
+                                text.len()
+                            );
                         }
                     }
                 }
