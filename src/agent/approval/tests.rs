@@ -44,6 +44,82 @@ fn test_resolve_wrong_channel() {
 }
 
 #[test]
+fn test_resolve_wrong_channel_preserves_entry_for_retry() {
+    // Security-sensitive: a wrong-channel resolve attempt must NOT consume
+    // the pending entry — the operator on the correct channel still has
+    // to be able to approve. Earlier `pending.remove()` then re-`insert()`
+    // logic would silently drop the entry if the re-insert path were ever
+    // skipped. This test guards against that regression.
+    let store = ApprovalStore::new();
+    let (tx, mut rx) = oneshot::channel();
+    let entry = ApprovalEntry {
+        sender: tx,
+        tool_name: "gmail".into(),
+        action: "send".into(),
+        requested_by: "user1".into(),
+        operator_channel: "slack:C123".into(),
+        source_channel: "slack:D_USER".into(),
+    };
+    store.register("appr-abc123", entry);
+
+    // Wrong-channel attempt is rejected.
+    let bad = store.resolve("appr-abc123", "slack:CWRONG", ApprovalDecision::Approved);
+    assert!(bad.is_err());
+    // Receiver MUST still be pending (no decision sent).
+    assert!(
+        matches!(rx.try_recv(), Err(oneshot::error::TryRecvError::Empty)),
+        "no decision should have been sent"
+    );
+    assert_eq!(
+        store.pending_ids(),
+        vec!["appr-abc123".to_string()],
+        "entry should still be pending after wrong-channel attempt"
+    );
+
+    // Correct-channel retry then succeeds.
+    let ok = store.resolve("appr-abc123", "slack:C123", ApprovalDecision::Approved);
+    assert!(ok.is_ok());
+    assert!(rx.try_recv().is_ok(), "decision should arrive on retry");
+    assert!(
+        store.pending_ids().is_empty(),
+        "entry consumed after successful resolve"
+    );
+}
+
+#[test]
+fn test_self_approval_wrong_channel_preserves_entry_for_retry() {
+    // Same regression guard for the self-approval (operator_channel empty)
+    // code path — must use source_channel as the expected channel.
+    let store = ApprovalStore::new();
+    let (tx, mut rx) = oneshot::channel();
+    let entry = ApprovalEntry {
+        sender: tx,
+        tool_name: "shell".into(),
+        action: "execute".into(),
+        requested_by: "user1".into(),
+        operator_channel: String::new(),
+        source_channel: "slack:D_USER".into(),
+    };
+    store.register("appr-self", entry);
+
+    let bad = store.resolve("appr-self", "discord:OTHER", ApprovalDecision::Approved);
+    assert!(bad.is_err());
+    assert!(matches!(
+        rx.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+    assert_eq!(store.pending_ids(), vec!["appr-self".to_string()]);
+
+    // Original channel can still resolve.
+    assert!(
+        store
+            .resolve("appr-self", "slack:D_USER", ApprovalDecision::Approved)
+            .is_ok()
+    );
+    assert!(rx.try_recv().is_ok());
+}
+
+#[test]
 fn test_double_resolve() {
     let store = ApprovalStore::new();
     let (tx, mut rx) = oneshot::channel();

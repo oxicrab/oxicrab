@@ -389,6 +389,81 @@ fn test_detect_replicate_token() {
 }
 
 #[test]
+fn test_overlapping_prefix_does_not_lose_anthropic_match() {
+    // The AC automaton is built with both `sk-` and `sk-ant-api` as
+    // candidate prefixes. `find_overlapping_iter` MUST surface both at
+    // the same position so the regex phase sees the longer pattern;
+    // the previous `find_iter` would only have flagged the OpenAI
+    // candidate and the Anthropic regex would never have run.
+    let detector = LeakDetector::new();
+    let text = "sk-ant-api03-abcdefghijklmnopqrst12345";
+    let matches = detector.scan(text);
+    let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+    assert!(
+        names.contains(&"anthropic_api_key"),
+        "overlapping AC must let Anthropic regex run; got {names:?}"
+    );
+    // Only one match should fire — not both — because the OpenAI regex
+    // is anchored to exclude `sk-ant-`.
+    assert_eq!(matches.len(), 1, "got: {matches:?}");
+}
+
+#[test]
+fn test_discord_pattern_runs_without_ac_prefix() {
+    // Discord tokens have no usable prefix so their regex must run on
+    // every input, even if no other AC prefix matched. A text with a
+    // Discord token but none of the other prefixes would silently
+    // bypass detection if the AC-less codepath was skipped.
+    let detector = LeakDetector::new();
+    // No `sk-`, `xoxb-`, `ghp_`, etc. anywhere — only Discord shape.
+    let text = "ABCDEFGHIJKLMNOPQRSTUVWx.ABCDEf.ABCDEFGHIJKLMNOPQRSTUVWXYZa";
+    let matches = detector.scan(text);
+    assert_eq!(
+        matches.len(),
+        1,
+        "Discord regex should run independent of AC hits"
+    );
+    assert_eq!(matches[0].name, "discord_bot_token");
+}
+
+#[test]
+fn test_discord_pattern_runs_alongside_ac_matches() {
+    // When both an AC-prefix pattern AND the AC-less Discord pattern
+    // match the same text, both findings must surface — verifies the
+    // AC-less branch isn't accidentally short-circuited by AC hits.
+    let detector = LeakDetector::new();
+    let text = concat!(
+        "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij ",
+        "and ABCDEFGHIJKLMNOPQRSTUVWx.ABCDEf.ABCDEFGHIJKLMNOPQRSTUVWXYZa"
+    );
+    let matches = detector.scan(text);
+    let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+    assert!(
+        names.contains(&"github_pat"),
+        "github_pat missing: {names:?}"
+    );
+    assert!(
+        names.contains(&"discord_bot_token"),
+        "discord_bot_token missing: {names:?}"
+    );
+}
+
+#[test]
+fn test_short_sk_does_not_block_anthropic_at_later_position() {
+    // Earlier `find_iter` would consume the short `sk-` literal first
+    // and could leave a downstream Anthropic key undetected. With
+    // overlapping iter the longer pattern's regex still runs from its
+    // own start position.
+    let detector = LeakDetector::new();
+    let text = "sk-x sk-ant-api03-abcdefghijklmnopqrst12345";
+    let matches = detector.scan(text);
+    assert!(
+        matches.iter().any(|m| m.name == "anthropic_api_key"),
+        "Anthropic match must not be shadowed by an earlier short sk- literal: {matches:?}"
+    );
+}
+
+#[test]
 fn test_redact_url_encoded_secret() {
     let detector = LeakDetector::new();
     // URL-encode an Anthropic API key

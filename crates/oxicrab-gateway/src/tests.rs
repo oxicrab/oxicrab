@@ -129,6 +129,88 @@ fn test_validate_webhook_signature_invalid() {
     ));
 }
 
+// --- Replay window tests (HIGH severity: temporal logic guards
+// against captured-signature replay).
+
+#[test]
+fn test_replay_window_accepts_exact_boundary() {
+    // The check is `abs(now - ts) <= window`, so a payload exactly
+    // `window` seconds old must still be accepted. Off-by-one in either
+    // direction is the entire bug class this guards against.
+    let now = 1_700_000_000_i64;
+    assert!(within_replay_window(now, now - 300, 300));
+    assert!(within_replay_window(now, now + 300, 300));
+}
+
+#[test]
+fn test_replay_window_rejects_one_past_boundary() {
+    let now = 1_700_000_000_i64;
+    assert!(!within_replay_window(now, now - 301, 300));
+    assert!(!within_replay_window(now, now + 301, 300));
+}
+
+#[test]
+fn test_replay_window_handles_clock_skew_both_directions() {
+    // Sender slightly ahead of receiver must still pass — `abs` keeps
+    // the check symmetric so a device with a fast clock isn't punished.
+    let now = 1_700_000_000_i64;
+    assert!(within_replay_window(now, now + 60, 300));
+    assert!(within_replay_window(now, now - 60, 300));
+}
+
+#[test]
+fn test_replay_window_far_past_rejected() {
+    let now = 1_700_000_000_i64;
+    assert!(!within_replay_window(now, now - 86_400, 300));
+}
+
+#[test]
+fn test_replay_window_zero_window_rejects_anything_nonzero() {
+    let now = 1_700_000_000_i64;
+    assert!(within_replay_window(now, now, 0));
+    assert!(!within_replay_window(now, now + 1, 0));
+}
+
+#[test]
+fn test_validate_webhook_signature_with_timestamp_prefixed_body() {
+    // The replay handler re-validates HMAC over `timestamp + "." + body`
+    // when an `X-Webhook-Timestamp` header is present. Verify the helper
+    // accepts that exact framing so a timestamp-aware sender isn't
+    // rejected for using a stronger signature scheme.
+    let secret = "test-secret";
+    let body = b"hello world";
+    let ts = "1700000000";
+    let timestamped = [ts.as_bytes(), b".", body].concat();
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(&timestamped);
+    let sig = hex::encode(mac.finalize().into_bytes());
+    assert!(
+        validate_webhook_signature(secret, &sig, &timestamped),
+        "timestamp-prefixed body must validate against signature computed over the same bytes"
+    );
+    // Body-only signature MUST NOT validate against the timestamped body
+    // — would be a downgrade attack vector.
+    let mut mac2 = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac2.update(body);
+    let body_only_sig = hex::encode(mac2.finalize().into_bytes());
+    assert!(
+        !validate_webhook_signature(secret, &body_only_sig, &timestamped),
+        "body-only signature must NOT match timestamp-prefixed body"
+    );
+}
+
+#[test]
+fn test_validate_webhook_signature_malformed_timestamp_does_not_panic() {
+    // The handler parses `X-Webhook-Timestamp` with `parse::<i64>()`
+    // and silently falls through on parse failure. The helper itself
+    // shouldn't be sensitive to header content — verify the signature
+    // path on a body that begins with non-numeric junk doesn't panic
+    // and rejects mismatched signatures cleanly.
+    let secret = "test-secret";
+    let body = b"abc.def.body";
+    assert!(!validate_webhook_signature(secret, "garbage", body));
+}
+
 #[test]
 fn test_apply_template_body_only() {
     let result = apply_template("Event: {{body}}", "something happened", None);
