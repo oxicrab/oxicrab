@@ -1185,3 +1185,210 @@ struct PostLoopSummary {
     reasoning_content: Option<String>,
     reasoning_signature: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the wave-classification helpers. The helpers themselves
+    //! are `pub(super)` and need access to a real `ToolRegistry`, so we
+    //! build a minimal in-process registry with hand-rolled tools that
+    //! exercise each branch of `classify_tool_call_concurrency`.
+    use super::*;
+    use crate::providers::base::ToolCallRequest;
+    use async_trait::async_trait;
+    use oxicrab_core::actions;
+    use oxicrab_core::tools::base::{
+        ExecutionContext, Tool, ToolCapabilities, ToolCategory, ToolConcurrency, ToolResult,
+    };
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+
+    /// Tool whose declared concurrency is `Exclusive` regardless of action.
+    struct ExclusiveTool;
+    #[async_trait]
+    impl Tool for ExclusiveTool {
+        fn name(&self) -> &'static str {
+            "excl"
+        }
+        fn description(&self) -> &'static str {
+            ""
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities {
+                concurrency: ToolConcurrency::Exclusive,
+                ..Default::default()
+            }
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    /// Action-based tool with one read-only and one mutating action.
+    struct MultiActionTool;
+    #[async_trait]
+    impl Tool for MultiActionTool {
+        fn name(&self) -> &'static str {
+            "multi"
+        }
+        fn description(&self) -> &'static str {
+            ""
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities {
+                actions: actions![read: ro, write],
+                category: ToolCategory::Productivity,
+                ..Default::default()
+            }
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    /// Single-action tool whose only descriptor is read-only. With no
+    /// `action` param, the descriptor's flag should still apply.
+    struct SingleReadOnlyAction;
+    #[async_trait]
+    impl Tool for SingleReadOnlyAction {
+        fn name(&self) -> &'static str {
+            "single_ro"
+        }
+        fn description(&self) -> &'static str {
+            ""
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities {
+                actions: actions![lookup: ro],
+                ..Default::default()
+            }
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    fn registry_with(tools: Vec<Arc<dyn Tool>>) -> ToolRegistry {
+        let mut r = ToolRegistry::new();
+        for t in tools {
+            r.register(t);
+        }
+        r
+    }
+
+    fn call(name: &str, args: Value) -> ToolCallRequest {
+        ToolCallRequest {
+            id: format!("call-{name}"),
+            name: name.to_string(),
+            arguments: args,
+        }
+    }
+
+    #[test]
+    fn classify_exclusive_tool_overrides_action_inference() {
+        let r = registry_with(vec![Arc::new(ExclusiveTool)]);
+        let c = classify_tool_call_concurrency(&r, &call("excl", json!({"action": "read"})));
+        assert_eq!(c, ToolConcurrency::Exclusive);
+    }
+
+    #[test]
+    fn classify_unknown_tool_falls_back_to_side_effect() {
+        let r = registry_with(vec![]);
+        let c = classify_tool_call_concurrency(&r, &call("nope", json!({})));
+        assert_eq!(c, ToolConcurrency::SideEffect);
+    }
+
+    #[test]
+    fn classify_multiaction_with_known_readonly_action_is_readonly() {
+        let r = registry_with(vec![Arc::new(MultiActionTool)]);
+        let c = classify_tool_call_concurrency(&r, &call("multi", json!({"action": "read"})));
+        assert_eq!(c, ToolConcurrency::ReadOnly);
+    }
+
+    #[test]
+    fn classify_multiaction_with_mutating_action_is_side_effect() {
+        let r = registry_with(vec![Arc::new(MultiActionTool)]);
+        let c = classify_tool_call_concurrency(&r, &call("multi", json!({"action": "write"})));
+        assert_eq!(c, ToolConcurrency::SideEffect);
+    }
+
+    #[test]
+    fn classify_multiaction_unknown_action_is_side_effect_not_readonly() {
+        // Safety default: an action name that doesn't match any
+        // descriptor must not be treated as read-only just because the
+        // tool happens to have a read-only action.
+        let r = registry_with(vec![Arc::new(MultiActionTool)]);
+        let c = classify_tool_call_concurrency(&r, &call("multi", json!({"action": "bogus"})));
+        assert_eq!(c, ToolConcurrency::SideEffect);
+    }
+
+    #[test]
+    fn classify_multiaction_missing_action_param_defaults_side_effect() {
+        // The gap noted in the review: when a multi-action tool is
+        // called with no `action` param, fall back to SideEffect rather
+        // than incorrectly treating it as ReadOnly. Prevents racing a
+        // mutating call with concurrent reads.
+        let r = registry_with(vec![Arc::new(MultiActionTool)]);
+        let c = classify_tool_call_concurrency(&r, &call("multi", json!({})));
+        assert_eq!(c, ToolConcurrency::SideEffect);
+    }
+
+    #[test]
+    fn classify_single_action_tool_inherits_descriptor_flag_when_action_omitted() {
+        // For tools with exactly one action descriptor, omitting the
+        // `action` param is unambiguous — the descriptor's read-only
+        // flag should apply directly so callers don't lose parallelism
+        // for genuinely read-only tools that have no action dispatch.
+        let r = registry_with(vec![Arc::new(SingleReadOnlyAction)]);
+        let c = classify_tool_call_concurrency(&r, &call("single_ro", json!({})));
+        assert_eq!(c, ToolConcurrency::ReadOnly);
+    }
+
+    #[test]
+    fn partition_into_waves_groups_consecutive_readonly_calls() {
+        let waves = partition_into_waves(&[
+            ToolConcurrency::ReadOnly,
+            ToolConcurrency::ReadOnly,
+            ToolConcurrency::SideEffect,
+            ToolConcurrency::ReadOnly,
+        ]);
+        assert_eq!(waves, vec![vec![0, 1], vec![2], vec![3]]);
+    }
+
+    #[test]
+    fn partition_into_waves_exclusive_breaks_runs() {
+        let waves = partition_into_waves(&[
+            ToolConcurrency::ReadOnly,
+            ToolConcurrency::Exclusive,
+            ToolConcurrency::ReadOnly,
+            ToolConcurrency::ReadOnly,
+        ]);
+        assert_eq!(waves, vec![vec![0], vec![1], vec![2, 3]]);
+    }
+
+    #[test]
+    fn partition_into_waves_empty_input_yields_no_waves() {
+        let waves = partition_into_waves(&[]);
+        assert!(waves.is_empty());
+    }
+}

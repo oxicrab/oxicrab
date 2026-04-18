@@ -560,6 +560,19 @@ async fn health_handler(State(state): State<HttpApiState>) -> impl IntoResponse 
 /// Accepts lowercase or uppercase hex (and optional `sha256=` prefix). Compares
 /// decoded bytes with `subtle::ConstantTimeEq` so verification does not depend
 /// on hex letter case in the header value.
+/// True when `ts` falls within `window_secs` seconds of `now` (in either
+/// direction). Used by webhook replay protection — a forged or replayed
+/// signature must include a fresh timestamp header to pass.
+///
+/// Comparison is symmetric (`abs`) so a sender slightly ahead of the
+/// receiver isn't penalised. Returns `false` only when the absolute
+/// difference is **strictly** greater than the window — exactly at the
+/// boundary is accepted, matching the prior inline behaviour.
+#[must_use]
+pub fn within_replay_window(now: i64, ts: i64, window_secs: i64) -> bool {
+    (now - ts).abs() <= window_secs
+}
+
 pub fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
     let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
         return false;
@@ -741,7 +754,7 @@ async fn webhook_handler(
     {
         if let Ok(ts_value) = ts_str.parse::<i64>() {
             let now = chrono::Utc::now().timestamp();
-            if (now - ts_value).abs() > REPLAY_WINDOW_SECS {
+            if !within_replay_window(now, ts_value, REPLAY_WINDOW_SECS) {
                 warn!(
                     "security: webhook {name}: timestamp too old ({ts_str}), rejecting (replay?)"
                 );

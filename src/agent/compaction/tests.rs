@@ -209,6 +209,41 @@ fn strip_orphans_anthropic_all_tool_use_blocks_orphaned() {
 }
 
 #[test]
+fn strip_orphans_anthropic_preserves_image_blocks_when_tool_use_stripped() {
+    // Anthropic content arrays may interleave text, tool_use, AND image
+    // blocks (vision). Stripping an orphaned tool_use must not touch
+    // either the text or image blocks — earlier retain logic only
+    // checked the `tool_use` type, so this is the regression guard.
+    let mut msgs = vec![
+        user_msg("look at this"),
+        HashMap::from([
+            ("role".into(), json!("assistant")),
+            (
+                "content".into(),
+                json!([
+                    {"type": "text", "text": "Let me describe and check"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR"}},
+                    {"type": "tool_use", "id": "tc_orphan", "name": "lookup", "input": {}}
+                ]),
+            ),
+        ]),
+        // No tool_result for tc_orphan
+        assistant_msg("done"),
+    ];
+    let (_, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_calls, 1);
+    let content = msgs[1]["content"].as_array().unwrap();
+    assert_eq!(
+        content.len(),
+        2,
+        "text + image must remain after tool_use strip; got {content:?}"
+    );
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["source"]["media_type"], "image/png");
+}
+
+#[test]
 fn strip_orphans_anthropic_content_block_format() {
     // Anthropic-style content array with tool_use blocks
     let mut msgs = vec![
