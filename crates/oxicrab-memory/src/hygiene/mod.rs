@@ -60,6 +60,11 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
         Err(e) => warn!("cost log purge failed: {}", e),
         _ => {}
     }
+    match db.purge_old_tool_reflections(purge_log_days) {
+        Ok(n) if n > 0 => info!("purged {} old tool reflection entries", n),
+        Err(e) => warn!("tool reflection purge failed: {}", e),
+        _ => {}
+    }
     // Purge old memory entries (keep knowledge: prefixed sources).
     match db.purge_old_memory_entries(memory_retention_days) {
         Ok(n) if n > 0 => info!("purged {} old memory entries", n),
@@ -88,6 +93,21 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u3
         Err(e) => warn!("pairing failed attempts cleanup failed: {}", e),
         _ => {}
     }
+    // Prune skill_index entries created > 30 days ago with no usage.
+    // Active skills (use_count > 0) are never pruned by this rule.
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let max_age_ms = 30_i64 * 86_400_000;
+    match db.prune_unused_skill_index(now_ms, max_age_ms, 1) {
+        Ok(paths) if !paths.is_empty() => {
+            info!("pruned {} unused skill_index entries", paths.len());
+        }
+        Err(e) => warn!("skill_index prune failed: {}", e),
+        _ => {}
+    }
+    // Skill re-scan and stat-based flagging are run by the agent loop
+    // (it owns the SkillIndex + scanner pattern set and the
+    // tool_reflections table) — see SkillIndex::rescan_active_skills
+    // and MemoryDB::skill_failure_stats.
     // Update query planner statistics after bulk deletions.
     if let Err(e) = db.optimize() {
         warn!("failed to optimize database: {e}");

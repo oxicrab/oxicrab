@@ -17,8 +17,10 @@ mod pairing;
 #[cfg(feature = "rss")]
 pub mod rss;
 mod search;
+mod skills_index;
 mod stats;
 mod subagent_log;
+mod tool_reflections;
 mod traces;
 mod workspace;
 
@@ -31,11 +33,13 @@ pub use dlq::DlqEntry;
 pub use oxicrab_core::credential_store::OAuthTokenRow;
 pub use pairing::DbPendingRequest;
 pub use search::MemoryHit;
+pub use skills_index::SkillIndexEntry;
 pub use stats::SearchDetails;
 pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, SearchStats,
 };
 pub use subagent_log::SubagentLogEntry;
+pub use tool_reflections::{ReflectionRecord, ReflectionStatRow};
 pub use traces::{CronTrace, TraceEvent, summarize_params, summarize_result};
 pub use workspace::WorkspaceFileEntry;
 

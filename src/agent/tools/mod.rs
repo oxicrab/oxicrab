@@ -7,6 +7,7 @@ pub mod memory_search;
 pub mod read_only_wrapper;
 pub mod registry;
 pub mod setup;
+pub mod skill_propose;
 pub mod spawn;
 pub mod stash;
 pub mod subagent_control;

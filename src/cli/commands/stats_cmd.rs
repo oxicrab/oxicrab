@@ -136,7 +136,114 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 }
             }
         }
+        StatsCommands::Reflections { days, min_samples } => {
+            let stats = db.reflection_stats(*days, *min_samples)?;
+            if stats.is_empty() {
+                println!(
+                    "No reflection data in the last {days} days (min samples = {min_samples})."
+                );
+                println!(
+                    "Possible reasons:\n  \
+                     1. agents.defaults.reflection.enabled is false (default)\n  \
+                     2. agents.defaults.reflection.persistToDb is false\n  \
+                     3. No tool failures in the window, or fewer than min_samples per (tool, action)"
+                );
+                return Ok(());
+            }
+
+            println!("Tool Reflections (last {days} days)");
+            println!("{}", "\u{2500}".repeat(80));
+            println!(
+                "{:<22} {:<14} {:>6} {:>6} {:>6} {:>7} {:>9}",
+                "tool", "action", "total", "ok", "err", "pending", "fail_rate"
+            );
+            for row in &stats {
+                let action = row.action.as_deref().unwrap_or("");
+                let rate = row
+                    .failure_rate()
+                    .map_or_else(|| "    n/a".to_string(), |r| format!("{:>8.1}%", r * 100.0));
+                println!(
+                    "{:<22} {:<14} {:>6} {:>6} {:>6} {:>7} {}",
+                    truncate(&row.tool_name, 22),
+                    truncate(action, 14),
+                    row.total,
+                    row.successes,
+                    row.errors,
+                    row.pending,
+                    rate
+                );
+            }
+            // Highlight tools where retries fail more than half the
+            // time — these are candidates for `blockedTools` in
+            // ReflectionConfig or for upstream tool-error tightening.
+            let bad: Vec<&_> = stats
+                .iter()
+                .filter(|r| r.failure_rate().is_some_and(|f| f >= 0.5))
+                .collect();
+            if !bad.is_empty() {
+                println!();
+                println!("Hot spots (failure rate >= 50%):");
+                for row in bad {
+                    println!(
+                        "  {} {} — consider adding to ReflectionConfig.blockedTools",
+                        row.tool_name,
+                        row.action.as_deref().unwrap_or("")
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    if s.len() <= max {
+        return s.to_string();
+    }
+    if max == 1 {
+        return "…".to_string();
+    }
+    let mut end = max - 1;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_zero_returns_empty() {
+        // Regression: prior version computed `max - 1` unconditionally,
+        // which underflows usize for max == 0.
+        assert_eq!(truncate("anything", 0), "");
+    }
+
+    #[test]
+    fn truncate_one_returns_ellipsis() {
+        // `max - 1 = 0` is a valid char boundary, but slicing `s[..0]`
+        // gives an empty string and the result would be just `…`. Make
+        // this explicit so callers get something meaningful at width 1.
+        assert_eq!(truncate("anything", 1), "…");
+    }
+
+    #[test]
+    fn truncate_handles_multibyte_at_boundary() {
+        // The tail char must not split mid-codepoint.
+        let s = "héllo wörld";
+        let out = truncate(s, 6);
+        assert!(out.ends_with('…'));
+        assert!(out.is_char_boundary(out.len() - '…'.len_utf8()));
+    }
+
+    #[test]
+    fn truncate_short_input_passes_through() {
+        assert_eq!(truncate("hi", 100), "hi");
+    }
 }

@@ -394,6 +394,20 @@ impl Config {
                 "agents.defaults.approval.timeout must be >= 10 seconds when enabled".into(),
             ));
         }
+        // Reflection: warn (don't fail) when both allow and block lists
+        // are populated — `covers_tool` resolves allow-wins-over-block,
+        // so the block list is silently dead. A startup warning is the
+        // cheapest way to surface a misconfiguration that would
+        // otherwise look like the operator's intent was honoured.
+        let r = &d.reflection;
+        if !r.allowed_tools.is_empty() && !r.blocked_tools.is_empty() {
+            warn!(
+                "agents.defaults.reflection: both allowedTools ({}) and blockedTools ({}) \
+                 are set; allowedTools wins and blockedTools is ignored — clear one to remove this warning",
+                r.allowed_tools.len(),
+                r.blocked_tools.len()
+            );
+        }
         Ok(())
     }
 

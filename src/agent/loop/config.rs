@@ -163,6 +163,8 @@ pub struct AgentLoopConfig {
     pub voice_config: Option<crate::config::VoiceConfig>,
     /// Memory configuration (archive/purge days)
     pub memory_config: Option<crate::config::MemoryConfig>,
+    /// Skill library configuration (Track 2 of self-improvement).
+    pub skills_config: crate::config::SkillsConfig,
     /// Cognitive routines configuration for checkpoint pressure signals
     pub cognitive_config: crate::config::CognitiveConfig,
     /// External context providers that inject dynamic content into the system prompt
@@ -185,6 +187,8 @@ pub struct AgentLoopConfig {
     pub router_config: crate::config::RouterConfig,
     /// Operator approval workflow configuration.
     pub approval_config: crate::config::ApprovalConfig,
+    /// Reflexion-style failure reflection configuration.
+    pub reflection_config: crate::config::ReflectionConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -260,6 +264,7 @@ impl AgentLoopConfig {
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
             voice_config: Some(config.voice.clone()),
             memory_config: Some(config.agents.defaults.memory.clone()),
+            skills_config: config.agents.defaults.skills.clone(),
             cognitive_config: config.agents.defaults.cognitive.clone(),
             context_providers: config.agents.defaults.context_providers.clone(),
             tool_configs: ToolConfigs {
@@ -294,6 +299,7 @@ impl AgentLoopConfig {
             leak_detector: params.leak_detector,
             router_config: config.router.clone(),
             approval_config: config.agents.defaults.approval.clone(),
+            reflection_config: config.agents.defaults.reflection.clone(),
         }
     }
 
@@ -332,6 +338,7 @@ impl AgentLoopConfig {
             max_concurrent_subagents: 5,
             voice_config: None,
             memory_config: None,
+            skills_config: crate::config::SkillsConfig::default(),
             cognitive_config: crate::config::CognitiveConfig::default(),
             context_providers: vec![],
             tool_configs: ToolConfigs {
@@ -369,6 +376,7 @@ impl AgentLoopConfig {
             leak_detector: None,
             router_config: crate::config::RouterConfig::default(),
             approval_config: crate::config::ApprovalConfig::default(),
+            reflection_config: crate::config::ReflectionConfig::default(),
         }
     }
 }
