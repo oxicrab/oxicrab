@@ -44,6 +44,9 @@ max_width: 820px
             <li><a href="#prompt-guard">Prompt Guard</a></li>
             <li><a href="#reflection">Reflection</a></li>
             <li><a href="#skills">Skills</a></li>
+            <li><a href="#trajectory">Trajectory</a></li>
+            <li><a href="#skill-refine">Skill auto-refine</a></li>
+            <li><a href="#activity-journal">Activity journal</a></li>
             <li><a href="#gateway">Gateway</a></li>
             <li><a href="#observability">Observability</a></li>
             <li><a href="#sandbox">Sandbox</a></li>
@@ -723,6 +726,95 @@ embeddingModelId = ""</code></pre>
             <li><code>promote</code> &mdash; activate a staged skill. Re-runs safety scanner; refuses symlinks. Mutating; covered by the operator approval workflow when configured. Triggers incremental indexing so the skill is retrievable on the next turn.</li>
             <li><code>reject</code> &mdash; discard a staged proposal. Mutating; approval-eligible.</li>
         </ul>
+    </div>
+
+    <!-- TRAJECTORY -->
+    <div id="trajectory" class="cfg-section">
+        <h2>Trajectory</h2>
+        <p>Logs every dispatched <code>tool_call</code>, <code>tool_result</code>, and <code>turn_end</code> event into the <code>trajectory_events</code> SQLite table. Powers cross-session pattern detection and a daily compression pass that summarises old sessions into <code>trajectory_summaries</code>, dropping the raw events.</p>
+
+        <p>Off by default &mdash; one INSERT per tool call is small but not free. Turn it on once you want the data; the auto-suggest pipeline reads the same table to detect repeating workflows.</p>
+
+        <h3>Configuration</h3>
+        <p>Config path: <code>agents.defaults.trajectory</code></p>
+        <pre><code>[agents.defaults.trajectory]
+enabled = false
+compressAfterDays = 90
+
+[agents.defaults.trajectory.autoSuggest]
+enabled = false
+minOccurrences = 5
+minSequenceLength = 2
+maxSequenceSteps = 8</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Master switch. When off, no events are written and the auto-suggest pass is a no-op.</td></tr>
+            <tr><td>compressAfterDays</td><td>integer</td><td>90</td><td>Sessions where every event predates this cutoff are compressed by the daily maintenance task: a <code>trajectory_summaries</code> row replaces the raw events. Set to 0 to disable compression.</td></tr>
+            <tr><td>autoSuggest.enabled</td><td>bool</td><td>false</td><td>After each turn-end, scan for repeating cross-session tool sequences. The top uncovered candidate is staged at <code>workspace/skills/staged/auto_&lt;name&gt;.md</code> for operator review &mdash; never auto-promoted.</td></tr>
+            <tr><td>autoSuggest.minOccurrences</td><td>integer</td><td>5</td><td>A sequence must repeat at least this many times across distinct turns to qualify.</td></tr>
+            <tr><td>autoSuggest.minSequenceLength</td><td>integer</td><td>2</td><td>Minimum tool calls per turn for that turn to count toward the occurrence tally.</td></tr>
+            <tr><td>autoSuggest.maxSequenceSteps</td><td>integer</td><td>8</td><td>Cap on per-sequence step count. Larger sequences are truncated.</td></tr>
+        </table>
+
+        <h3>Coverage check</h3>
+        <p>Before staging, the suggester reads the <code>skills_index</code> table and skips any candidate where every step's tool name appears in an existing skill's name or description. Conservative &mdash; a false-positive coverage just suppresses one candidate, never silently rewrites anything.</p>
+    </div>
+
+    <!-- SKILL AUTO-REFINE -->
+    <div id="skill-refine" class="cfg-section">
+        <h2>Skill auto-refine</h2>
+        <p>After a turn that loaded a skill into context AND ran &ge; <code>minToolCalls</code> tool calls, fire a two-round LLM pass to decide whether the skill body could be tightened or expanded based on what just happened.</p>
+
+        <p>Round 1 returns a JSON assessment: <code>{should_patch, confidence, reason}</code>. Round 2 only fires when <code>confidence &ge; confidenceThreshold</code> and produces the new body. Patches are written atomically (temp&nbsp;+&nbsp;rename), audited via a <code>{name}-CHANGELOG.md</code> sidecar, and persisted to the <code>skill_refinements</code> SQLite table. The skill_refinement count powers a deterministic version (<code>1.{N+1}.0</code>).</p>
+
+        <p>Off by default &mdash; costs roughly two small LLM calls per qualifying turn, plus disk writes to your skill files.</p>
+
+        <h3>Configuration</h3>
+        <p>Config path: <code>agents.defaults.skillRefine</code></p>
+        <pre><code>[agents.defaults.skillRefine]
+enabled = false
+confidenceThreshold = 0.7
+minToolCalls = 3
+maxTokens = 800</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Master switch.</td></tr>
+            <tr><td>confidenceThreshold</td><td>float</td><td>0.7</td><td>Round 2 only fires when round 1's <code>confidence</code> is at or above this value.</td></tr>
+            <tr><td>minToolCalls</td><td>integer</td><td>3</td><td>Skip refinement unless the just-completed turn ran at least this many tool calls.</td></tr>
+            <tr><td>maxTokens</td><td>integer</td><td>800</td><td>Maximum response tokens for both rounds. Round 1 is internally capped at 400.</td></tr>
+        </table>
+
+        <h3>What gets patched</h3>
+        <p>The candidate skill is the highest-priority hit from <code>ContextBuilder::select_skills_for_query</code> against the trigger user message &mdash; the same selection logic the system prompt uses, so a turn's "active skill" matches what the LLM actually saw. Recent CHANGELOG entries are injected into the round-1 prompt so the model skips re-patching gaps that earlier sessions already addressed.</p>
+    </div>
+
+    <!-- ACTIVITY JOURNAL -->
+    <div id="activity-journal" class="cfg-section">
+        <h2>Activity journal</h2>
+        <p>Append-only NDJSON timeline at <code>&lt;workspace&gt;/activity_journal.ndjson</code>. Every user inbound and agent outbound is written as one JSON line with a UTC timestamp, session key, role (<code>user</code>/<code>agent</code>/<code>system</code>), and content. The <a href="tools.html#query_activity"><code>query_activity</code></a> tool is registered only when this is enabled.</p>
+
+        <p>The journal is never auto-rotated. Operators rotate or archive the file manually when it grows beyond their taste &mdash; deletion is safe; a fresh file is created on the next write.</p>
+
+        <h3>Configuration</h3>
+        <p>Config path: <code>agents.defaults.activityJournal</code></p>
+        <pre><code>[agents.defaults.activityJournal]
+enabled = false
+maxContentChars = 512
+defaultWindowMinutes = 60
+maxWindowMinutes = 1440</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Master switch. Appends one line per user inbound and one per agent outbound.</td></tr>
+            <tr><td>maxContentChars</td><td>integer</td><td>512</td><td>Truncate stored content (UTF-8 boundary respected) to this many chars. Truncated entries get a trailing <code>&hellip;</code>.</td></tr>
+            <tr><td>defaultWindowMinutes</td><td>integer</td><td>60</td><td>Default half-window when the agent doesn't pass <code>window_minutes</code>.</td></tr>
+            <tr><td>maxWindowMinutes</td><td>integer</td><td>1440</td><td>Hard cap on <code>window_minutes</code> accepted from the LLM. Bounds disk reads.</td></tr>
+        </table>
+
+        <h3>Daily maintenance</h3>
+        <p>An always-on 24-hour ticker runs <code>run_hygiene</code> + <code>cleanup_workspace_files</code> regardless of these flags. When trajectory is enabled, it also performs trajectory compression on dormant sessions older than <code>compressAfterDays</code>. The first pass runs at startup; subsequent passes fire 24h apart.</p>
     </div>
 
     <!-- CONTEXT PROVIDERS -->

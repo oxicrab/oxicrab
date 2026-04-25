@@ -177,9 +177,9 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 > **Full tool reference:** [oxicrab.github.io/oxicrab/tools.html](https://oxicrab.github.io/oxicrab/tools.html)
 
-30 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
+31 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
 
-**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword, `add_buttons` — interactive buttons (Slack/Discord), `collections` — structured data with typed schemas and per-collection CRUD tools
+**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `query_activity` — search the activity journal by NL time expression, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword, `add_buttons` — interactive buttons (Slack/Discord), `collections` — structured data with typed schemas and per-collection CRUD tools
 
 **Configurable**: `google_mail`, `google_calendar`, `google_tasks`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 
