@@ -512,16 +512,38 @@ async fn setup_cron_callbacks(
                 message: job.payload.message.clone(),
             });
 
-            let result = cron_job_execute(&job, &agent, &bus).await;
+            let (result, finish_signal) = cron_job_execute(&job, &agent, &bus).await;
 
             match &result {
                 Ok(Some(response)) => {
-                    let summary = if response.len() > 100 {
-                        format!("{}...", &response[..response.floor_char_boundary(97)])
+                    // Prefer the explicit finish_cron summary when the
+                    // LLM signaled completion. Falls back to a truncated
+                    // tail of the agent's text output.
+                    if let Some(ref signal) = finish_signal {
+                        if signal.success {
+                            trace.complete(Some(signal.summary.clone()));
+                        } else {
+                            let reason = signal
+                                .reason
+                                .clone()
+                                .unwrap_or_else(|| signal.summary.clone());
+                            trace.fail(&reason);
+                            let payload_json = serde_json::to_string(&job.payload)
+                                .unwrap_or_else(|_| "{}".to_string());
+                            if let Err(dlq_err) =
+                                db.insert_dlq_entry(&job.id, &job.name, &payload_json, &reason)
+                            {
+                                warn!("failed to insert DLQ entry for job {}: {}", job.id, dlq_err);
+                            }
+                        }
                     } else {
-                        response.clone()
-                    };
-                    trace.complete(Some(summary));
+                        let summary = if response.len() > 100 {
+                            format!("{}...", &response[..response.floor_char_boundary(97)])
+                        } else {
+                            response.clone()
+                        };
+                        trace.complete(Some(summary));
+                    }
                 }
                 Ok(None) => {
                     trace.complete(Some("no response".into()));
@@ -556,11 +578,20 @@ async fn setup_cron_callbacks(
     Ok(())
 }
 
+/// Structured completion signal extracted from a `finish_cron` tool
+/// call. Cron callbacks consume this in preference to text heuristics
+/// when present.
+struct CronFinishSignal {
+    summary: String,
+    success: bool,
+    reason: Option<String>,
+}
+
 async fn cron_job_execute(
     job: &CronJob,
     agent: &Arc<AgentLoop>,
     bus: &Arc<MessageBus>,
-) -> Result<Option<String>> {
+) -> (Result<Option<String>>, Option<CronFinishSignal>) {
     if job.payload.kind == "echo" {
         // Echo mode: deliver message directly without invoking the LLM
         for target in &job.payload.targets {
@@ -581,7 +612,7 @@ async fn cron_job_execute(
                 );
             }
         }
-        return Ok(Some(job.payload.message.clone()));
+        return (Ok(Some(job.payload.message.clone())), None);
     }
 
     // Agent mode: process as a full agent turn
@@ -596,7 +627,7 @@ async fn cron_job_execute(
         crate::bus::meta::IS_CRON_JOB.to_string(),
         serde_json::Value::Bool(true),
     );
-    let result = agent
+    let result = match agent
         .process_direct_with_overrides(
             &job.payload.message,
             &format!("cron:{}", job.id),
@@ -604,7 +635,23 @@ async fn cron_job_execute(
             ctx_chat_id,
             &cron_overrides,
         )
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return (Err(e), None),
+    };
+
+    // Pull out the structured finish signal from the metadata sideband.
+    let finish_signal = result
+        .metadata
+        .get(crate::agent::tools::finish_cron::FINISH_CRON_META)
+        .and_then(|v| {
+            Some(CronFinishSignal {
+                summary: v.get("summary").and_then(|s| s.as_str())?.to_string(),
+                success: v.get("success").and_then(|s| s.as_bool()).unwrap_or(true),
+                reason: v.get("reason").and_then(|s| s.as_str()).map(str::to_string),
+            })
+        });
 
     if job.payload.agent_echo {
         for target in &job.payload.targets {
@@ -629,7 +676,7 @@ async fn cron_job_execute(
         }
     }
 
-    Ok(Some(result.content))
+    (Ok(Some(result.content)), finish_signal)
 }
 
 /// Log skills that have a `schedule` frontmatter field but no active cron job.

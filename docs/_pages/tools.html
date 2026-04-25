@@ -62,6 +62,7 @@ max_width: 820px
         <li><a href="#spawn">spawn</a></li>
         <li><a href="#subagent_control">subagent_control</a></li>
         <li><a href="#cron">cron</a></li>
+        <li><a href="#finish_cron">finish_cron</a></li>
         <li><a href="#memory_search">memory_search</a></li>
         <li><a href="#query_activity">query_activity</a></li>
         <li><a href="#workspace">workspace</a></li>
@@ -375,6 +376,29 @@ web_summary = "anthropic/claude-haiku-4-5"</code></pre>
     <p>Optional limits: <code>expires_at</code> (auto-disable after datetime), <code>max_runs</code> (auto-disable after N executions).</p>
     <p><strong>Dead Letter Queue (DLQ):</strong> Failed cron job executions are automatically recorded in the DLQ with job ID, payload, error message, and timestamp. The DLQ auto-purges to keep the 100 most recent entries.</p>
     <p><strong>Execution Traces:</strong> Every cron job run is traced with structured events (started, tool calls, LLM requests/responses, errors, completion). Traces are stored in SQLite and auto-purged to keep the 200 most recent. Use <code>traces</code> to list and <code>trace_detail</code> to inspect individual runs.</p>
+  </div>
+
+  <div id="finish_cron" class="tool-section">
+    <h2>finish_cron <span class="badge badge-core">Core</span> <span class="badge badge-deferred">Deferred</span></h2>
+    <p class="desc">Explicit completion signal for cron-driven agent runs. Adopted from <a href="https://github.com/nearai/ironclaw/pull/2807">IronClaw PR #2807</a>. Without this tool, cron jobs end via the heuristic "LLM stopped calling tools" — which fails the moment a hallucination drives the model to claim success after a tool returned <code>is_error=true</code>. <code>finish_cron</code> flips the contract: the LLM signals completion explicitly, and the cron callback uses the supplied summary verbatim for the trace's <code>Completed</code> / <code>Failed</code> event.</p>
+
+    <p><strong>Registered as deferred</strong> — invisible by default in interactive contexts (it's only meaningful inside scheduled jobs). Surfaces in the cron system prompt; discoverable via <code>tool_search</code> if explicitly requested.</p>
+
+    <h3>Parameters</h3>
+    <table class="action-table">
+      <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>summary</td><td>Required. One-paragraph description of what actually happened. Stored verbatim in the trace; capped at 1000 chars.</td></tr>
+        <tr><td>success</td><td>Default <code>true</code>. Set to <code>false</code> to mark the run as a failure — the trace transitions to the <code>Failed</code> state and a DLQ entry is written.</td></tr>
+        <tr><td>reason</td><td>Required when <code>success = false</code>. Short reason field surfaced in the trace and DLQ for the operator.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Behavior</h3>
+    <ul>
+      <li><strong>Cron context:</strong> the call's metadata sideband (<code>__cron_finish</code>) is lifted into the agent's <code>DirectResult</code> metadata and consumed by the cron callback in <code>gateway_setup.rs</code>. The trace is closed using your summary; if <code>success=false</code> a DLQ entry is created.</li>
+      <li><strong>Interactive context:</strong> harmless annotation — the tool returns the summary as the result content but no special handling fires.</li>
+    </ul>
   </div>
 
   <div id="memory_search" class="tool-section">

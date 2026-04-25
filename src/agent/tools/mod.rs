@@ -1,6 +1,7 @@
 pub mod base;
 pub mod collections;
 pub mod cron;
+pub mod finish_cron;
 pub mod interactive;
 pub mod mcp;
 pub mod memory_search;

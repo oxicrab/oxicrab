@@ -94,6 +94,7 @@ pub async fn register_all_tools(
     register_todoist(&mut tools, ctx);
     register_media(&mut tools, ctx);
     register_cron(&mut tools, ctx);
+    register_finish_cron(&mut tools);
     register_obsidian(&mut tools, ctx);
     register_http(&mut tools);
     register_reddit(&mut tools);
@@ -486,6 +487,15 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         ctx.memory.clone(),
         ctx.leak_detector.clone(),
     )));
+}
+
+fn register_finish_cron(registry: &mut ToolRegistry) {
+    use crate::agent::tools::finish_cron::FinishCronTool;
+    // Registered as deferred — it's only relevant during cron job
+    // execution. The cron system prompt explicitly tells the model to
+    // call it; interactive contexts won't see the schema in their tool
+    // list. Discoverable via `tool_search` if a user explicitly wants it.
+    registry.register_deferred(Arc::new(FinishCronTool::new()));
 }
 
 fn register_query_activity(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {

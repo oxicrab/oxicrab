@@ -1726,9 +1726,23 @@ impl AgentLoop {
         session.add_message("assistant".to_string(), response.clone(), assistant_extra);
         self.sessions.save(&session).await?;
 
+        // Lift finish_cron metadata from tool_metadata into response
+        // metadata so the cron callback can read it from DirectResult
+        // without having to walk tool_metadata itself.
+        let mut response_metadata = loop_result.response_metadata;
+        for (_, meta) in &loop_result.tool_metadata {
+            if let Some(payload) = meta.get(crate::agent::tools::finish_cron::FINISH_CRON_META) {
+                response_metadata.insert(
+                    crate::agent::tools::finish_cron::FINISH_CRON_META.to_string(),
+                    payload.clone(),
+                );
+                break;
+            }
+        }
+
         Ok(super::config::DirectResult {
             content: response,
-            metadata: loop_result.response_metadata,
+            metadata: response_metadata,
             media: loop_result.media,
         })
     }
