@@ -414,13 +414,14 @@ fallbacks = ["anthropic/claude-sonnet-4-5-20250929"]
 daemon = "anthropic/claude-haiku-4-5-20251001"
 cron = "anthropic/claude-haiku-4-5-20251001"
 compaction = "anthropic/claude-haiku-4-5-20251001"
-subagent = "anthropic/claude-sonnet-4-5-20250929"</code></pre>
+subagent = "anthropic/claude-sonnet-4-5-20250929"
+web_summary = "anthropic/claude-haiku-4-5-20251001"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>default</td><td>string</td><td>"claude-sonnet-4-5-20250929"</td><td>Base <code>provider/model</code> string used for all tasks unless overridden by <code>tasks</code>.</td></tr>
             <tr><td>fallbacks</td><td>string[]</td><td>[]</td><td>Ordered fallback chain of <code>provider/model</code> strings. Tried in order when the primary provider fails.</td></tr>
-            <tr><td>tasks</td><td>object</td><td>{}</td><td>Per-task overrides. Keys: <code>daemon</code>, <code>cron</code>, <code>compaction</code>, <code>subagent</code>, <code>chat</code>. Values: model string or chat routing object (for <code>chat</code> only).</td></tr>
+            <tr><td>tasks</td><td>object</td><td>{}</td><td>Per-task overrides. Keys: <code>daemon</code>, <code>cron</code>, <code>compaction</code>, <code>subagent</code>, <code>chat</code>, <code>web_summary</code> (used by <a href="tools.html#web_fetch_summary"><code>web_fetch_summary</code></a>). Values: model string or chat routing object (for <code>chat</code> only).</td></tr>
         </table>
 
         <p>Task providers are resolved once at startup. Each unique model gets its own provider instance with connection pooling.</p>

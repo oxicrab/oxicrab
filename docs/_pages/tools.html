@@ -55,6 +55,7 @@ max_width: 820px
         <li><a href="#tmux">tmux</a></li>
         <li><a href="#web_search">web_search</a></li>
         <li><a href="#web_fetch">web_fetch</a></li>
+        <li><a href="#web_fetch_summary">web_fetch_summary</a></li>
         <li><a href="#http">http</a></li>
         <li><a href="#reddit">reddit</a></li>
         <li><a href="#rss">rss</a></li>
@@ -218,6 +219,34 @@ maxResults = 5</code></pre>
   <div id="web_fetch" class="tool-section">
     <h2>web_fetch <span class="badge badge-core">Core</span></h2>
     <p class="desc">Fetch a URL and extract readable content. Converts HTML to markdown/text. Binary responses (images, PDFs) are saved to <code>~/.oxicrab/media/</code>.</p>
+  </div>
+
+  <div id="web_fetch_summary" class="tool-section">
+    <h2>web_fetch_summary <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Fetch a URL and return a small-model <strong>summary</strong> instead of the full extracted text. Use when the user wants "what does this page say" rather than a quote or specific extraction. Avoids dragging tens of KB of HTML into the main agent context. Adopted from IronClaw <a href="https://github.com/nearai/ironclaw/pull/2959">PR #2959</a>.</p>
+
+    <h3>Parameters</h3>
+    <table class="action-table">
+      <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>url</td><td>Required. http(s) URL to fetch.</td></tr>
+        <tr><td>prompt</td><td>Optional framing for the summariser (e.g. "what's the API rate limit?"). Defaults to a generic key-points instruction.</td></tr>
+        <tr><td>max_input_chars</td><td>Cap on extracted page chars sent to the summariser. Default 12000; clamped to [1000, 60000].</td></tr>
+        <tr><td>summary_max_tokens</td><td>Cap on summary length in tokens. Default 600; clamped to [64, 4096].</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Model routing</h3>
+    <p>The summariser uses the provider/model at <code>agents.defaults.modelRouting.tasks.web_summary</code> when set; otherwise the main provider. Configure to a cheap model (e.g. Haiku, Gemini Flash, Mistral small) to keep summary cost negligible.</p>
+
+    <pre><code>[agents.defaults.modelRouting.tasks]
+web_summary = "anthropic/claude-haiku-4-5"</code></pre>
+
+    <h3>Cache</h3>
+    <p>Identical <code>(url, prompt, summary_max_tokens)</code> requests are cached for 15 minutes (in-memory LRU, 64 entries). Cache survives across LLM turns within a single process; clears at restart. Cache hits are flagged with a <code>[cached]</code> prefix in the output.</p>
+
+    <h3>SSRF</h3>
+    <p>The fetch step delegates to <code>web_fetch</code>'s SSRF validator (no internal IPs, redirects bounded by <code>MAX_REDIRECTS</code>). The summariser only sees the extracted text, never the raw bytes.</p>
   </div>
 
   <div id="http" class="tool-section">

@@ -445,6 +445,20 @@ impl AgentLoop {
                 None
             };
 
+        // Resolve the web_summary task model. Mirrors the subagent
+        // resolution above: routing override wins; otherwise fall
+        // back to the main provider/model.
+        let (web_summary_provider, web_summary_model) = if let Some(ref r) = routing {
+            let o = r.resolve_overrides("web_summary");
+            if let Some(p) = o.provider {
+                (p, o.model.unwrap_or_else(|| model.clone()))
+            } else {
+                (provider.clone(), model.clone())
+            }
+        } else {
+            (provider.clone(), model.clone())
+        };
+
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
             restrict_to_workspace: tool_configs.restrict_to_workspace,
@@ -500,6 +514,8 @@ impl AgentLoop {
             skills_embedding_model_id: skills_embedding_model_id.clone(),
             activity_journal: activity_journal.clone(),
             activity_journal_config: activity_journal_config.clone(),
+            web_summary_provider,
+            web_summary_model,
         };
 
         let (

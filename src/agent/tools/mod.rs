@@ -13,6 +13,7 @@ pub mod spawn;
 pub mod stash;
 pub mod subagent_control;
 pub mod tool_search;
+pub mod web_summarize;
 pub mod workspace_tool;
 
 pub use base::{

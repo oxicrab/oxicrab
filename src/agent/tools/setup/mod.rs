@@ -55,6 +55,12 @@ pub struct ToolBuildContext {
     pub activity_journal: Option<Arc<crate::agent::activity_journal::ActivityJournal>>,
     /// Activity journal config — used to clamp `query_activity` window args.
     pub activity_journal_config: config::ActivityJournalConfig,
+    /// Provider used by `web_fetch_summary` for the summariser LLM call.
+    /// Pre-resolved via `model_routing.tasks.web_summary` when present;
+    /// otherwise the main provider.
+    pub web_summary_provider: Arc<dyn crate::providers::base::LLMProvider>,
+    /// Model id matching `web_summary_provider`.
+    pub web_summary_model: String,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -79,6 +85,7 @@ pub async fn register_all_tools(
     register_shell(&mut tools, ctx)?;
     register_tmux(&mut tools, ctx);
     register_web(&mut tools, ctx);
+    register_web_fetch_summary(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
     register_browser(&mut tools, ctx);
     register_image_gen(&mut tools, ctx);
@@ -218,6 +225,25 @@ fn register_web(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     for tool in oxicrab_tools_web::create_web_tools(ctx.web_search_config.as_ref()) {
         registry.register(tool);
     }
+}
+
+fn register_web_fetch_summary(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::web_summarize::WebFetchSummaryTool;
+    use oxicrab_tools_web::web::WebFetchTool;
+
+    // Build a private WebFetchTool with the same defaults as the
+    // public one. The summary tool delegates fetch+extract through it
+    // so SSRF validation + HTML→markdown extraction stay shared.
+    let Ok(fetch) = WebFetchTool::new(50_000) else {
+        warn!("web_fetch_summary: unable to construct underlying WebFetchTool; skipping");
+        return;
+    };
+    registry.register(Arc::new(WebFetchSummaryTool::new(
+        ctx.web_summary_provider.clone(),
+        ctx.web_summary_model.clone(),
+        Arc::new(fetch),
+    )));
+    info!("web_fetch_summary tool registered");
 }
 
 fn register_subagents(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Arc<SubagentManager> {
