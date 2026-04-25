@@ -62,11 +62,11 @@ fn parse_relative(s: &str, now: DateTime<Utc>) -> Option<ResolvedAnchor> {
     let qty = parse_qty(qty_token)?;
     let unit = unit.trim_end_matches('s');
     let delta = match unit {
-        "minute" | "min" => Duration::minutes(qty as i64),
-        "hour" | "hr" => Duration::hours(qty as i64),
-        "day" => Duration::days(qty as i64),
-        "week" => Duration::weeks(qty as i64),
-        "month" => Duration::days(qty as i64 * 30),
+        "minute" | "min" => Duration::minutes(i64::from(qty)),
+        "hour" | "hr" => Duration::hours(i64::from(qty)),
+        "day" => Duration::days(i64::from(qty)),
+        "week" => Duration::weeks(i64::from(qty)),
+        "month" => Duration::days(i64::from(qty) * 30),
         _ => return None,
     };
     Some(ResolvedAnchor {
@@ -123,7 +123,7 @@ fn parse_named_part_of_day(s: &str, now: DateTime<Utc>) -> Option<ResolvedAnchor
     let dt = Utc.from_utc_datetime(&date.and_time(time));
     Some(ResolvedAnchor {
         anchor: dt,
-        resolution: format!("{} {} (~{:02}:00)", day, part, part_hour),
+        resolution: format!("{day} {part} (~{part_hour:02}:00)"),
     })
 }
 

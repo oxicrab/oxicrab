@@ -1,3 +1,4 @@
+mod auto_refine;
 mod auto_suggest;
 mod compaction_history;
 mod complexity;
@@ -167,7 +168,6 @@ pub struct AgentLoop {
     skill_refine_config: crate::config::SkillRefineConfig,
     /// Activity journal — append-only NDJSON, optional.
     activity_journal: Option<Arc<crate::agent::activity_journal::ActivityJournal>>,
-    activity_journal_config: crate::config::ActivityJournalConfig,
     /// Sender for outbound messages (approval requests, user feedback).
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
 }
@@ -337,18 +337,83 @@ impl AgentLoop {
             });
         }
 
-        // Run memory hygiene in background (search log purge, workspace file cleanup)
+        // Run memory hygiene in background (search log purge, workspace file cleanup).
+        // Spawn a daily ticker that re-runs hygiene + optional trajectory
+        // compression every 24h — Panther/OpenCrust both observed that
+        // startup-only maintenance leaves long-running agents with
+        // unbounded growth.
         {
             let db = memory.db();
             let ws = workspace.clone();
             let ttl_map = tool_configs.workspace_ttl.to_map();
             let mem_retention_days = memory_config.as_ref().map_or(180, |c| c.retention_days);
-            tokio::task::spawn_blocking(move || {
-                crate::agent::memory::hygiene::run_hygiene(&db, 90, mem_retention_days);
-                if let Err(e) =
-                    crate::agent::memory::hygiene::cleanup_workspace_files(&db, &ws, &ttl_map)
-                {
-                    warn!("workspace file cleanup failed: {}", e);
+            let trajectory_compress_days = trajectory_config.compress_after_days;
+            let trajectory_enabled = trajectory_config.enabled;
+            // First pass at startup.
+            {
+                let db = db.clone();
+                let ws = ws.clone();
+                let ttl_map = ttl_map.clone();
+                tokio::task::spawn_blocking(move || {
+                    crate::agent::memory::hygiene::run_hygiene(&db, 90, mem_retention_days);
+                    if let Err(e) =
+                        crate::agent::memory::hygiene::cleanup_workspace_files(&db, &ws, &ttl_map)
+                    {
+                        warn!("workspace file cleanup failed: {}", e);
+                    }
+                });
+            }
+            // Daily ticker.
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+                    let db_b = db.clone();
+                    let ws_b = ws.clone();
+                    let ttl_b = ttl_map.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        crate::agent::memory::hygiene::run_hygiene(&db_b, 90, mem_retention_days);
+                        if let Err(e) = crate::agent::memory::hygiene::cleanup_workspace_files(
+                            &db_b, &ws_b, &ttl_b,
+                        ) {
+                            warn!("daily workspace file cleanup failed: {}", e);
+                        }
+                        if trajectory_enabled && trajectory_compress_days > 0 {
+                            let cutoff = chrono::Utc::now().timestamp_millis()
+                                - i64::from(trajectory_compress_days) * 86_400_000;
+                            match db_b.trajectory_sessions_older_than(cutoff) {
+                                Ok(sids) if !sids.is_empty() => {
+                                    info!(
+                                        "daily trajectory compression: {} dormant sessions",
+                                        sids.len()
+                                    );
+                                    for sid in sids {
+                                        let summary = format!(
+                                            "Compressed at {} — raw events removed.",
+                                            chrono::Utc::now().format("%Y-%m-%d")
+                                        );
+                                        let s =
+                                            crate::agent::memory::memory_db::TrajectorySummary {
+                                                session_id: sid,
+                                                summary,
+                                                fingerprint: None,
+                                                occurrences: 0,
+                                                candidate_name: None,
+                                                candidate_desc: None,
+                                                candidate_conf: None,
+                                                created_at_ms: chrono::Utc::now()
+                                                    .timestamp_millis(),
+                                            };
+                                        if let Err(e) = db_b.save_trajectory_summary(&s) {
+                                            warn!("trajectory summary save failed: {e}");
+                                        }
+                                    }
+                                }
+                                Err(e) => warn!("trajectory compression query failed: {e}"),
+                                _ => {}
+                            }
+                        }
+                    })
+                    .await;
                 }
             });
         }
@@ -653,7 +718,6 @@ impl AgentLoop {
             trajectory_turn_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
             skill_refine_config,
             activity_journal,
-            activity_journal_config,
             outbound_tx,
         })
     }

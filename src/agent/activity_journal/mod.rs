@@ -95,6 +95,12 @@ impl ActivityJournal {
         f.write_all(line.as_bytes())
             .await
             .with_context(|| format!("writing to {}", self.path.display()))?;
+        // Flush + close explicitly. Without this, a subsequent
+        // `read_all` on the same file inside one test run can race
+        // the implicit drop and observe a partial line.
+        f.flush()
+            .await
+            .with_context(|| format!("flushing {}", self.path.display()))?;
         Ok(())
     }
 

@@ -82,8 +82,7 @@ pub fn pick_top_uncovered(
 ) -> Option<SkillCandidate> {
     candidates
         .into_iter()
-        .filter(|c| !c.already_covered && c.occurrences >= min_occurrences)
-        .next()
+        .find(|c| !c.already_covered && c.occurrences >= min_occurrences)
 }
 
 /// Generate a deterministic skill name from a fingerprint. The result
@@ -94,7 +93,6 @@ pub fn name_from_fingerprint(fingerprint: &str) -> String {
         .map(|c| match c {
             c if c.is_ascii_alphanumeric() => c.to_ascii_lowercase(),
             '/' => '-',
-            '\t' | ' ' | '_' | '-' => '_',
             _ => '_',
         })
         .collect();
@@ -147,8 +145,8 @@ mod tests {
             name: name.to_string(),
             description: desc.to_string(),
             embedding: vec![],
-            file_sha256: "".to_string(),
-            embedding_model_id: "".to_string(),
+            file_sha256: String::new(),
+            embedding_model_id: String::new(),
             use_count: 0,
             last_used_ms: None,
             created_at_ms: 0,
@@ -159,7 +157,7 @@ mod tests {
     fn seq(fp: &str, steps: &[&str], n: u32) -> RepeatedSequence {
         RepeatedSequence {
             fingerprint: fp.to_string(),
-            steps: steps.iter().map(|s| s.to_string()).collect(),
+            steps: steps.iter().map(std::string::ToString::to_string).collect(),
             occurrences: n,
             example_session_id: "demo".to_string(),
         }

@@ -1,5 +1,6 @@
 pub mod index;
 pub mod propose;
+pub mod refine;
 pub mod scanner;
 
 use aho_corasick::AhoCorasick;

@@ -13,7 +13,7 @@ mod tests;
 
 /// Async-friendly logger: every method returns immediately (work runs
 /// on `spawn_blocking` so the agent loop's hot path doesn't block on
-/// SQLite). Errors are logged once and swallowed — failed observability
+/// `SQLite`). Errors are logged once and swallowed — failed observability
 /// must never break user-facing replies.
 pub struct TrajectoryLogger {
     db: Arc<MemoryDB>,

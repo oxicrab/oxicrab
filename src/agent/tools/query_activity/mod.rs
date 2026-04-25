@@ -98,14 +98,11 @@ impl Tool for QueryActivityTool {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
-        let resolved = match parse_time_expression(expr, Utc::now()) {
-            Some(r) => r,
-            None => {
-                return Ok(ToolResult::error(format!(
-                    "query_activity: could not parse time expression '{expr}'. \
-                     Try '30 minutes ago', '2pm yesterday', 'this morning', or '3 days ago'."
-                )));
-            }
+        let Some(resolved) = parse_time_expression(expr, Utc::now()) else {
+            return Ok(ToolResult::error(format!(
+                "query_activity: could not parse time expression '{expr}'. \
+                 Try '30 minutes ago', '2pm yesterday', 'this morning', or '3 days ago'."
+            )));
         };
 
         let records = match self.journal.read_all() {

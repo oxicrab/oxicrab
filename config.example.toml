@@ -65,6 +65,28 @@ maxSystemPromptSkills = 5
 pruneUnusedDays = 30
 embeddingModelId = ""
 
+[agents.defaults.trajectory]
+enabled = false
+compressAfterDays = 90
+
+[agents.defaults.trajectory.autoSuggest]
+enabled = false
+minOccurrences = 5
+minSequenceLength = 2
+maxSequenceSteps = 8
+
+[agents.defaults.skillRefine]
+enabled = false
+confidenceThreshold = 0.699999988079071
+minToolCalls = 3
+maxTokens = 800
+
+[agents.defaults.activityJournal]
+enabled = false
+maxContentChars = 512
+defaultWindowMinutes = 60
+maxWindowMinutes = 1440
+
 [agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"
 fallbacks = []

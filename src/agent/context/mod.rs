@@ -130,6 +130,16 @@ impl ContextBuilder {
     /// existing keyword/hint matcher; embedding hits take priority but
     /// matcher hits are appended so high-signal hints still pull in
     /// their skill even when the embedding score is low.
+    /// Return the highest-priority skill name that *would* have been
+    /// loaded for `user_message`, or `None` when no skill matches.
+    /// Used by auto-refine to recreate the active-skill set without
+    /// having to thread the names through the agent loop.
+    pub fn refine_candidate_skill_name(&self, user_message: &str) -> Option<String> {
+        self.select_skills_for_query(user_message)
+            .into_iter()
+            .next()
+    }
+
     fn select_skills_for_query(&self, user_message: &str) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
 

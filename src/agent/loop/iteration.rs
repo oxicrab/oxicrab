@@ -127,6 +127,15 @@ impl AgentLoop {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
         let mut last_was_tool_only = false;
+        let mut tool_call_count: usize = 0;
+        // Capture the trigger user message up front so the refine hook
+        // can use it (and replay select_skills_for_query against it).
+        let initial_user_message = messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "user")
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
         // Trajectory: opt-in per-turn observability. Resolved up front so
         // the hot loop just calls `if let Some(...)` without re-checking
         // `self.trajectory_config.enabled` on every event.
@@ -340,7 +349,7 @@ impl AgentLoop {
                 // Trajectory: log every dispatched call BEFORE execution
                 // so a panicking tool still leaves a breadcrumb. Latency
                 // is measured against the wave start instant.
-                if let (Some(ref logger), Some(ref sid)) = (
+                if let (Some(logger), Some(sid)) = (
                     trajectory_logger.as_ref(),
                     trajectory_session_key.as_ref(),
                 ) {
@@ -365,8 +374,9 @@ impl AgentLoop {
                         overrides.routing_policy.as_ref(),
                     )
                     .await;
+                tool_call_count += response.tool_calls.len();
                 // Trajectory: log results paired with the dispatched calls.
-                if let (Some(ref logger), Some(ref sid)) = (
+                if let (Some(logger), Some(sid)) = (
                     trajectory_logger.as_ref(),
                     trajectory_session_key.as_ref(),
                 ) {
@@ -380,8 +390,7 @@ impl AgentLoop {
                             .filter(|s| !s.is_empty());
                         let latency_ms = trajectory_call_start
                             .get(idx)
-                            .map(|t| t.elapsed().as_millis() as i64)
-                            .unwrap_or(0);
+                            .map_or(0, |t| t.elapsed().as_millis() as i64);
                         logger.log_tool_result(
                             sid,
                             trajectory_turn,
@@ -471,13 +480,18 @@ impl AgentLoop {
                 let mut response_metadata =
                     self.take_pending_buttons_metadata(&activation_scope);
                 merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
-                if let (Some(ref logger), Some(ref sid)) = (
+                if let (Some(logger), Some(sid)) = (
                     trajectory_logger.as_ref(),
                     trajectory_session_key.as_ref(),
                 ) {
                     logger.log_turn_end(sid, trajectory_turn);
                 }
                 self.maybe_spawn_skill_auto_suggest(trajectory_session_key.as_deref());
+                self.maybe_spawn_skill_refine(
+                    &initial_user_message,
+                    &content,
+                    tool_call_count,
+                );
                 return Ok(AgentLoopResult {
                     content: Some(content),
                     input_tokens: last_input_tokens,

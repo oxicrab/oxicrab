@@ -2,6 +2,7 @@
 
 use super::ActivityRecord;
 use chrono::{DateTime, Duration, Utc};
+use std::fmt::Write;
 
 /// One interval over the journal: `[anchor - half_window, anchor + half_window]`.
 #[derive(Debug, Clone)]
@@ -53,7 +54,7 @@ pub fn render_records(records: &[&ActivityRecord]) -> String {
             "agent" => "AGENT",
             other => other,
         };
-        out.push_str(&format!("[{ts}] {role}: {}\n", r.content));
+        let _ = writeln!(out, "[{ts}] {role}: {}", r.content);
     }
     out
 }
