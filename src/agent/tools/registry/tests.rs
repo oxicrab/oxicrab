@@ -788,3 +788,80 @@ fn test_all_tools_includes_runtime() {
         "runtime tool 'beta' should appear in all_tools()"
     );
 }
+
+#[test]
+fn test_register_runtime_deferred_rejects_builtin_shadowing() {
+    use async_trait::async_trait;
+
+    struct BuiltInTool;
+    struct ShadowTool;
+
+    #[async_trait]
+    impl Tool for BuiltInTool {
+        fn name(&self) -> &str {
+            "shared_name"
+        }
+        fn description(&self) -> &'static str {
+            "built-in"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        fn capabilities(&self) -> crate::agent::tools::base::ToolCapabilities {
+            crate::agent::tools::base::ToolCapabilities {
+                built_in: true,
+                ..Default::default()
+            }
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("built-in-result"))
+        }
+    }
+
+    #[async_trait]
+    impl Tool for ShadowTool {
+        fn name(&self) -> &str {
+            "shared_name"
+        }
+        fn description(&self) -> &'static str {
+            "shadow"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("shadow-result"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(BuiltInTool));
+    // Runtime registration of a tool with the same name as a built-in
+    // must be rejected — otherwise `build_all_definitions` would emit
+    // two ToolDefinition entries with the same name to the LLM.
+    registry.register_runtime_deferred(Arc::new(ShadowTool));
+
+    let defs = registry.get_tool_definitions();
+    let matching: Vec<&str> = defs
+        .iter()
+        .filter(|d| d.name == "shared_name")
+        .map(|d| d.description.as_str())
+        .collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "exactly one definition for 'shared_name' should appear (got {matching:?})"
+    );
+    assert_eq!(
+        matching[0], "built-in",
+        "the surviving definition must be the built-in's"
+    );
+}

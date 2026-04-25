@@ -13,6 +13,12 @@ const MIN_SLEEP_MS: i64 = 1000;
 const MAX_SLEEP_MS: u64 = 30000;
 /// Disabled jobs are pruned after this many days to prevent unbounded store growth.
 const PRUNE_DISABLED_AFTER_DAYS: i64 = 30;
+/// Per-job execution deadline. A hung tool or runaway LLM otherwise leaves
+/// the job in `'running'` for the lifetime of the process, blocking re-fire
+/// until restart (the firing guard refuses to claim a job already in
+/// `'running'`). After this timeout the task is dropped and the job is
+/// marked `'timed_out'` so the next poll can fire it again.
+const JOB_EXECUTION_TIMEOUT_SECS: u64 = 30 * 60;
 
 /// Normalize a cron expression to 6+ fields (prepend "0 " for seconds if 5-field).
 /// Then validate it parses. Returns Ok(normalized) or Err with a message.
@@ -416,8 +422,16 @@ impl CronService {
                     let task_tracker = service.task_tracker.clone();
                     task_tracker
                         .spawn_auto_cleanup(format!("cron_job_{job_id}"), async move {
-                            let (status, error) = match callback(job_clone).await {
-                                Ok(Some(result)) => {
+                            let invocation = callback(job_clone);
+                            let timeout_dur =
+                                tokio::time::Duration::from_secs(JOB_EXECUTION_TIMEOUT_SECS);
+                            let (status, error) = match tokio::time::timeout(
+                                timeout_dur,
+                                invocation,
+                            )
+                            .await
+                            {
+                                Ok(Ok(Some(result))) => {
                                     info!(
                                         "Cron job '{}' completed: {} chars",
                                         job_id,
@@ -425,13 +439,25 @@ impl CronService {
                                     );
                                     ("success".to_string(), None)
                                 }
-                                Ok(None) => {
+                                Ok(Ok(None)) => {
                                     info!("Cron job '{}' completed (no output)", job_id);
                                     ("success".to_string(), None)
                                 }
-                                Err(e) => {
+                                Ok(Err(e)) => {
                                     error!("Cron job '{}' failed: {}", job_id, e);
                                     ("error".to_string(), Some(e.to_string()))
+                                }
+                                Err(_) => {
+                                    error!(
+                                        "Cron job '{}' timed out after {}s",
+                                        job_id, JOB_EXECUTION_TIMEOUT_SECS
+                                    );
+                                    (
+                                        "timed_out".to_string(),
+                                        Some(format!(
+                                            "execution exceeded {JOB_EXECUTION_TIMEOUT_SECS}s deadline"
+                                        )),
+                                    )
                                 }
                             };
                             let db = svc.db.clone();

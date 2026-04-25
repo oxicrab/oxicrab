@@ -23,6 +23,7 @@ use oxicrab_core::tools::base::{
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(feature = "embeddings")]
 use tracing::debug;
 
 pub struct SkillProposeTool {
@@ -194,21 +195,28 @@ impl Tool for SkillProposeTool {
                         // Best-effort incremental index — make the skill
                         // discoverable on the next turn instead of waiting
                         // for the next full rebuild. Silent on failure.
-                        let mut indexed_now = false;
-                        #[cfg(feature = "embeddings")]
-                        if let (Some(idx), Some(mem)) = (&self.skill_index, &self.memory)
-                            && let Some(svc) = mem.embedding_service()
-                        {
-                            match idx.index_one(svc, &path) {
-                                Ok(n) if n > 0 => {
-                                    indexed_now = true;
+                        let indexed_now = {
+                            #[cfg(feature = "embeddings")]
+                            {
+                                let mut flag = false;
+                                if let (Some(idx), Some(mem)) = (&self.skill_index, &self.memory)
+                                    && let Some(svc) = mem.embedding_service()
+                                {
+                                    match idx.index_one(svc, &path) {
+                                        Ok(n) if n > 0 => flag = true,
+                                        Ok(_) => {}
+                                        Err(e) => {
+                                            debug!(
+                                                "skill_propose: post-promote index_one failed: {e}"
+                                            );
+                                        }
+                                    }
                                 }
-                                Ok(_) => {}
-                                Err(e) => {
-                                    debug!("skill_propose: post-promote index_one failed: {e}");
-                                }
+                                flag
                             }
-                        }
+                            #[cfg(not(feature = "embeddings"))]
+                            false
+                        };
                         let suffix = if indexed_now {
                             " (indexed)".to_string()
                         } else {

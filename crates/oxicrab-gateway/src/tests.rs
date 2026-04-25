@@ -1369,6 +1369,91 @@ async fn test_webhook_replay_protection_accepts_recent_timestamp() {
 }
 
 #[tokio::test]
+async fn test_webhook_require_timestamp_rejects_missing_header() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut webhooks = HashMap::new();
+    let mut cfg = make_webhook_config(true, "secret123");
+    cfg.require_timestamp = true;
+    webhooks.insert("strict-hook".to_string(), cfg);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
+    let app = build_router(state, None, None, None);
+
+    let body = b"payload";
+    // Body-only signature is valid — but the receiver requires a
+    // timestamped signature, so the request must be rejected.
+    let sig = sign_body("secret123", body);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/strict-hook")
+        .header("X-Signature-256", &sig)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_webhook_require_timestamp_rejects_body_only_signature() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut webhooks = HashMap::new();
+    let mut cfg = make_webhook_config(true, "secret123");
+    cfg.require_timestamp = true;
+    webhooks.insert("strict-hook".to_string(), cfg);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
+    let app = build_router(state, None, None, None);
+
+    let body = b"payload";
+    let recent_ts = (chrono::Utc::now().timestamp() - 60).to_string();
+    // Sign body only, not `timestamp.body` — fails the strict check.
+    let sig = sign_body("secret123", body);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/strict-hook")
+        .header("X-Signature-256", &sig)
+        .header("X-Webhook-Timestamp", &recent_ts)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_webhook_require_timestamp_accepts_timestamped_signature() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut webhooks = HashMap::new();
+    let mut cfg = make_webhook_config(true, "secret123");
+    cfg.require_timestamp = true;
+    webhooks.insert("strict-hook".to_string(), cfg);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
+    let app = build_router(state, None, None, None);
+
+    let body = b"payload";
+    let recent_ts = (chrono::Utc::now().timestamp() - 60).to_string();
+    let mut signed = recent_ts.as_bytes().to_vec();
+    signed.push(b'.');
+    signed.extend_from_slice(body);
+    let sig = sign_body("secret123", &signed);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/strict-hook")
+        .header("X-Signature-256", &sig)
+        .header("X-Webhook-Timestamp", &recent_ts)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_status_json_initializing() {
     use axum::http::Request;
     use tower::ServiceExt;

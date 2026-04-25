@@ -263,7 +263,6 @@ impl AgentLoop {
             skills_config.embedding_model_id.clone()
         };
         if skills_config.indexing_enabled {
-            let model_id = skills_embedding_model_id.clone();
             let workspace_skills = workspace.join("skills");
             let builtin_skills = std::env::current_exe()
                 .ok()
@@ -273,7 +272,7 @@ impl AgentLoop {
                 memory.db(),
                 workspace_skills,
                 builtin_skills,
-                model_id,
+                &skills_embedding_model_id,
             ));
             context_builder.set_skill_index(index.clone(), skills_config.max_system_prompt_skills);
 
@@ -771,6 +770,22 @@ impl AgentLoop {
         }
     }
 
+    /// Map an internal error string to a user-visible reply. Shared
+    /// between the initial-message and coalesced-turn error paths so a
+    /// failure in either branch produces consistent feedback instead of
+    /// the user staring at a stuck indicator.
+    fn classify_error_for_user(err_str: &str) -> String {
+        if err_str.contains("credits") || err_str.contains("quota") || err_str.contains("billing") {
+            format!("Provider billing error: {err_str}")
+        } else if err_str.contains("rate limit") {
+            "Rate limited by the LLM provider — please try again in a moment.".to_string()
+        } else if err_str.contains("model") && err_str.contains("not found") {
+            format!("Model configuration error: {err_str}")
+        } else {
+            "Sorry, I encountered an error processing your message.".to_string()
+        }
+    }
+
     /// Run the agent loop, processing inbound messages until the channel closes
     /// or [`stop()`](Self::stop) is called.
     ///
@@ -843,21 +858,7 @@ impl AgentLoop {
                     }
                     Err(e) => {
                         error!("Error processing message: {}", e);
-                        // Surface actionable errors to the user instead of a generic message
-                        let err_str = e.to_string();
-                        let user_message = if err_str.contains("credits")
-                            || err_str.contains("quota")
-                            || err_str.contains("billing")
-                        {
-                            format!("Provider billing error: {err_str}")
-                        } else if err_str.contains("rate limit") {
-                            "Rate limited by the LLM provider — please try again in a moment."
-                                .to_string()
-                        } else if err_str.contains("model") && err_str.contains("not found") {
-                            format!("Model configuration error: {err_str}")
-                        } else {
-                            "Sorry, I encountered an error processing your message.".to_string()
-                        };
+                        let user_message = Self::classify_error_for_user(&e.to_string());
                         // Send an error outbound so channels can clean up
                         // (e.g. Slack removes the thinking emoji on any outbound)
                         let error_outbound =
@@ -1061,7 +1062,7 @@ impl AgentLoop {
                 if pending.len() >= MAX_PENDING_MESSAGES_PER_SESSION {
                     warn!(
                         "pending queue full for session {} (max={}), dropping message \
-                         from {}:{} ({} bytes); user will see no response for this message",
+                         from {}:{} ({} bytes)",
                         session_key,
                         MAX_PENDING_MESSAGES_PER_SESSION,
                         msg.channel,
@@ -1072,7 +1073,19 @@ impl AgentLoop {
                         "channel" => msg.channel.clone(),
                     )
                     .increment(1);
-                    return Ok(None);
+                    // Surface the drop to the user so they don't watch a
+                    // thinking emoji forever — the queue limit is a UX
+                    // backstop, not a silent rate-limit.
+                    return Ok(Some(
+                        OutboundMessage::builder(
+                            msg.channel.clone(),
+                            msg.chat_id.clone(),
+                            "I'm still working on your previous request — too many \
+                             messages are queued. Please wait a moment and resend.",
+                        )
+                        .metadata(msg.metadata.clone())
+                        .build(),
+                    ));
                 }
                 pending.push(msg);
                 pending.len()
@@ -1107,6 +1120,12 @@ impl AgentLoop {
                 count, session_key
             );
             let coalesced = Self::coalesce_messages(pending);
+            // Capture routing fields before `coalesced` is moved into
+            // `process_message_unlocked` so the error branch can still
+            // build a user-facing reply.
+            let coalesced_channel = coalesced.channel.clone();
+            let coalesced_chat_id = coalesced.chat_id.clone();
+            let coalesced_metadata = coalesced.metadata.clone();
 
             // Process the coalesced turn. Errors are logged but do not
             // prevent draining the remaining queue — we still hold the
@@ -1135,6 +1154,23 @@ impl AgentLoop {
                         "error processing coalesced turn for session {}: {}",
                         session_key, e
                     );
+                    // Mirror the initial-message error path: send a
+                    // user-visible reply so coalesced batches don't fail
+                    // silently into a stuck thinking indicator.
+                    let user_message = Self::classify_error_for_user(&e.to_string());
+                    let outbound = OutboundMessage::builder(
+                        coalesced_channel,
+                        coalesced_chat_id,
+                        &user_message,
+                    )
+                    .metadata(coalesced_metadata)
+                    .build();
+                    if let Err(send_err) = self.bus.publish_outbound(outbound).await {
+                        error!(
+                            "failed to send coalesced error outbound for session {}: {}",
+                            session_key, send_err
+                        );
+                    }
                 }
             }
         }

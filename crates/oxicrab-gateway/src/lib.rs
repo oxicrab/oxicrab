@@ -738,39 +738,76 @@ async fn webhook_handler(
         return StatusCode::FORBIDDEN.into_response();
     };
 
-    // Validate HMAC-SHA256 signature
-    if !validate_webhook_signature(&config.secret, signature, &body) {
-        warn!("security: webhook {name}: invalid signature");
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    // Replay protection: reject payloads with timestamps older than 5 minutes.
-    // When X-Webhook-Timestamp is present, we also verify HMAC(timestamp + "." + body)
-    // to prevent replay attacks where an attacker captures a valid signature and
-    // replays it with a fresh timestamp header.
-    if let Some(ts_str) = headers
+    // Replay protection. There are three modes here:
+    //
+    // 1. `require_timestamp = true`: the timestamp header MUST be present
+    //    AND included in the HMAC input. A captured request cannot be
+    //    replayed by stripping the header — only the timestamped HMAC is
+    //    accepted, the body-only signature is rejected.
+    // 2. `require_timestamp = false` and timestamp header present: the
+    //    body-only HMAC is the primary check; the timestamped HMAC is
+    //    verified opportunistically and the freshness window is
+    //    enforced. The sender may not include the timestamp in their
+    //    signature, in which case the body-only signature suffices.
+    // 3. No timestamp header and `require_timestamp = false`: only the
+    //    body-only HMAC is enforced. No replay protection beyond TLS.
+    let timestamp_header = headers
         .get("X-Webhook-Timestamp")
-        .and_then(|v| v.to_str().ok())
-    {
-        if let Ok(ts_value) = ts_str.parse::<i64>() {
-            let now = chrono::Utc::now().timestamp();
-            if !within_replay_window(now, ts_value, REPLAY_WINDOW_SECS) {
-                warn!(
-                    "security: webhook {name}: timestamp too old ({ts_str}), rejecting (replay?)"
-                );
-                return StatusCode::FORBIDDEN.into_response();
-            }
+        .and_then(|v| v.to_str().ok());
+
+    if config.require_timestamp {
+        // Strict mode: skip the body-only check entirely. The signature
+        // is expected to be over `timestamp.body`, so validating it
+        // against `body` alone would reject a correctly-signed request.
+        let Some(ts_str) = timestamp_header else {
+            warn!(
+                "security: webhook {name}: requireTimestamp=true but no \
+                 X-Webhook-Timestamp header present"
+            );
+            return StatusCode::FORBIDDEN.into_response();
+        };
+        let Ok(ts_value) = ts_str.parse::<i64>() else {
+            warn!("security: webhook {name}: invalid timestamp header '{ts_str}'");
+            return StatusCode::FORBIDDEN.into_response();
+        };
+        let now = chrono::Utc::now().timestamp();
+        if !within_replay_window(now, ts_value, REPLAY_WINDOW_SECS) {
+            warn!("security: webhook {name}: timestamp too old ({ts_str}), rejecting (replay?)");
+            return StatusCode::FORBIDDEN.into_response();
         }
-        // Re-validate signature with timestamp included in HMAC input.
-        // Format: HMAC(timestamp + "." + body). If this fails, fall through —
-        // the body-only signature was already validated above, so the sender
-        // may not include the timestamp in HMAC input.
         let timestamped_body = [ts_str.as_bytes(), b".", &body].concat();
         if !validate_webhook_signature(&config.secret, signature, &timestamped_body) {
-            debug!(
-                "webhook {name}: timestamp header present but not included in HMAC — \
-                 replay protection relies on sender including timestamp in signature"
+            warn!(
+                "security: webhook {name}: requireTimestamp=true but HMAC over \
+                 timestamp.body failed — sender must sign the timestamp"
             );
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    } else {
+        // Backwards-compatible mode: body-only HMAC is the primary
+        // check. Timestamped HMAC is opportunistic.
+        if !validate_webhook_signature(&config.secret, signature, &body) {
+            warn!("security: webhook {name}: invalid signature");
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        if let Some(ts_str) = timestamp_header {
+            if let Ok(ts_value) = ts_str.parse::<i64>() {
+                let now = chrono::Utc::now().timestamp();
+                if !within_replay_window(now, ts_value, REPLAY_WINDOW_SECS) {
+                    warn!(
+                        "security: webhook {name}: timestamp too old ({ts_str}), rejecting (replay?)"
+                    );
+                    return StatusCode::FORBIDDEN.into_response();
+                }
+            }
+            let timestamped_body = [ts_str.as_bytes(), b".", &body].concat();
+            if !validate_webhook_signature(&config.secret, signature, &timestamped_body) {
+                debug!(
+                    "webhook {name}: timestamp header present but not included in HMAC — \
+                     replay protection relies on sender including timestamp in signature \
+                     (set requireTimestamp=true to enforce)"
+                );
+            }
         }
     }
 

@@ -217,6 +217,16 @@ pub struct WebhookConfig {
     /// Structured dispatch for direct tool execution, bypassing LLM.
     #[serde(default)]
     pub dispatch: Option<WebhookDispatchConfig>,
+    /// When true, the receiver requires an `X-Webhook-Timestamp` header
+    /// **and** that header must be included in the HMAC signature input
+    /// (`HMAC(timestamp + "." + body)`). This is the only configuration
+    /// that gives hard replay protection: with the body-only fallback an
+    /// attacker who captured a valid request can strip the timestamp on
+    /// replay and the body-only signature still validates. Default
+    /// `false` for backwards compatibility with senders that don't sign
+    /// the timestamp.
+    #[serde(default, rename = "requireTimestamp")]
+    pub require_timestamp: bool,
 }
 
 redact_debug!(
@@ -227,6 +237,7 @@ redact_debug!(
     targets,
     agent_turn,
     dispatch,
+    require_timestamp,
 );
 
 impl Default for WebhookConfig {
@@ -238,6 +249,7 @@ impl Default for WebhookConfig {
             targets: vec![],
             agent_turn: false,
             dispatch: None,
+            require_timestamp: false,
         }
     }
 }

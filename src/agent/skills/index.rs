@@ -8,16 +8,21 @@
 //! matches the stored value are skipped, so re-indexing is a no-op when
 //! nothing has changed. Usage counters are preserved across re-indexes.
 
-use crate::agent::memory::memory_db::{MemoryDB, SkillIndexEntry};
+use crate::agent::memory::memory_db::MemoryDB;
 use anyhow::Result;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::warn;
 use walkdir::WalkDir;
 
 #[cfg(feature = "embeddings")]
 use crate::agent::memory::embeddings::{EmbeddingService, cosine_similarity};
+#[cfg(feature = "embeddings")]
+use crate::agent::memory::memory_db::SkillIndexEntry;
+#[cfg(any(feature = "embeddings", test))]
+use sha2::{Digest, Sha256};
+#[cfg(feature = "embeddings")]
+use tracing::debug;
 
 /// Maximum number of skills returned by `top_k_for_query` regardless
 /// of caller request. Matches the design doc's
@@ -41,6 +46,7 @@ pub struct SkillIndex {
     /// When this changes between runs, `rebuild` invalidates every
     /// indexed row whose `embedding_model_id` differs so the next
     /// pass re-embeds with the new model.
+    #[cfg(feature = "embeddings")]
     embedding_model_id: String,
 }
 
@@ -49,13 +55,18 @@ impl SkillIndex {
         db: Arc<MemoryDB>,
         workspace_skills: PathBuf,
         builtin_skills: Option<PathBuf>,
-        embedding_model_id: String,
+        embedding_model_id: &str,
     ) -> Self {
+        // Reference the parameter so non-embeddings builds don't warn.
+        // The String only needs to live in the struct when embeddings
+        // are compiled in.
+        let _ = embedding_model_id;
         Self {
             db,
             workspace_skills,
             builtin_skills,
-            embedding_model_id,
+            #[cfg(feature = "embeddings")]
+            embedding_model_id: embedding_model_id.to_string(),
         }
     }
 
@@ -318,6 +329,7 @@ impl SkillIndex {
     }
 }
 
+#[cfg(any(feature = "embeddings", test))]
 fn sha256_hex(content: &str) -> String {
     let mut h = Sha256::new();
     h.update(content.as_bytes());
@@ -328,6 +340,7 @@ fn sha256_hex(content: &str) -> String {
 /// frontmatter, or fall back to the first non-blank, non-`#` markdown
 /// line. Used so the embedding represents the skill's purpose, not the
 /// file content.
+#[cfg(any(feature = "embeddings", test))]
 fn extract_description(content: &str) -> Option<String> {
     if let Some(rest) = content.strip_prefix("---")
         && let Some(end_idx) = rest.find("\n---\n")

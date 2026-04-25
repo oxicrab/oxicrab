@@ -124,6 +124,10 @@ impl Session {
 pub struct SessionManager {
     db: Arc<MemoryDB>,
     cache: Mutex<LruCache<String, Session>>,
+    /// Per-key serialization for `get_or_create`, `delete`, and
+    /// `rotate_session` so concurrent operations on the same key cannot
+    /// produce split-brain sessions or resurrect a just-deleted row.
+    key_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl SessionManager {
@@ -142,6 +146,7 @@ impl SessionManager {
             cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),
             )),
+            key_locks: Mutex::new(HashMap::new()),
         };
 
         // Migrate existing JSONL files on first use
@@ -163,6 +168,32 @@ impl SessionManager {
             cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),
             )),
+            key_locks: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Get (or insert) the per-key write lock for `key`. The lock map
+    /// itself is short-lived: callers should drop the outer guard before
+    /// awaiting the per-key lock to avoid blocking unrelated keys.
+    async fn key_lock(&self, key: &str) -> Arc<Mutex<()>> {
+        let mut map = self.key_locks.lock().await;
+        if let Some(existing) = map.get(key) {
+            return existing.clone();
+        }
+        let new_lock = Arc::new(Mutex::new(()));
+        map.insert(key.to_string(), new_lock.clone());
+        new_lock
+    }
+
+    /// Drop the per-key lock entry when no other holder exists. Called on
+    /// the slow path after a successful `delete` so the map doesn't grow
+    /// unboundedly across short-lived sessions.
+    async fn maybe_evict_key_lock(&self, key: &str) {
+        let mut map = self.key_locks.lock().await;
+        if let Some(existing) = map.get(key)
+            && Arc::strong_count(existing) == 1
+        {
+            map.remove(key);
         }
     }
 
@@ -304,16 +335,35 @@ impl SessionManager {
     }
 
     pub async fn get_or_create(&self, key: &str) -> Result<Session> {
-        // Check cache
+        // Cache-only fast path: a hit needs no per-key locking because
+        // the cache is itself a tokio mutex and the session is cloned.
         let cached_session = {
             let mut cache = self.cache.lock().await;
             cache.get(key).cloned()
         };
+        if let Some(session) = cached_session
+            && !self.should_rotate(&session)
+        {
+            debug!("session cache hit: {}", key);
+            return Ok(session);
+        }
 
+        // Slow path: serialize on the per-key lock so a concurrent
+        // `delete` cannot resurrect a deleted row in cache, and two
+        // racing rotations cannot produce split-brain Session objects.
+        let lock = self.key_lock(key).await;
+        let _key_guard = lock.lock().await;
+
+        // Re-check the cache under the per-key lock. Another caller may
+        // have populated/rotated it while we were waiting.
+        let cached_session = {
+            let mut cache = self.cache.lock().await;
+            cache.get(key).cloned()
+        };
         if let Some(session) = cached_session {
             if self.should_rotate(&session) {
                 debug!("session daily rotation: {}", key);
-                return self.rotate_session(key).await;
+                return self.rotate_session_locked(key).await;
             }
             debug!("session cache hit: {}", key);
             return Ok(session);
@@ -334,7 +384,7 @@ impl SessionManager {
 
             if self.should_rotate(&s) {
                 debug!("session daily rotation: {}", key);
-                return self.rotate_session(key).await;
+                return self.rotate_session_locked(key).await;
             }
 
             debug!("session loaded from database: {}", key);
@@ -344,12 +394,8 @@ impl SessionManager {
             Session::new(key.to_string())
         };
 
-        // Put in cache (double-check to avoid duplicates)
         {
             let mut cache = self.cache.lock().await;
-            if let Some(existing) = cache.get(key) {
-                return Ok(existing.clone());
-            }
             cache.put(key.to_string(), session.clone());
         }
 
@@ -361,8 +407,10 @@ impl SessionManager {
         session.created_at.date_naive() < Utc::now().date_naive()
     }
 
-    /// Delete the old session and return a fresh one.
-    async fn rotate_session(&self, key: &str) -> Result<Session> {
+    /// Delete the old session and return a fresh one. **Caller must hold
+    /// the per-key lock** — used by `get_or_create` after it acquires the
+    /// lock on the slow path. Public callers go through `rotate_session`.
+    async fn rotate_session_locked(&self, key: &str) -> Result<Session> {
         info!("rotating session: {}", key);
         let db = self.db.clone();
         let key_owned = key.to_string();
@@ -393,18 +441,30 @@ impl SessionManager {
 
     /// Delete a session from both the database and cache.
     pub async fn delete(&self, key: &str) -> Result<bool> {
+        // Hold the per-key lock across the DB delete and cache pop so a
+        // concurrent `get_or_create` can't observe a deleted row and put
+        // a stale clone back in cache.
+        let lock = self.key_lock(key).await;
+        let _key_guard = lock.lock().await;
+
         let db = self.db.clone();
         let key_owned = key.to_string();
         let existed = tokio::task::spawn_blocking(move || db.delete_session(&key_owned))
             .await
             .map_err(|e| anyhow::anyhow!("session delete task failed: {e}"))??;
 
-        let mut cache = self.cache.lock().await;
-        cache.pop(key);
+        {
+            let mut cache = self.cache.lock().await;
+            cache.pop(key);
+        }
 
         if existed {
             info!("session deleted: {}", key);
         }
+        // Best-effort: prune the per-key lock entry once the last
+        // outstanding handle (this one) is dropped.
+        drop(_key_guard);
+        self.maybe_evict_key_lock(key).await;
         Ok(existed)
     }
 

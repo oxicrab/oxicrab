@@ -426,7 +426,7 @@ fn register_skill_propose(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         memory.db(),
         workspace_skills.clone(),
         None,
-        ctx.skills_embedding_model_id.clone(),
+        &ctx.skills_embedding_model_id,
     ));
     let tool = SkillProposeTool::new(workspace_skills).with_index(index, memory);
     // Deferred so the tool is invisible by default. The LLM finds it
