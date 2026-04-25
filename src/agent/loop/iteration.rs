@@ -5,6 +5,7 @@ use super::{
 };
 use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
+use crate::agent::trajectory::TrajectoryLogger;
 use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
 
 use super::helpers::{
@@ -126,6 +127,35 @@ impl AgentLoop {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
         let mut last_was_tool_only = false;
+        // Trajectory: opt-in per-turn observability. Resolved up front so
+        // the hot loop just calls `if let Some(...)` without re-checking
+        // `self.trajectory_config.enabled` on every event.
+        let trajectory_session_key = exec_ctx
+            .metadata
+            .get(SESSION_KEY_META_KEY)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let (trajectory_logger, trajectory_turn) = if self.trajectory_config.enabled {
+            if let Some(ref sid) = trajectory_session_key {
+                let mut counters = self
+                    .trajectory_turn_counters
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let entry = counters.entry(sid.clone()).or_insert(0);
+                *entry = entry.saturating_add(1);
+                let turn = *entry;
+                drop(counters);
+                let logger = TrajectoryLogger::new(self.memory.db());
+                (Some(logger), turn)
+            } else {
+                (None, 0)
+            }
+        } else {
+            (None, 0)
+        };
+        // Trajectory tool-call dispatch instants — used to compute
+        // latency for `log_tool_result` events.
+        let mut trajectory_call_start: Vec<std::time::Instant> = Vec::new();
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -307,6 +337,25 @@ impl AgentLoop {
                 } else {
                     None
                 };
+                // Trajectory: log every dispatched call BEFORE execution
+                // so a panicking tool still leaves a breadcrumb. Latency
+                // is measured against the wave start instant.
+                if let (Some(ref logger), Some(ref sid)) = (
+                    trajectory_logger.as_ref(),
+                    trajectory_session_key.as_ref(),
+                ) {
+                    let wave_start = std::time::Instant::now();
+                    trajectory_call_start.clear();
+                    for tc in &response.tool_calls {
+                        let action = tc
+                            .arguments
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty());
+                        logger.log_tool_call(sid, trajectory_turn, &tc.name, action);
+                        trajectory_call_start.push(wave_start);
+                    }
+                }
                 let mut results = self
                     .execute_tools(
                         &response.tool_calls,
@@ -316,6 +365,33 @@ impl AgentLoop {
                         overrides.routing_policy.as_ref(),
                     )
                     .await;
+                // Trajectory: log results paired with the dispatched calls.
+                if let (Some(ref logger), Some(ref sid)) = (
+                    trajectory_logger.as_ref(),
+                    trajectory_session_key.as_ref(),
+                ) {
+                    for (idx, tc) in response.tool_calls.iter().enumerate() {
+                        let result = results.get(idx);
+                        let is_error = result.is_some_and(|r| r.is_error);
+                        let action = tc
+                            .arguments
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty());
+                        let latency_ms = trajectory_call_start
+                            .get(idx)
+                            .map(|t| t.elapsed().as_millis() as i64)
+                            .unwrap_or(0);
+                        logger.log_tool_result(
+                            sid,
+                            trajectory_turn,
+                            &tc.name,
+                            action,
+                            is_error,
+                            latency_ms,
+                        );
+                    }
+                }
 
                 // Stop typing indicator after tool execution (guard aborts on drop)
                 drop(typing_guard);
@@ -395,6 +471,13 @@ impl AgentLoop {
                 let mut response_metadata =
                     self.take_pending_buttons_metadata(&activation_scope);
                 merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
+                if let (Some(ref logger), Some(ref sid)) = (
+                    trajectory_logger.as_ref(),
+                    trajectory_session_key.as_ref(),
+                ) {
+                    logger.log_turn_end(sid, trajectory_turn);
+                }
+                self.maybe_spawn_skill_auto_suggest(trajectory_session_key.as_deref());
                 return Ok(AgentLoopResult {
                     content: Some(content),
                     input_tokens: last_input_tokens,

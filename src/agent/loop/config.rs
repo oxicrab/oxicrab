@@ -189,6 +189,13 @@ pub struct AgentLoopConfig {
     pub approval_config: crate::config::ApprovalConfig,
     /// Reflexion-style failure reflection configuration.
     pub reflection_config: crate::config::ReflectionConfig,
+    /// Trajectory collection (Track 3) — logs tool loop events and powers
+    /// cross-session skill auto-save.
+    pub trajectory_config: crate::config::TrajectoryConfig,
+    /// Skill auto-refine — patches skills based on session learnings.
+    pub skill_refine_config: crate::config::SkillRefineConfig,
+    /// Activity journal — append-only NDJSON of every conversation turn.
+    pub activity_journal_config: crate::config::ActivityJournalConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -300,6 +307,9 @@ impl AgentLoopConfig {
             router_config: config.router.clone(),
             approval_config: config.agents.defaults.approval.clone(),
             reflection_config: config.agents.defaults.reflection.clone(),
+            trajectory_config: config.agents.defaults.trajectory.clone(),
+            skill_refine_config: config.agents.defaults.skill_refine.clone(),
+            activity_journal_config: config.agents.defaults.activity_journal.clone(),
         }
     }
 
@@ -377,6 +387,9 @@ impl AgentLoopConfig {
             router_config: crate::config::RouterConfig::default(),
             approval_config: crate::config::ApprovalConfig::default(),
             reflection_config: crate::config::ReflectionConfig::default(),
+            trajectory_config: crate::config::TrajectoryConfig::default(),
+            skill_refine_config: crate::config::SkillRefineConfig::default(),
+            activity_journal_config: crate::config::ActivityJournalConfig::default(),
         }
     }
 }

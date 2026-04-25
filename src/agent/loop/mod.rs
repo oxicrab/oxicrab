@@ -1,3 +1,4 @@
+mod auto_suggest;
 mod compaction_history;
 mod complexity;
 pub mod config;
@@ -47,6 +48,7 @@ use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use dashmap::DashMap;
 use lru::LruCache;
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -156,6 +158,16 @@ pub struct AgentLoop {
     approval_config: crate::config::ApprovalConfig,
     /// Reflexion-style failure reflection configuration.
     reflection_config: crate::config::ReflectionConfig,
+    /// Trajectory logging configuration (Track 3).
+    trajectory_config: crate::config::TrajectoryConfig,
+    /// Per-session, monotonically-increasing turn counter — bumped at the
+    /// end of each agent run when trajectory logging is enabled.
+    trajectory_turn_counters: Arc<std::sync::Mutex<HashMap<String, u32>>>,
+    /// Skill auto-refine configuration.
+    skill_refine_config: crate::config::SkillRefineConfig,
+    /// Activity journal — append-only NDJSON, optional.
+    activity_journal: Option<Arc<crate::agent::activity_journal::ActivityJournal>>,
+    activity_journal_config: crate::config::ActivityJournalConfig,
     /// Sender for outbound messages (approval requests, user feedback).
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
 }
@@ -199,6 +211,9 @@ impl AgentLoop {
             router_config,
             approval_config,
             reflection_config,
+            trajectory_config,
+            skill_refine_config,
+            activity_journal_config,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -347,6 +362,25 @@ impl AgentLoop {
 
         let leak_detector = shared_leak_detector.unwrap_or_else(|| Arc::new(LeakDetector::new()));
 
+        // Activity journal must be constructed before `tool_ctx` so the
+        // `query_activity` tool can borrow it. Failures fall back to
+        // `None` and disable the tool — agent startup is unaffected.
+        let activity_journal: Option<Arc<crate::agent::activity_journal::ActivityJournal>> =
+            if activity_journal_config.enabled {
+                match crate::agent::activity_journal::ActivityJournal::new(
+                    workspace.join("activity_journal.ndjson"),
+                    activity_journal_config.max_content_chars,
+                ) {
+                    Ok(j) => Some(Arc::new(j)),
+                    Err(e) => {
+                        warn!("activity_journal: failed to open ({e}); journaling disabled");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
             restrict_to_workspace: tool_configs.restrict_to_workspace,
@@ -400,6 +434,8 @@ impl AgentLoop {
             rss_config: tool_configs.rss_config,
             leak_detector: leak_detector.clone(),
             skills_embedding_model_id: skills_embedding_model_id.clone(),
+            activity_journal: activity_journal.clone(),
+            activity_journal_config: activity_journal_config.clone(),
         };
 
         let (
@@ -613,6 +649,11 @@ impl AgentLoop {
             approval_store: Arc::new(crate::agent::approval::ApprovalStore::new()),
             approval_config,
             reflection_config,
+            trajectory_config,
+            trajectory_turn_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            skill_refine_config,
+            activity_journal,
+            activity_journal_config,
             outbound_tx,
         })
     }
@@ -717,6 +758,13 @@ impl AgentLoop {
                             outbound_msg.chat_id,
                             outbound_msg.content.len()
                         );
+                        if let Some(ref journal) = self.activity_journal {
+                            let session_key =
+                                format!("{}:{}", outbound_msg.channel, outbound_msg.chat_id);
+                            let _ = journal
+                                .append(&session_key, "agent", &outbound_msg.content)
+                                .await;
+                        }
                         if let Err(e) = self.bus.publish_outbound(outbound_msg).await {
                             error!("Failed to send outbound message: {}", e);
                         } else {

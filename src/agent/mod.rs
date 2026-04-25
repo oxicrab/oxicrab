@@ -1,3 +1,4 @@
+pub mod activity_journal;
 #[path = "loop/mod.rs"]
 pub mod agent_loop;
 pub mod approval;
@@ -8,6 +9,7 @@ pub mod memory;
 pub mod skills;
 pub mod subagent;
 pub mod tools;
+pub mod trajectory;
 pub mod truncation;
 pub mod workspace;
 

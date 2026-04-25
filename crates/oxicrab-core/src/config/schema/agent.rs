@@ -236,6 +236,190 @@ fn default_skills_prune_days() -> u32 {
     30
 }
 
+/// Trajectory collection (Track 3 of self-improvement) — logs every
+/// tool call, tool result, and turn-end into `trajectory_events`. Pure
+/// observability when `enabled = true` and `autoSuggest.enabled = false`;
+/// the auto-suggest pipeline reads the same table to detect repeating
+/// cross-session workflows and persist them as skills.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrajectoryConfig {
+    /// Master switch. Off by default — costs one INSERT per tool call
+    /// when on.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Cross-session auto-save settings.
+    #[serde(default, rename = "autoSuggest")]
+    pub auto_suggest: TrajectoryAutoSuggestConfig,
+    /// LLM-compress sessions older than this many days into a
+    /// `trajectory_summaries` row, dropping their raw events. Set to 0
+    /// to disable. Compression is best-effort; failures log a warning
+    /// and leave raw events in place.
+    #[serde(
+        default = "default_trajectory_compress_days",
+        rename = "compressAfterDays"
+    )]
+    pub compress_after_days: u32,
+}
+
+impl Default for TrajectoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auto_suggest: TrajectoryAutoSuggestConfig::default(),
+            compress_after_days: default_trajectory_compress_days(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrajectoryAutoSuggestConfig {
+    /// Master switch. Off by default — when on, the agent fires a
+    /// background scan after each turn-end to find repeating tool
+    /// sequences and auto-save them as skills.
+    #[serde(default)]
+    pub enabled: bool,
+    /// A sequence must repeat at least this many times across distinct
+    /// turns before it qualifies for auto-save.
+    #[serde(
+        default = "default_auto_suggest_min_occurrences",
+        rename = "minOccurrences"
+    )]
+    pub min_occurrences: u32,
+    /// Minimum tool calls per turn for that turn to count toward the
+    /// occurrence tally.
+    #[serde(default = "default_auto_suggest_min_len", rename = "minSequenceLength")]
+    pub min_sequence_length: usize,
+    /// Cap on per-sequence step count fed to the LLM and stored in the
+    /// fingerprint. Larger sequences are truncated.
+    #[serde(
+        default = "default_auto_suggest_max_steps",
+        rename = "maxSequenceSteps"
+    )]
+    pub max_sequence_steps: usize,
+}
+
+impl Default for TrajectoryAutoSuggestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_occurrences: default_auto_suggest_min_occurrences(),
+            min_sequence_length: default_auto_suggest_min_len(),
+            max_sequence_steps: default_auto_suggest_max_steps(),
+        }
+    }
+}
+
+fn default_trajectory_compress_days() -> u32 {
+    90
+}
+
+fn default_auto_suggest_min_occurrences() -> u32 {
+    5
+}
+
+fn default_auto_suggest_min_len() -> usize {
+    2
+}
+
+fn default_auto_suggest_max_steps() -> usize {
+    8
+}
+
+/// Skill auto-refine — fires after a turn that loaded one or more
+/// skills into context AND ran ≥ `minToolCalls` tool calls. Writes a
+/// patched skill body when the LLM's confidence is ≥ `confidenceThreshold`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillRefineConfig {
+    /// Master switch. Off by default.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Round-2 patch only fires when the round-1 LLM assessment returns
+    /// confidence at or above this value.
+    #[serde(
+        default = "default_refine_confidence_threshold",
+        rename = "confidenceThreshold"
+    )]
+    pub confidence_threshold: f32,
+    /// Skip refinement unless the just-completed turn ran at least this
+    /// many tool calls. Below the threshold the signal is too noisy.
+    #[serde(default = "default_refine_min_tool_calls", rename = "minToolCalls")]
+    pub min_tool_calls: usize,
+    /// Maximum response tokens for both rounds.
+    #[serde(default = "default_refine_max_tokens", rename = "maxTokens")]
+    pub max_tokens: u32,
+}
+
+impl Default for SkillRefineConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            confidence_threshold: default_refine_confidence_threshold(),
+            min_tool_calls: default_refine_min_tool_calls(),
+            max_tokens: default_refine_max_tokens(),
+        }
+    }
+}
+
+fn default_refine_confidence_threshold() -> f32 {
+    0.7
+}
+
+fn default_refine_min_tool_calls() -> usize {
+    3
+}
+
+fn default_refine_max_tokens() -> u32 {
+    800
+}
+
+/// Activity journal — append-only NDJSON log of every conversation
+/// turn (user/agent/system) under
+/// `<workspace>/activity_journal.ndjson`. The `query_activity` tool
+/// exposes it to the agent via natural-language time expressions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityJournalConfig {
+    /// Master switch. Off by default — appends one line per turn when on.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Truncate stored content to this many chars per record.
+    #[serde(default = "default_journal_max_content", rename = "maxContentChars")]
+    pub max_content_chars: usize,
+    /// Default search window (minutes around the resolved anchor) when
+    /// the agent doesn't specify one.
+    #[serde(
+        default = "default_journal_default_window",
+        rename = "defaultWindowMinutes"
+    )]
+    pub default_window_minutes: u32,
+    /// Hard cap on `window_minutes` accepted from the LLM. Bounds disk
+    /// reads when the model overshoots.
+    #[serde(default = "default_journal_max_window", rename = "maxWindowMinutes")]
+    pub max_window_minutes: u32,
+}
+
+impl Default for ActivityJournalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_content_chars: default_journal_max_content(),
+            default_window_minutes: default_journal_default_window(),
+            max_window_minutes: default_journal_max_window(),
+        }
+    }
+}
+
+fn default_journal_max_content() -> usize {
+    512
+}
+
+fn default_journal_default_window() -> u32 {
+    60
+}
+
+fn default_journal_max_window() -> u32 {
+    1440
+}
+
 /// Action to take when prompt injection is detected.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -853,6 +1037,12 @@ pub struct AgentDefaults {
     pub reflection: ReflectionConfig,
     #[serde(default)]
     pub skills: SkillsConfig,
+    #[serde(default)]
+    pub trajectory: TrajectoryConfig,
+    #[serde(default, rename = "skillRefine")]
+    pub skill_refine: SkillRefineConfig,
+    #[serde(default, rename = "activityJournal")]
+    pub activity_journal: ActivityJournalConfig,
 }
 
 impl Default for AgentDefaults {
@@ -875,6 +1065,9 @@ impl Default for AgentDefaults {
             approval: ApprovalConfig::default(),
             reflection: ReflectionConfig::default(),
             skills: SkillsConfig::default(),
+            trajectory: TrajectoryConfig::default(),
+            skill_refine: SkillRefineConfig::default(),
+            activity_journal: ActivityJournalConfig::default(),
         }
     }
 }

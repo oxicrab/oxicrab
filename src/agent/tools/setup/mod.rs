@@ -50,6 +50,11 @@ pub struct ToolBuildContext {
     /// invalidated on the next rebuild and re-embedded for nothing.
     /// Empty when skill indexing is disabled.
     pub skills_embedding_model_id: String,
+    /// Activity journal — used by `query_activity`. `None` when
+    /// `agents.defaults.activityJournal.enabled = false`.
+    pub activity_journal: Option<Arc<crate::agent::activity_journal::ActivityJournal>>,
+    /// Activity journal config — used to clamp `query_activity` window args.
+    pub activity_journal_config: config::ActivityJournalConfig,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -87,6 +92,7 @@ pub async fn register_all_tools(
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
     register_workspace(&mut tools, ctx);
+    register_query_activity(&mut tools, ctx);
     register_interactive(&mut tools, ctx);
     register_skill_propose(&mut tools, ctx);
     #[cfg(feature = "tool-rss")]
@@ -454,6 +460,21 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         ctx.memory.clone(),
         ctx.leak_detector.clone(),
     )));
+}
+
+fn register_query_activity(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::query_activity::QueryActivityTool;
+
+    let Some(ref journal) = ctx.activity_journal else {
+        return;
+    };
+    let cfg = &ctx.activity_journal_config;
+    registry.register(Arc::new(QueryActivityTool::new(
+        journal.clone(),
+        cfg.default_window_minutes,
+        cfg.max_window_minutes,
+    )));
+    info!("query_activity tool registered");
 }
 
 fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {

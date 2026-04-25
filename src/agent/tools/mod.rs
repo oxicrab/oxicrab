@@ -4,6 +4,7 @@ pub mod cron;
 pub mod interactive;
 pub mod mcp;
 pub mod memory_search;
+pub mod query_activity;
 pub mod read_only_wrapper;
 pub mod registry;
 pub mod setup;

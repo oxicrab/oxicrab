@@ -45,6 +45,14 @@ impl AgentLoop {
 
         let session_key = msg.session_key();
 
+        // Activity journal: record the user message before any branching
+        // so even early-return paths (reset commands, blocked content)
+        // leave a breadcrumb. Failures are swallowed — journaling must
+        // never break user-facing replies.
+        if let Some(ref journal) = self.activity_journal {
+            let _ = journal.append(&session_key, "user", &msg.content).await;
+        }
+
         // Handle session reset command before loading the session
         if is_reset_command(&msg.content) {
             info!("session reset requested: {}", session_key);
