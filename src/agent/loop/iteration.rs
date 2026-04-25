@@ -105,8 +105,11 @@ impl AgentLoop {
     /// Core agent loop implementation with per-invocation overrides.
     ///
     /// Iterates up to `max_iterations` rounds of: LLM call → parallel tool execution → append results.
-    /// Uses `tool_choice=None` (auto) on all iterations — hallucination detection in
-    /// `handle_text_response()` catches false action claims. At 70% of max iterations, a wrap-up
+    /// Uses `tool_choice=None` (auto) on all iterations. The
+    /// `contains_action_claims` regex remains as a public utility for
+    /// external consumers but is intentionally not wired into the loop —
+    /// pattern-based second-guessing of LLM text caused false positives
+    /// (see CLAUDE.md "No `tool_choice` forcing"). At 70% of max iterations, a wrap-up
     /// nudge is injected.
     ///
     /// Returns an `AgentLoopResult` with response text, input tokens, tool names used, and media paths.
@@ -218,8 +221,12 @@ impl AgentLoop {
             } else {
                 self.temperature
             };
-            // Let the model decide when to use tools (auto mode). Hallucination detection
-            // in handle_text_response() catches false action claims as a safety net.
+            // Let the model decide when to use tools (auto mode). No
+            // post-hoc hallucination check is wired today (the
+            // contains_action_claims regex is a public utility but
+            // intentionally inert — see CLAUDE.md "No `tool_choice`
+            // forcing"). False-completion claims are tracked instead by
+            // the IronClaw-flagged button-autodispatch project.
             let tool_choice: Option<String> = None;
 
             // Pre-flight token estimation: trim oldest non-system messages if
