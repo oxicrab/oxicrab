@@ -88,22 +88,46 @@ fn extract_message_text(content: Option<&Value>) -> Cow<'_, str> {
     Cow::Borrowed("")
 }
 
+/// Placeholder body for synthesized tool results when the original
+/// was dropped by compaction. Adopted from openclaw's
+/// `tool-replay-repair`: stripping the orphaned `tool_use` loses the
+/// "I tried X" context; synthesizing a stub preserves it so the
+/// model can reason about its prior attempts.
+const SYNTHESIZED_TOOL_RESULT: &str = "(tool result was dropped by compaction; treat as unknown outcome and re-run if you need the actual result)";
+
 /// Remove orphaned tool messages from a message list.
 ///
 /// After compaction removes older messages, a `tool_result` (role="tool")
 /// may reference a `tool_use` that no longer exists, or an assistant message
 /// with `tool_calls` may lack corresponding `tool_result` responses. These
-/// orphans can cause API errors with providers that enforce strict pairing
+/// orphans cause API errors with providers that enforce strict pairing
 /// (e.g. Anthropic).
 ///
-/// Scans the message list in two passes:
-/// 1. Collect all `tool_call` IDs from assistant messages and all
-///    `tool_call` IDs referenced by tool-result messages.
-/// 2. Remove tool-result messages whose ID has no matching assistant
-///    `tool_call`, and remove assistant `tool_calls` whose ID has no
-///    matching tool-result.
+/// Strategy:
+/// 1. Orphaned **tool-result** messages (no matching assistant `tool_call`)
+///    are deleted — the assistant never made the call, so the result is
+///    spurious.
+/// 2. Orphaned assistant **`tool_calls`** (no matching result) are
+///    REPAIRED, not stripped, when `repair_orphans = true`: a synthesized
+///    `tool` message with placeholder content is inserted right after
+///    the orphaning assistant turn. This preserves the "I tried X"
+///    structure of the conversation. With `repair_orphans = false` the
+///    function falls back to the old strip-and-purge behavior.
+///
+/// Returns `(orphaned_results_removed, orphaned_calls_repaired_or_stripped)`.
 #[allow(clippy::implicit_hasher)]
 pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) -> (usize, usize) {
+    repair_orphaned_tool_messages(messages, true)
+}
+
+/// Lower-level entry point exposing the repair toggle. The agent loop
+/// uses `strip_orphaned_tool_messages` (repair=true); tests covering
+/// the legacy strip-only behavior call this directly.
+#[allow(clippy::implicit_hasher)]
+pub fn repair_orphaned_tool_messages(
+    messages: &mut Vec<HashMap<String, Value>>,
+    repair_orphans: bool,
+) -> (usize, usize) {
     // Collect tool_call IDs from assistant messages (tool_use side)
     let mut assistant_tool_ids: HashSet<String> = HashSet::new();
     for msg in messages.iter() {
@@ -156,50 +180,105 @@ pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) 
     });
     let orphaned_results = before_len - messages.len();
 
-    // Strip orphaned tool_calls from assistant messages (tool_call with no matching result).
-    // Providers like Anthropic reject unmatched tool_use blocks.
-    let orphaned_call_ids: HashSet<&String> = assistant_tool_ids
+    // Find tool_calls that have no matching tool-result. These are
+    // either repaired (synthesize placeholder result) or stripped.
+    let orphaned_call_ids: HashSet<String> = assistant_tool_ids
         .iter()
         .filter(|id| !result_tool_ids.contains(*id))
+        .cloned()
         .collect();
     let orphaned_calls = orphaned_call_ids.len();
 
     if orphaned_calls > 0 {
-        for msg in messages.iter_mut() {
-            if msg.get("role").and_then(Value::as_str) != Some("assistant") {
-                continue;
-            }
-            // Strip from OpenAI-style tool_calls array
-            if let Some(Value::Array(tool_calls)) = msg.get_mut("tool_calls") {
-                tool_calls.retain(|tc| {
-                    tc.get("id")
-                        .and_then(Value::as_str)
-                        .is_none_or(|id| !orphaned_call_ids.contains(&id.to_string()))
-                });
-                // Remove the key entirely if the array is now empty
-                if tool_calls.is_empty() {
-                    msg.remove("tool_calls");
+        if repair_orphans {
+            // Repair: walk forward, find each assistant message
+            // carrying an orphaned id, and queue placeholder tool
+            // messages to insert right after it. Insert in reverse
+            // order to keep earlier indices valid.
+            let mut inserts: Vec<(usize, String)> = Vec::new();
+            for (idx, msg) in messages.iter().enumerate() {
+                if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+                    continue;
+                }
+                let mut ids_here: Vec<String> = Vec::new();
+                if let Some(tool_calls) = msg.get("tool_calls").and_then(Value::as_array) {
+                    for tc in tool_calls {
+                        if let Some(id) = tc.get("id").and_then(Value::as_str)
+                            && orphaned_call_ids.contains(id)
+                        {
+                            ids_here.push(id.to_string());
+                        }
+                    }
+                }
+                if let Some(content) = msg.get("content").and_then(Value::as_array) {
+                    for block in content {
+                        if block.get("type").and_then(Value::as_str) == Some("tool_use")
+                            && let Some(id) = block.get("id").and_then(Value::as_str)
+                            && orphaned_call_ids.contains(id)
+                            && !ids_here.iter().any(|x| x == id)
+                        {
+                            ids_here.push(id.to_string());
+                        }
+                    }
+                }
+                for id in ids_here {
+                    inserts.push((idx + 1, id));
                 }
             }
-            // Strip from Anthropic-style content array (tool_use blocks)
-            if let Some(Value::Array(content)) = msg.get_mut("content") {
-                content.retain(|block| {
-                    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
-                        return true;
+            // Insert in reverse so that earlier `idx + 1` positions
+            // stay valid as later inserts grow the vector.
+            for (pos, id) in inserts.into_iter().rev() {
+                let mut placeholder: HashMap<String, Value> = HashMap::new();
+                placeholder.insert("role".to_string(), Value::String("tool".to_string()));
+                placeholder.insert("tool_call_id".to_string(), Value::String(id));
+                placeholder.insert(
+                    "content".to_string(),
+                    Value::String(SYNTHESIZED_TOOL_RESULT.to_string()),
+                );
+                placeholder.insert("is_error".to_string(), Value::Bool(false));
+                messages.insert(pos, placeholder);
+            }
+        } else {
+            // Strip: drop the orphaned tool_use blocks from the
+            // assistant message instead of repairing.
+            for msg in messages.iter_mut() {
+                if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+                    continue;
+                }
+                if let Some(Value::Array(tool_calls)) = msg.get_mut("tool_calls") {
+                    tool_calls.retain(|tc| {
+                        tc.get("id")
+                            .and_then(Value::as_str)
+                            .is_none_or(|id| !orphaned_call_ids.contains(id))
+                    });
+                    if tool_calls.is_empty() {
+                        msg.remove("tool_calls");
                     }
-                    block
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .is_none_or(|id| !orphaned_call_ids.contains(&id.to_string()))
-                });
+                }
+                if let Some(Value::Array(content)) = msg.get_mut("content") {
+                    content.retain(|block| {
+                        if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                            return true;
+                        }
+                        block
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .is_none_or(|id| !orphaned_call_ids.contains(id))
+                    });
+                }
             }
         }
     }
 
     if orphaned_results > 0 || orphaned_calls > 0 {
+        let action = if repair_orphans {
+            "repaired"
+        } else {
+            "stripped"
+        };
         debug!(
-            "stripped {} orphaned tool_result(s) and {} orphaned tool_call(s)",
-            orphaned_results, orphaned_calls
+            "stripped {} orphaned tool_result(s) and {} {} orphaned tool_call(s)",
+            orphaned_results, action, orphaned_calls
         );
     }
 
