@@ -22,6 +22,7 @@ mod stats;
 mod subagent_log;
 mod tool_reflections;
 mod traces;
+mod trajectories;
 mod workspace;
 
 pub use collections::{
@@ -41,6 +42,10 @@ pub use stats::{
 pub use subagent_log::SubagentLogEntry;
 pub use tool_reflections::{ReflectionRecord, ReflectionStatRow};
 pub use traces::{CronTrace, TraceEvent, summarize_params, summarize_result};
+pub use trajectories::{
+    RepeatedSequence, SkillRefinementRecord, TrajectoryEvent, TrajectoryEventType,
+    TrajectorySummary,
+};
 pub use workspace::WorkspaceFileEntry;
 
 /// Escape SQL LIKE wildcards (`%`, `_`, `\`) so they match literally.

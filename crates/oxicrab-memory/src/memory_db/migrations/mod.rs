@@ -222,6 +222,53 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 10 {
+        run_migration(conn, 10, || {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS trajectory_events (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id    TEXT NOT NULL,
+                    turn_index    INTEGER NOT NULL,
+                    event_type    TEXT NOT NULL,
+                    tool_name     TEXT,
+                    action        TEXT,
+                    latency_ms    INTEGER,
+                    is_error      INTEGER,
+                    created_at_ms INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_traj_events_session_turn
+                    ON trajectory_events(session_id, turn_index);
+                CREATE INDEX IF NOT EXISTS idx_traj_events_created
+                    ON trajectory_events(created_at_ms);
+
+                CREATE TABLE IF NOT EXISTS trajectory_summaries (
+                    session_id     TEXT PRIMARY KEY,
+                    summary        TEXT NOT NULL,
+                    fingerprint    TEXT,
+                    occurrences    INTEGER NOT NULL DEFAULT 0,
+                    candidate_name TEXT,
+                    candidate_desc TEXT,
+                    candidate_conf REAL,
+                    created_at_ms  INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS skill_refinements (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    skill_name    TEXT NOT NULL,
+                    confidence    REAL NOT NULL,
+                    reason        TEXT NOT NULL,
+                    bytes_before  INTEGER NOT NULL,
+                    bytes_after   INTEGER NOT NULL,
+                    version_after TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_skill_refinements_name
+                    ON skill_refinements(skill_name, created_at_ms);",
+            )?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 
