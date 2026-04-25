@@ -21,7 +21,7 @@ urlencoding = "2.1"
 regex = { workspace = true }
 oauth2 = "5.0"
 dirs = { workspace = true }
-open = "5.0"
+open = "5.3"
 url = { workspace = true }
 
 [dev-dependencies]
