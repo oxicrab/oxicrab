@@ -296,6 +296,13 @@ pub struct TrajectoryAutoSuggestConfig {
         rename = "maxSequenceSteps"
     )]
     pub max_sequence_steps: usize,
+    /// When `true`, fire a small LLM call to write a purpose-specific
+    /// skill body for the staged candidate. When `false`, a fixed
+    /// template is used. The LLM call costs roughly 1k tokens per
+    /// staged candidate; the template path is free. Adopted from
+    /// OpenCrust's auto-skill writer.
+    #[serde(default, rename = "useLlmBody")]
+    pub use_llm_body: bool,
 }
 
 impl Default for TrajectoryAutoSuggestConfig {
@@ -305,6 +312,7 @@ impl Default for TrajectoryAutoSuggestConfig {
             min_occurrences: default_auto_suggest_min_occurrences(),
             min_sequence_length: default_auto_suggest_min_len(),
             max_sequence_steps: default_auto_suggest_max_steps(),
+            use_llm_body: false,
         }
     }
 }

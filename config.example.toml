@@ -83,6 +83,7 @@ enabled = false
 minOccurrences = 5
 minSequenceLength = 2
 maxSequenceSteps = 8
+useLlmBody = false
 
 [agents.defaults.skillRefine]
 enabled = false
