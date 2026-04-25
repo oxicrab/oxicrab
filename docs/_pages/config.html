@@ -48,6 +48,8 @@ max_width: 820px
             <li><a href="#skill-refine">Skill auto-refine</a></li>
             <li><a href="#activity-journal">Activity journal</a></li>
             <li><a href="#judge">LLM-as-Judge</a></li>
+            <li><a href="#memory-promotion">Memory promotion</a></li>
+            <li><a href="#llm-request-timeout">LLM request timeout</a></li>
             <li><a href="#gateway">Gateway</a></li>
             <li><a href="#observability">Observability</a></li>
             <li><a href="#sandbox">Sandbox</a></li>
@@ -747,7 +749,8 @@ compressAfterDays = 90
 enabled = false
 minOccurrences = 5
 minSequenceLength = 2
-maxSequenceSteps = 8</code></pre>
+maxSequenceSteps = 8
+useLlmBody = false</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -757,6 +760,7 @@ maxSequenceSteps = 8</code></pre>
             <tr><td>autoSuggest.minOccurrences</td><td>integer</td><td>5</td><td>A sequence must repeat at least this many times across distinct turns to qualify.</td></tr>
             <tr><td>autoSuggest.minSequenceLength</td><td>integer</td><td>2</td><td>Minimum tool calls per turn for that turn to count toward the occurrence tally.</td></tr>
             <tr><td>autoSuggest.maxSequenceSteps</td><td>integer</td><td>8</td><td>Cap on per-sequence step count. Larger sequences are truncated.</td></tr>
+            <tr><td>autoSuggest.useLlmBody</td><td>bool</td><td>false</td><td>When true, fire a small LLM call to write a purpose-specific skill body for staged candidates instead of the fixed template. Cost: ~1k tokens per staged candidate. Falls back to template on failure.</td></tr>
         </table>
 
         <h3>Coverage check</h3>
@@ -858,6 +862,43 @@ blockedTools = []</code></pre>
         </ol>
 
         <p>The judge sits between the operator approval workflow and tool execution: <code>exfiltration guard → MCP allowlist → operator approval → judge → param validation → registry.execute</code>.</p>
+    </div>
+
+    <!-- MEMORY PROMOTION -->
+    <div id="memory-promotion" class="cfg-section">
+        <h2>Memory promotion (recall-driven)</h2>
+        <p>Memory entries that prove useful in retrieval should outlive the 180-day daily-note retention window. The promotion pass scans <code>memory_search_hits</code> over a lookback window for <code>daily:</code> entries that were retrieved frequently across distinct queries, then rewrites their <code>source_key</code> from <code>daily:&lt;date&gt;...</code> to <code>knowledge:auto:&lt;date&gt;...</code> — the <code>knowledge:</code> prefix is exempt from retention purge.</p>
+
+        <p>Adopted from openclaw's <code>recordShortTermRecalls</code> + <code>short-term-promotion</code> pattern. The data was already collected in <code>memory_access_log</code>; this just feeds it back. Runs during the daily maintenance ticker.</p>
+
+        <h3>Configuration</h3>
+        <p>Config path: <code>agents.defaults.memory.promotion</code></p>
+        <pre><code>[agents.defaults.memory.promotion]
+enabled = false
+minRecalls = 5
+minUniqueQueries = 2
+daysBack = 30</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Master switch. Off by default — operators should verify their <code>oxicrab stats search</code> output looks healthy first.</td></tr>
+            <tr><td>minRecalls</td><td>integer</td><td>5</td><td>An entry must have appeared in this many search results across the lookback window to qualify.</td></tr>
+            <tr><td>minUniqueQueries</td><td>integer</td><td>2</td><td>Across at least this many distinct queries — protects against one popular query dominating the signal.</td></tr>
+            <tr><td>daysBack</td><td>integer</td><td>30</td><td>Lookback window for the recall histogram.</td></tr>
+        </table>
+    </div>
+
+    <!-- LLM REQUEST TIMEOUT -->
+    <div id="llm-request-timeout" class="cfg-section">
+        <h2>LLM request timeout</h2>
+        <p>Hard timeout on each LLM provider call. Without it, a hung provider holds the per-session processing lock indefinitely — the channel goes silent forever. Adopted from <a href="https://github.com/HKUDS/nanobot/pull/3428">nanobot PR #3428</a>.</p>
+
+        <p>Config path: <code>agents.defaults.llmRequestTimeoutSeconds</code> (top-level under <code>[agents.defaults]</code>). Default <code>300</code> (5 minutes). Set to <code>0</code> to disable — only do that when you're sure your provider will never hang or you're testing latency under stress.</p>
+
+        <pre><code>[agents.defaults]
+llmRequestTimeoutSeconds = 300</code></pre>
+
+        <p>On timeout the loop synthesises an error result, releases the session lock, and the channel is unblocked. The next inbound message is processed normally.</p>
     </div>
 
     <!-- CONTEXT PROVIDERS -->

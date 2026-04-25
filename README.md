@@ -177,9 +177,9 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 > **Full tool reference:** [oxicrab.github.io/oxicrab/tools.html](https://oxicrab.github.io/oxicrab/tools.html)
 
-33 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
+34 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
 
-**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `web_fetch_summary` — fetch a URL and return a small-model summary with 15-min cache, `http`, `spawn`, `subagent_control`, `cron`, `finish_cron` — explicit completion signal for scheduled jobs, `memory_search`, `query_activity` — search the activity journal by NL time expression, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword, `add_buttons` — interactive buttons (Slack/Discord), `collections` — structured data with typed schemas and per-collection CRUD tools
+**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `web_fetch_summary` — fetch a URL and return a small-model summary with 15-min cache, `http`, `spawn`, `subagent_control`, `cron`, `finish_cron` — explicit completion signal for scheduled jobs, `memory_search`, `claim` — structured assertions with confidence, status, evidence + contradiction lint, `query_activity` — search the activity journal by NL time expression, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword, `add_buttons` — interactive buttons (Slack/Discord), `collections` — structured data with typed schemas and per-collection CRUD tools
 
 **Configurable**: `google_mail`, `google_calendar`, `google_tasks`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 
