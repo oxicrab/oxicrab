@@ -658,6 +658,55 @@ pub struct MemoryConfig {
     /// the context window.
     #[serde(default = "default_max_context_chars", rename = "maxContextChars")]
     pub max_context_chars: usize,
+    /// Recall-driven promotion: surface daily notes that get repeatedly
+    /// retrieved and promote them to durable knowledge entries before
+    /// the retention purge drops them. Adopted from openclaw's
+    /// `recordShortTermRecalls` + `short-term-promotion` pattern.
+    #[serde(default)]
+    pub promotion: MemoryPromotionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPromotionConfig {
+    /// Master switch. Off by default — promotion runs during the daily
+    /// maintenance ticker when on.
+    #[serde(default)]
+    pub enabled: bool,
+    /// A `daily:` entry must have appeared in this many search results
+    /// (across the lookback window) to qualify for promotion.
+    #[serde(default = "default_promotion_min_recalls", rename = "minRecalls")]
+    pub min_recalls: u32,
+    /// And across at least this many distinct queries — protects against
+    /// one popular query dominating the signal.
+    #[serde(
+        default = "default_promotion_min_unique_queries",
+        rename = "minUniqueQueries"
+    )]
+    pub min_unique_queries: u32,
+    /// Lookback window in days for the recall histogram.
+    #[serde(default = "default_promotion_days_back", rename = "daysBack")]
+    pub days_back: u32,
+}
+
+impl Default for MemoryPromotionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_recalls: default_promotion_min_recalls(),
+            min_unique_queries: default_promotion_min_unique_queries(),
+            days_back: default_promotion_days_back(),
+        }
+    }
+}
+
+fn default_promotion_min_recalls() -> u32 {
+    5
+}
+fn default_promotion_min_unique_queries() -> u32 {
+    2
+}
+fn default_promotion_days_back() -> u32 {
+    30
 }
 
 impl Default for MemoryConfig {
@@ -673,6 +722,7 @@ impl Default for MemoryConfig {
             search_result_limit: default_search_result_limit(),
             retention_days: default_retention_days(),
             max_context_chars: default_max_context_chars(),
+            promotion: MemoryPromotionConfig::default(),
         }
     }
 }

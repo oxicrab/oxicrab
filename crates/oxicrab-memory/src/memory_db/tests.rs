@@ -184,6 +184,52 @@ fn test_source_hit_count() {
 }
 
 #[test]
+fn test_promote_source_key_rewrites_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test_memory.db")).unwrap();
+    db.insert_memory("daily:2026-04-25", "fact one").unwrap();
+    db.insert_memory("daily:2026-04-25", "fact two").unwrap();
+    let n = db
+        .promote_source_key("daily:2026-04-25", "knowledge:auto:2026-04-25")
+        .unwrap();
+    assert_eq!(n, 2);
+    // Old key should now have zero entries.
+    let still_daily = db.search("fact", 10, None).unwrap();
+    assert!(
+        still_daily
+            .iter()
+            .all(|h| h.source_key == "knowledge:auto:2026-04-25"),
+        "all entries should now be under the knowledge: prefix"
+    );
+}
+
+#[test]
+fn test_find_promotion_candidates_thresholds() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test_memory.db")).unwrap();
+    db.insert_memory("daily:hot", "Rust programming notes")
+        .unwrap();
+    db.insert_memory("daily:cold", "Single recall content")
+        .unwrap();
+    // 4 distinct queries hit "daily:hot"; 1 hits "daily:cold".
+    db.search("Rust", 10, None).unwrap();
+    db.search("programming", 10, None).unwrap();
+    db.search("notes", 10, None).unwrap();
+    db.search("rust programming notes", 10, None).unwrap();
+    db.search("Single recall", 10, None).unwrap();
+
+    // Threshold ≥ 3 recalls AND ≥ 2 unique queries → only daily:hot qualifies
+    let cands = db.find_promotion_candidates(3, 2, 30, "daily:").unwrap();
+    let keys: Vec<_> = cands.iter().map(|c| c.source_key.as_str()).collect();
+    assert!(keys.contains(&"daily:hot"), "got: {keys:?}");
+    assert!(!keys.contains(&"daily:cold"), "got: {keys:?}");
+
+    // Stricter threshold (≥10 recalls) → no candidates
+    let stricter = db.find_promotion_candidates(10, 2, 30, "daily:").unwrap();
+    assert!(stricter.is_empty());
+}
+
+#[test]
 fn test_entries_missing_embeddings() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");

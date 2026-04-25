@@ -18,6 +18,12 @@ keepRecent = 10
 extractionEnabled = true
 preFlushEnabled = false
 
+[agents.defaults.memory.promotion]
+enabled = false
+minRecalls = 5
+minUniqueQueries = 2
+daysBack = 30
+
 [agents.defaults.memory]
 embeddingsEnabled = true
 embeddingsModel = "BAAI/bge-small-en-v1.5"

@@ -129,6 +129,81 @@ impl MemoryDB {
         Ok(count as u64)
     }
 
+    /// One row of recall-driven promotion data.
+    /// Adopted from openclaw's `recordShortTermRecalls` + `short-term-promotion`:
+    /// memory entries that survived the search cut N times across M unique
+    /// queries are promotion candidates — daily notes that are actually
+    /// useful should become durable knowledge instead of being purged.
+    pub fn find_promotion_candidates(
+        &self,
+        min_recalls: u32,
+        min_unique_queries: u32,
+        days_back: u32,
+        prefix: &str,
+    ) -> Result<Vec<PromotionCandidate>> {
+        let conn = self.lock_conn()?;
+        let cutoff = format!("-{days_back} days");
+        let pattern = format!("{}%", super::escape_like(prefix));
+        let mut stmt = conn.prepare(
+            "SELECT h.source_key, COUNT(*) as recalls,
+                    COUNT(DISTINCT al.query) as unique_queries,
+                    AVG(COALESCE(al.top_score, 0.0)) as avg_score
+               FROM memory_search_hits h
+               JOIN memory_access_log al ON al.id = h.access_log_id
+              WHERE al.created_at >= datetime('now', ?1)
+                AND h.source_key LIKE ?2 ESCAPE '\\'
+              GROUP BY h.source_key
+             HAVING recalls >= ?3 AND unique_queries >= ?4
+              ORDER BY recalls DESC, avg_score DESC",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![
+                cutoff,
+                pattern,
+                min_recalls as i64,
+                min_unique_queries as i64
+            ],
+            |row| {
+                Ok(PromotionCandidate {
+                    source_key: row.get(0)?,
+                    recalls: row.get::<_, i64>(1)? as u32,
+                    unique_queries: row.get::<_, i64>(2)? as u32,
+                    avg_score: row.get::<_, f64>(3)?,
+                })
+            },
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Rewrite a memory entry's `source_key` in place. Used by recall-
+    /// driven promotion to move a daily note (`daily:2026-04-25:Facts`)
+    /// to a durable knowledge entry (`knowledge:auto:2026-04-25:Facts`).
+    /// Returns the number of rows updated.
+    pub fn promote_source_key(&self, old_key: &str, new_key: &str) -> Result<usize> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "UPDATE memory_entries SET source_key = ?1 WHERE source_key = ?2",
+            rusqlite::params![new_key, old_key],
+        )?;
+        Ok(n)
+    }
+}
+
+/// A memory entry that crossed the recall thresholds and is a candidate
+/// for promotion from `daily:` to `knowledge:`.
+#[derive(Debug, Clone)]
+pub struct PromotionCandidate {
+    pub source_key: String,
+    pub recalls: u32,
+    pub unique_queries: u32,
+    pub avg_score: f64,
+}
+
+impl MemoryDB {
     /// Get entries that have no embeddings (for back-fill).
     pub fn get_entries_missing_embeddings(&self) -> Result<Vec<(i64, String, String)>> {
         let conn = self.lock_conn()?;

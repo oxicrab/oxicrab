@@ -357,6 +357,10 @@ impl AgentLoop {
             let mem_retention_days = memory_config.as_ref().map_or(180, |c| c.retention_days);
             let trajectory_compress_days = trajectory_config.compress_after_days;
             let trajectory_enabled = trajectory_config.enabled;
+            let promotion_config = memory_config
+                .as_ref()
+                .map(|c| c.promotion.clone())
+                .unwrap_or_default();
             // First pass at startup.
             {
                 let db = db.clone();
@@ -417,6 +421,55 @@ impl AgentLoop {
                                     }
                                 }
                                 Err(e) => warn!("trajectory compression query failed: {e}"),
+                                _ => {}
+                            }
+                        }
+                        // Recall-driven promotion: scan memory_search_hits
+                        // for daily entries that crossed the recall
+                        // thresholds and rewrite their source_key to
+                        // `knowledge:` so they survive retention purge.
+                        // Adopted from openclaw recordShortTermRecalls /
+                        // short-term-promotion.
+                        if promotion_config.enabled {
+                            match db_b.find_promotion_candidates(
+                                promotion_config.min_recalls,
+                                promotion_config.min_unique_queries,
+                                promotion_config.days_back,
+                                "daily:",
+                            ) {
+                                Ok(cands) if !cands.is_empty() => {
+                                    info!(
+                                        "memory promotion: {} daily entries cleared thresholds",
+                                        cands.len()
+                                    );
+                                    for cand in cands {
+                                        let new_key = cand
+                                            .source_key
+                                            .strip_prefix("daily:")
+                                            .map_or_else(
+                                                || format!("knowledge:auto:{}", cand.source_key),
+                                                |rest| format!("knowledge:auto:{rest}"),
+                                            );
+                                        match db_b
+                                            .promote_source_key(&cand.source_key, &new_key)
+                                        {
+                                            Ok(n) if n > 0 => debug!(
+                                                "promoted {} (recalls={}, unique={}, score={:.3}) → {}",
+                                                cand.source_key,
+                                                cand.recalls,
+                                                cand.unique_queries,
+                                                cand.avg_score,
+                                                new_key
+                                            ),
+                                            Ok(_) => {}
+                                            Err(e) => warn!(
+                                                "promotion of {} failed: {e}",
+                                                cand.source_key
+                                            ),
+                                        }
+                                    }
+                                }
+                                Err(e) => warn!("promotion query failed: {e}"),
                                 _ => {}
                             }
                         }
