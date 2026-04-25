@@ -1,6 +1,6 @@
 //! `claim` tool — exposes the structured claims store to the LLM.
 //!
-//! Adopted from openclaw's claims/wiki_lint pattern. Five actions:
+//! Adopted from openclaw's `claims/wiki_lint` pattern. Five actions:
 //!
 //! - `add` — assert a claim with text + confidence + optional evidence
 //! - `list` — list claims, optionally filtered by status

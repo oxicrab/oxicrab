@@ -7,7 +7,7 @@
 //! Without an explicit terminal action, cron job execution ends when
 //! the LLM stops calling tools — a *heuristic*. That fails the moment
 //! a hallucination class drives the model to produce text claiming
-//! success after a tool returned `is_error=true` (IronClaw #2944
+//! success after a tool returned `is_error=true` (`IronClaw` #2944
 //! / oxicrab button-autodispatch project): the trace completes
 //! successfully and the operator never learns the work didn't happen.
 //!
@@ -36,7 +36,7 @@ pub const FINISH_CRON_META: &str = "__cron_finish";
 
 /// Metadata key on `OutboundMessage` indicating the agent run is the
 /// terminal turn for a cron job. Currently set by `iteration.rs` when
-/// it sees `FINISH_CRON_META` in collected_tool_metadata so callers
+/// it sees `FINISH_CRON_META` in `collected_tool_metadata` so callers
 /// don't have to re-walk the metadata.
 pub const FINISH_CRON_TERMINAL: &str = "__cron_terminal";
 
@@ -119,7 +119,7 @@ impl Tool for FinishCronTool {
             .get("reason")
             .and_then(|v| v.as_str())
             .map(str::to_string);
-        if !success && reason.as_deref().map_or(true, str::is_empty) {
+        if !success && reason.as_deref().is_none_or(str::is_empty) {
             return Ok(ToolResult::error(
                 "finish_cron: 'reason' is required when success=false".to_string(),
             ));

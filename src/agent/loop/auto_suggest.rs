@@ -7,7 +7,7 @@
 //!
 //! When `auto_suggest.useLlmBody = true`, a small LLM call generates
 //! a purpose-written skill body instead of the fixed template. Mirrors
-//! OpenCrust's auto-skill writer.
+//! `OpenCrust`'s auto-skill writer.
 
 use super::AgentLoop;
 use crate::agent::trajectory::skill_suggester::{
@@ -104,7 +104,7 @@ async fn stage_candidate(
 
 /// Ask a small LLM to write a focused skill body for the candidate
 /// workflow. Constrained: ≤500 words, must include "When to use"
-/// and "Tool sequence" sections, no preamble. Adopted from OpenCrust's
+/// and "Tool sequence" sections, no preamble. Adopted from `OpenCrust`'s
 /// auto-skill flow.
 async fn generate_llm_body(
     pick: &SkillCandidate,

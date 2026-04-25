@@ -155,8 +155,7 @@ fn parse_verdict(text: &str) -> Option<JudgeVerdict> {
     let stripped = text
         .strip_prefix("```json")
         .or_else(|| text.strip_prefix("```"))
-        .map(|s| s.trim_end_matches("```").trim())
-        .unwrap_or(text);
+        .map_or(text, |s| s.trim_end_matches("```").trim());
 
     let raw: RawVerdict = if let Ok(v) = serde_json::from_str(stripped) {
         v

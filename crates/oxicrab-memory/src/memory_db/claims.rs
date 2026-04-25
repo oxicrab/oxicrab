@@ -432,6 +432,12 @@ fn has_opposite_polarity(a: &str, b: &str) -> bool {
     false
 }
 
+impl std::hash::Hash for ClaimStatus {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,11 +610,5 @@ mod tests {
             db.count_claims_by_status().unwrap().into_iter().collect();
         assert_eq!(counts.get(&ClaimStatus::Open).copied(), Some(2));
         assert_eq!(counts.get(&ClaimStatus::Accepted).copied(), Some(1));
-    }
-}
-
-impl std::hash::Hash for ClaimStatus {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_str().hash(state);
     }
 }

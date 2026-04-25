@@ -319,23 +319,18 @@ impl AgentLoop {
             let invoke_future =
                 super::model_gateway::ModelGateway::invoke(effective_provider.as_ref(), request);
             let response = if llm_timeout_secs > 0 {
-                match tokio::time::timeout(
+                if let Ok(r) = tokio::time::timeout(
                     std::time::Duration::from_secs(llm_timeout_secs.into()),
                     invoke_future,
                 )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(_) => {
-                        warn!(
-                            "LLM request timed out after {}s — releasing session lock",
-                            llm_timeout_secs
-                        );
-                        Err(anyhow::anyhow!(
-                            "LLM request timed out after {}s",
-                            llm_timeout_secs
-                        ))
-                    }
+                .await { r } else {
+                    warn!(
+                        "LLM request timed out after {}s — releasing session lock",
+                        llm_timeout_secs
+                    );
+                    Err(anyhow::anyhow!(
+                        "LLM request timed out after {llm_timeout_secs}s"
+                    ))
                 }
             } else {
                 invoke_future.await

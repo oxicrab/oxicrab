@@ -101,10 +101,10 @@ impl WebFetchSummaryTool {
         );
     }
 
-    /// Pull `extracted_text` out of the inner web_fetch JSON envelope.
+    /// Pull `extracted_text` out of the inner `web_fetch` JSON envelope.
     /// Falls back to the raw content when the JSON shape doesn't match
     /// what `WebFetchTool::execute` produces today.
-    fn extract_content(&self, fetch_result: &ToolResult) -> Option<String> {
+    fn extract_content(fetch_result: &ToolResult) -> Option<String> {
         if fetch_result.is_error {
             return None;
         }
@@ -117,7 +117,7 @@ impl WebFetchSummaryTool {
             .map(str::to_string)
     }
 
-    fn truncate_input(&self, text: &str, cap: usize) -> String {
+    fn truncate_input(text: &str, cap: usize) -> String {
         if text.chars().count() <= cap {
             return text.to_string();
         }
@@ -224,12 +224,12 @@ impl Tool for WebFetchSummaryTool {
         if fetch_result.is_error {
             return Ok(fetch_result);
         }
-        let Some(content) = self.extract_content(&fetch_result) else {
+        let Some(content) = Self::extract_content(&fetch_result) else {
             return Ok(ToolResult::error(format!(
                 "web_fetch_summary: could not parse extracted text from web_fetch response (url={url})"
             )));
         };
-        let trimmed = self.truncate_input(&content, input_cap);
+        let trimmed = Self::truncate_input(&content, input_cap);
 
         let user_msg = format!(
             "Source URL: {url}\n\nInstruction: {prompt}\n\nContent:\n```\n{trimmed}\n```\n\n\

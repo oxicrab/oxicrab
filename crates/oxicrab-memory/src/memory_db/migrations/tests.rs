@@ -7,7 +7,7 @@ fn applies_latest_user_version() {
     let v: u32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(v, 10);
+    assert_eq!(v, 11);
 }
 
 #[test]
@@ -140,6 +140,40 @@ fn test_migration_v4_adds_sessions_updated_index() {
         indexes.iter().any(|n| n.contains("sessions_updated")),
         "sessions updated_at index should exist, found: {indexes:?}",
     );
+}
+
+#[test]
+fn test_migration_v11_creates_claims_and_evidence_tables() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_migrations(&conn).unwrap();
+    let v = user_version(&conn).unwrap();
+    assert!(v >= 11, "expected version >= 11, got {v}");
+
+    for table in ["claims", "claim_evidence"] {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "table {table} should exist");
+    }
+
+    for idx in [
+        "idx_claims_status",
+        "idx_claims_confidence",
+        "idx_claim_evidence_claim",
+    ] {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?1",
+                [idx],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "index {idx} should exist");
+    }
 }
 
 #[test]

@@ -648,7 +648,10 @@ async fn cron_job_execute(
         .and_then(|v| {
             Some(CronFinishSignal {
                 summary: v.get("summary").and_then(|s| s.as_str())?.to_string(),
-                success: v.get("success").and_then(|s| s.as_bool()).unwrap_or(true),
+                success: v
+                    .get("success")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true),
                 reason: v.get("reason").and_then(|s| s.as_str()).map(str::to_string),
             })
         });

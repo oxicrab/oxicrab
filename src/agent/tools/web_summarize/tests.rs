@@ -35,23 +35,26 @@ fn cache_key_distinguishes_inputs() {
 
 #[test]
 fn truncate_input_caps_at_boundary() {
-    let tool = mock_tool();
+    let _ = mock_tool();
     let input = "abcdefghij";
-    let out = tool.truncate_input(input, 5);
+    let out = WebFetchSummaryTool::truncate_input(input, 5);
     assert_eq!(out, "abcde…");
-    let same = tool.truncate_input(input, 100);
+    let same = WebFetchSummaryTool::truncate_input(input, 100);
     assert_eq!(same, "abcdefghij");
 }
 
 #[test]
 fn extract_content_finds_field() {
-    let tool = mock_tool();
+    let _ = mock_tool();
     let result =
         ToolResult::new(serde_json::json!({"text": "page body", "url": "https://x"}).to_string());
-    assert_eq!(tool.extract_content(&result), Some("page body".to_string()));
+    assert_eq!(
+        WebFetchSummaryTool::extract_content(&result),
+        Some("page body".to_string())
+    );
 
     let err_result = ToolResult::error("network failed".to_string());
-    assert_eq!(tool.extract_content(&err_result), None);
+    assert_eq!(WebFetchSummaryTool::extract_content(&err_result), None);
 }
 
 #[tokio::test]
@@ -88,7 +91,9 @@ fn cache_expiry_evicts() {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(entry) = cache.get_mut(&key) {
-            entry.inserted_at = std::time::Instant::now() - std::time::Duration::from_secs(16 * 60);
+            entry.inserted_at = std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(16 * 60))
+                .unwrap();
         }
     }
     assert!(tool.cache_get(&key).is_none());
