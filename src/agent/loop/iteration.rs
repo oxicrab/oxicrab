@@ -311,14 +311,40 @@ impl AgentLoop {
                     overrides.response_format.clone(),
                 )
             };
-            let response =
-                super::model_gateway::ModelGateway::invoke(effective_provider.as_ref(), request)
-                    .await;
+            // Wrap the LLM call in a hard timeout so a hung provider
+            // doesn't hold the per-session lock indefinitely (channel
+            // goes silent forever). Adopted from nanobot PR #3428.
+            // 0 = disabled.
+            let llm_timeout_secs = self.llm_request_timeout_secs;
+            let invoke_future =
+                super::model_gateway::ModelGateway::invoke(effective_provider.as_ref(), request);
+            let response = if llm_timeout_secs > 0 {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(llm_timeout_secs.into()),
+                    invoke_future,
+                )
+                .await
+                {
+                    Ok(r) => r,
+                    Err(_) => {
+                        warn!(
+                            "LLM request timed out after {}s — releasing session lock",
+                            llm_timeout_secs
+                        );
+                        Err(anyhow::anyhow!(
+                            "LLM request timed out after {}s",
+                            llm_timeout_secs
+                        ))
+                    }
+                }
+            } else {
+                invoke_future.await
+            };
 
             // Stop typing indicator after LLM call returns (guard aborts on drop)
             drop(typing_guard);
 
-            let response = response?;
+            let mut response = response?;
 
             // Track provider-reported input token count for precise compaction decisions
             if response.input_tokens.is_some() {
@@ -332,6 +358,20 @@ impl AgentLoop {
             // Track whether this response had tool calls but no text — if so,
             // the next iteration will strip tools to force a text response.
             last_was_tool_only = response.has_tool_calls() && response.content.is_none();
+
+            // Phantom-tool-call guard: some API gateways inject a
+            // tool_calls payload while finish_reason indicates a real
+            // stop (content_filter, error, stop). Without this check we
+            // dispatch the phantom call, get nothing back, and loop
+            // until max_iterations. Adopted from nanobot PR #3225.
+            if response.has_tool_calls() && !response.is_tool_use_finish() {
+                warn!(
+                    "discarding phantom tool_calls block: finish_reason={:?} \
+                     (gateway injection or provider bug)",
+                    response.finish_reason
+                );
+                response.tool_calls.clear();
+            }
 
             if response.has_tool_calls() {
                 any_tools_called = true;

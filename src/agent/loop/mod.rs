@@ -162,6 +162,10 @@ pub struct AgentLoop {
     reflection_config: crate::config::ReflectionConfig,
     /// LLM-as-Judge before-tool-call gate. Off by default.
     judge_config: crate::config::JudgeConfig,
+    /// Hard timeout (seconds) on each LLM request. Prevents a hung
+    /// provider from holding the per-session lock indefinitely.
+    /// 0 disables. Default 300s. Adopted from nanobot PR #3428.
+    llm_request_timeout_secs: u32,
     /// Trajectory logging configuration (Track 3).
     trajectory_config: crate::config::TrajectoryConfig,
     /// Per-session, monotonically-increasing turn counter — bumped at the
@@ -215,6 +219,7 @@ impl AgentLoop {
             approval_config,
             reflection_config,
             judge_config,
+            llm_request_timeout_secs,
             trajectory_config,
             skill_refine_config,
             activity_journal_config,
@@ -734,6 +739,7 @@ impl AgentLoop {
             approval_config,
             reflection_config,
             judge_config,
+            llm_request_timeout_secs,
             trajectory_config,
             trajectory_turn_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
             skill_refine_config,

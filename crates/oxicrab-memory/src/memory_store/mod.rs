@@ -292,7 +292,22 @@ impl MemoryStore {
             let max_chars = self.max_context_chars;
             let mut total_chars = 0;
             for hit in hits {
-                let chunk = format!("**{}**: {}", hit.source_key, hit.content);
+                // Heading prefix for at-a-glance scanning + explicit
+                // Source: trailer for grounding (the model is trained
+                // to quote `Source:` lines when citing). Adopted from
+                // openclaw's `memory.citations` decoration. The
+                // suppression-in-group-chats variant is handled at the
+                // call site by passing is_group=true to use the
+                // shorter form.
+                let chunk = if is_group {
+                    format!("**{}**: {}", hit.source_key, hit.content)
+                } else {
+                    format!(
+                        "**{src}**: {content}\n\n_Source: {src}_",
+                        src = hit.source_key,
+                        content = hit.content
+                    )
+                };
                 let entry_chars = chunk.len() + 10; // separator overhead
                 if total_chars + entry_chars > max_chars && !chunks.is_empty() {
                     break;

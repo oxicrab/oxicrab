@@ -1112,6 +1112,18 @@ pub struct AgentDefaults {
     pub activity_journal: ActivityJournalConfig,
     #[serde(default)]
     pub judge: JudgeConfig,
+    /// Hard timeout (seconds) on each LLM request — prevents a hung
+    /// provider from holding the per-session lock indefinitely.
+    /// 0 disables. Default 300s. Adopted from nanobot PR #3428.
+    #[serde(
+        default = "default_llm_request_timeout_secs",
+        rename = "llmRequestTimeoutSeconds"
+    )]
+    pub llm_request_timeout_secs: u32,
+}
+
+fn default_llm_request_timeout_secs() -> u32 {
+    300
 }
 
 impl Default for AgentDefaults {
@@ -1138,6 +1150,7 @@ impl Default for AgentDefaults {
             skill_refine: SkillRefineConfig::default(),
             activity_journal: ActivityJournalConfig::default(),
             judge: JudgeConfig::default(),
+            llm_request_timeout_secs: default_llm_request_timeout_secs(),
         }
     }
 }

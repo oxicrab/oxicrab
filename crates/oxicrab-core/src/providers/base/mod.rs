@@ -45,6 +45,31 @@ impl LLMResponse {
     pub fn has_tool_calls(&self) -> bool {
         !self.tool_calls.is_empty()
     }
+
+    /// Whether the model legitimately stopped to call tools. Some
+    /// API gateways and broken proxies inject phantom `tool_calls`
+    /// blocks while the underlying `finish_reason` is `content_filter`
+    /// / `error` / `stop`. Without this guard, the agent loop
+    /// dispatches the phantom calls, gets empty results back, and
+    /// loops forever. Adopted from nanobot PR #3225.
+    ///
+    /// Returns `true` only when both:
+    /// - `tool_calls` is non-empty
+    /// - `finish_reason` is `None` OR matches a known tool-stop value
+    ///   (`tool_calls`, `tool_use`, `function_call`)
+    ///
+    /// `None` is allowed because not every provider exposes a stop
+    /// reason; demanding one would regress providers that only set
+    /// `finish_reason` on terminal stops.
+    pub fn is_tool_use_finish(&self) -> bool {
+        if self.tool_calls.is_empty() {
+            return false;
+        }
+        match self.finish_reason.as_deref() {
+            None => true,
+            Some(r) => matches!(r, "tool_calls" | "tool_use" | "function_call"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

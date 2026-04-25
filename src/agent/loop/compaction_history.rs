@@ -95,6 +95,13 @@ impl AgentLoop {
 
             if !already_flushed {
                 let mut flushed_content = false;
+                // Track explicit LLM failure separately from "nothing
+                // extractable". When the LLM fails outright we still
+                // advance the watermark so the next compaction cycle
+                // doesn't re-summarise the same chunk forever (a real
+                // failure mode in nanobot PR #3413/14 — the fix avoids
+                // a runaway cost loop on persistent provider errors).
+                let mut llm_failed = false;
                 match compactor.flush_to_memory(old_messages).await {
                     Ok(ref facts) if !facts.is_empty() => {
                         let filtered = crate::agent::memory::quality::filter_lines(facts);
@@ -125,12 +132,16 @@ impl AgentLoop {
                     }
                     Err(e) => {
                         warn!("pre-compaction flush failed (non-fatal): {}", e);
+                        llm_failed = true;
                     }
                     _ => {}
                 }
-                // Only mark flushed when content was actually persisted, so a
-                // retry can attempt extraction again if nothing was saved.
-                if flushed_content {
+                // Mark flushed when content persisted OR when the LLM
+                // call hard-failed — failing to advance the watermark
+                // on a hard failure means the next compaction cycle
+                // re-summarises the same chunk, which is a runaway
+                // cost loop on persistent provider outages.
+                if flushed_content || llm_failed {
                     match self.sessions.get_or_create(&session.key).await {
                         Ok(mut latest) => {
                             latest.metadata.insert(

@@ -191,6 +191,9 @@ pub struct AgentLoopConfig {
     pub reflection_config: crate::config::ReflectionConfig,
     /// LLM-as-Judge before-tool-call semantic gate. Off by default.
     pub judge_config: crate::config::JudgeConfig,
+    /// Hard timeout (seconds) on each LLM request. 0 disables.
+    /// Default 300. Adopted from nanobot PR #3428.
+    pub llm_request_timeout_secs: u32,
     /// Trajectory collection (Track 3) — logs tool loop events and powers
     /// cross-session skill auto-save.
     pub trajectory_config: crate::config::TrajectoryConfig,
@@ -310,6 +313,7 @@ impl AgentLoopConfig {
             approval_config: config.agents.defaults.approval.clone(),
             reflection_config: config.agents.defaults.reflection.clone(),
             judge_config: config.agents.defaults.judge.clone(),
+            llm_request_timeout_secs: config.agents.defaults.llm_request_timeout_secs,
             trajectory_config: config.agents.defaults.trajectory.clone(),
             skill_refine_config: config.agents.defaults.skill_refine.clone(),
             activity_journal_config: config.agents.defaults.activity_journal.clone(),
@@ -391,6 +395,7 @@ impl AgentLoopConfig {
             approval_config: crate::config::ApprovalConfig::default(),
             reflection_config: crate::config::ReflectionConfig::default(),
             judge_config: crate::config::JudgeConfig::default(),
+            llm_request_timeout_secs: 300,
             trajectory_config: crate::config::TrajectoryConfig::default(),
             skill_refine_config: crate::config::SkillRefineConfig::default(),
             activity_journal_config: crate::config::ActivityJournalConfig::default(),
