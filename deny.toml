@@ -10,6 +10,13 @@ ignore = [
     { id = "RUSTSEC-2026-0049", reason = "no patch for 0.102.x; blocked on serenity upstream" },
     { id = "RUSTSEC-2026-0098", reason = "no patch for 0.102.x; blocked on serenity upstream (URI name constraints)" },
     { id = "RUSTSEC-2026-0099", reason = "no patch for 0.102.x; blocked on serenity upstream (wildcard name constraints)" },
+    # CRL-parsing panic, only reachable when applications use CRLs. oxicrab
+    # never configures rustls with a CRL provider — rustls-webpki 0.102.x is
+    # only present transitively via serenity → tokio-tungstenite 0.21 →
+    # rustls 0.22, none of which we instruct to load CRLs. The 0.103 line
+    # is bumped to 0.103.13 in the lockfile; this ignore covers only the
+    # 0.102 path.
+    { id = "RUSTSEC-2026-0104", reason = "no patch for 0.102.x; blocked on serenity upstream (CRL parsing — oxicrab does not load CRLs)" },
 ]
 
 [sources]
