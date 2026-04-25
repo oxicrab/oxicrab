@@ -1,10 +1,79 @@
 use anyhow::{Context, Result};
+use std::io::Write;
 use tracing::debug;
 
 use crate::config::Config;
 
+/// Provider preset offered by the wizard. The first matching env var
+/// gets recorded into the keyring (or env-suggestion line) so the
+/// generated config has a runnable default.
+struct ProviderPreset {
+    label: &'static str,
+    /// Default `provider/model` string written to `agents.defaults.modelRouting.default`.
+    model_default: &'static str,
+    /// Where the user can grab an API key.
+    key_url: &'static str,
+}
+
+const PROVIDER_PRESETS: &[ProviderPreset] = &[
+    ProviderPreset {
+        label: "openrouter",
+        model_default: "openrouter/anthropic/claude-sonnet-4.6",
+        key_url: "https://openrouter.ai/keys",
+    },
+    ProviderPreset {
+        label: "anthropic",
+        model_default: "anthropic/claude-sonnet-4-5-20250929",
+        key_url: "https://console.anthropic.com/settings/keys",
+    },
+    ProviderPreset {
+        label: "openai",
+        model_default: "openai/gpt-4o",
+        key_url: "https://platform.openai.com/api-keys",
+    },
+    ProviderPreset {
+        label: "ollama",
+        model_default: "ollama/llama3.3:70b",
+        key_url: "https://ollama.com/library  (run `ollama pull` first)",
+    },
+];
+
+const CHANNEL_OPTIONS: &[&str] = &[
+    "telegram",
+    "discord",
+    "slack",
+    "whatsapp",
+    "twilio",
+    "(none — use CLI only for now)",
+];
+
+fn read_line(prompt: &str) -> Result<String> {
+    eprint!("{prompt}");
+    std::io::stderr().flush().ok();
+    let mut buf = String::new();
+    std::io::stdin().read_line(&mut buf)?;
+    Ok(buf.trim().to_string())
+}
+
+fn read_choice(prompt: &str, options: &[&str], default: usize) -> Result<usize> {
+    println!("\n{prompt}");
+    for (i, opt) in options.iter().enumerate() {
+        let marker = if i == default { "*" } else { " " };
+        println!(" {marker} {}. {opt}", i + 1);
+    }
+    let raw = read_line(&format!("[1-{}, default {}]: ", options.len(), default + 1))?;
+    if raw.is_empty() {
+        return Ok(default);
+    }
+    match raw.parse::<usize>() {
+        Ok(n) if n >= 1 && n <= options.len() => Ok(n - 1),
+        _ => Ok(default),
+    }
+}
+
 pub(super) fn onboard() -> Result<()> {
-    println!("\u{1f916} Initializing oxicrab...");
+    println!("\u{1f916} oxicrab onboarding wizard");
+    println!("This walks through provider, channels, and writes a config.toml.\n");
 
     let config_path = crate::config::get_config_path()?;
     if config_path.exists() {
@@ -12,30 +81,87 @@ pub(super) fn onboard() -> Result<()> {
             "\u{26a0}\u{fe0f}  Config already exists at {}",
             config_path.display()
         );
-        eprint!("Overwrite? (y/N): ");
-        std::io::Write::flush(&mut std::io::stderr())?;
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
+        let confirm = read_line("Overwrite? (y/N): ")?;
+        if !confirm.eq_ignore_ascii_case("y") {
+            println!("Aborted. Run `oxicrab doctor` to inspect the existing config.");
             return Ok(());
         }
     }
 
-    let config = Config::default();
+    // ── Provider ──
+    let provider_labels: Vec<&str> = PROVIDER_PRESETS.iter().map(|p| p.label).collect();
+    let provider_idx = read_choice(
+        "Which LLM provider should be the default?",
+        &provider_labels,
+        0,
+    )?;
+    let preset = &PROVIDER_PRESETS[provider_idx];
+
+    // ── Channel ──
+    let channel_idx = read_choice(
+        "Which messaging channel will you use first? (you can add more later)",
+        CHANNEL_OPTIONS,
+        CHANNEL_OPTIONS.len() - 1,
+    )?;
+    let channel_choice = CHANNEL_OPTIONS[channel_idx];
+
+    // ── Build config ──
+    let mut config = Config::default();
+    config.agents.defaults.model_routing.default = preset.model_default.to_string();
+
+    // Hook the chosen channel on so it surfaces in `oxicrab doctor`. We
+    // don't try to capture tokens interactively — keys belong in the
+    // keyring or env, not echoed at the wizard prompt.
+    match channel_choice {
+        "telegram" => config.channels.telegram.enabled = true,
+        "discord" => config.channels.discord.enabled = true,
+        "slack" => config.channels.slack.enabled = true,
+        "whatsapp" => config.channels.whatsapp.enabled = true,
+        "twilio" => config.channels.twilio.enabled = true,
+        _ => {}
+    }
+
     crate::config::save_config(&config, Some(config_path.as_path()))?;
-    println!("\u{2713} Created config at {}", config_path.display());
+    println!("\u{2713} Wrote config to {}", config_path.display());
 
     let workspace = config.workspace_path();
     crate::utils::ensure_dir(&workspace)?;
-    println!("\u{2713} Created workspace at {}", workspace.display());
-
+    println!("\u{2713} Workspace at {}", workspace.display());
     create_workspace_templates(&workspace)?;
 
-    println!("\n\u{1f916} oxicrab is ready!");
-    println!("\nNext steps:");
-    println!("  1. Add your API key to ~/.oxicrab/config.toml");
-    println!("     Get one at: https://openrouter.ai/keys");
-    println!("  2. Chat: oxicrab agent -m \"Hello!\"");
+    // ── Next-step guidance tailored to choices ──
+    println!("\n\u{1f916} oxicrab is ready. Next steps:");
+    let mut step = 1;
+    println!(
+        "  {step}. Set your {} API key (env or keyring):",
+        preset.label
+    );
+    let env_var = match preset.label {
+        "openrouter" => "OXICRAB_OPENROUTER_API_KEY",
+        "anthropic" => "OXICRAB_ANTHROPIC_API_KEY",
+        "openai" => "OXICRAB_OPENAI_API_KEY",
+        "ollama" => "(ollama runs locally — no API key needed)",
+        _ => "OXICRAB_*_API_KEY",
+    };
+    if preset.label == "ollama" {
+        println!("     Make sure `ollama serve` is running and the model is pulled.");
+    } else {
+        println!("     export {env_var}=...");
+        println!("     OR: oxicrab credentials set {} <KEY>", preset.label);
+        println!("     Get a key at: {}", preset.key_url);
+    }
+    step += 1;
+
+    if channel_choice != "(none — use CLI only for now)" {
+        println!(
+            "  {step}. Configure {channel_choice} credentials in [channels.{channel_choice}] of \
+             {}",
+            config_path.display()
+        );
+        step += 1;
+    }
+    println!("  {step}. Run `oxicrab doctor` to validate everything.");
+    println!("  {}. Chat: `oxicrab agent -m \"Hello!\"`", step + 1);
 
     Ok(())
 }
