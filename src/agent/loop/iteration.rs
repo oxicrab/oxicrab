@@ -379,6 +379,7 @@ impl AgentLoop {
                         exec_ctx,
                         exfil_ref,
                         overrides.routing_policy.as_ref(),
+                        &initial_user_message,
                     )
                     .await;
                 tool_call_count += response.tool_calls.len();
@@ -868,6 +869,7 @@ impl AgentLoop {
         exec_ctx: &ExecutionContext,
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
         routing_policy: Option<&crate::router::RoutingPolicy>,
+        user_intent: &str,
     ) -> Vec<ToolResult> {
         use crate::agent::tools::base::ToolConcurrency;
 
@@ -885,10 +887,14 @@ impl AgentLoop {
                     .as_ref()
                     .is_some_and(|allow| !allow.contains(name))
         };
-        // Clone approval fields for spawned tasks (cheap Arc clones)
+        // Clone approval + judge fields for spawned tasks (cheap Arc clones)
         let approval_store = self.approval_store.clone();
         let approval_config = self.approval_config.clone();
         let approval_tx = self.outbound_tx.clone();
+        let judge_config = self.judge_config.clone();
+        let judge_provider = self.provider.clone();
+        let judge_model = self.model.clone();
+        let user_intent_owned = user_intent.to_string();
         let exec_channel = exec_ctx.channel.clone();
         let exec_chat_id = exec_ctx.chat_id.clone();
         let exec_sender_id = exec_ctx
@@ -926,6 +932,16 @@ impl AgentLoop {
                         chat_id: &exec_chat_id,
                         sender_id: &exec_sender_id,
                     }),
+                    if self.judge_config.enabled {
+                        Some(super::helpers::JudgeContext {
+                            config: &self.judge_config,
+                            provider: self.provider.as_ref(),
+                            model: &self.model,
+                            user_intent,
+                        })
+                    } else {
+                        None
+                    },
                 )
                 .await,
             ];
@@ -979,6 +995,10 @@ impl AgentLoop {
                         let a_chat_id = exec_chat_id.clone();
                         let a_sender_id = exec_sender_id.clone();
                         let a_leak = self.leak_detector.clone();
+                        let j_config = judge_config.clone();
+                        let j_provider = judge_provider.clone();
+                        let j_model = judge_model.clone();
+                        let j_intent = user_intent_owned.clone();
                         tokio::task::spawn(async move {
                             if blocked {
                                 crate::router::metrics::record_blocked_tool_attempt();
@@ -1004,6 +1024,16 @@ impl AgentLoop {
                                     chat_id: &a_chat_id,
                                     sender_id: &a_sender_id,
                                 }),
+                                if j_config.enabled {
+                                    Some(super::helpers::JudgeContext {
+                                        config: &j_config,
+                                        provider: j_provider.as_ref(),
+                                        model: &j_model,
+                                        user_intent: &j_intent,
+                                    })
+                                } else {
+                                    None
+                                },
                             )
                             .await
                         })
@@ -1050,6 +1080,16 @@ impl AgentLoop {
                                 chat_id: &exec_chat_id,
                                 sender_id: &exec_sender_id,
                             }),
+                            if judge_config.enabled {
+                                Some(super::helpers::JudgeContext {
+                                    config: &judge_config,
+                                    provider: judge_provider.as_ref(),
+                                    model: &judge_model,
+                                    user_intent: &user_intent_owned,
+                                })
+                            } else {
+                                None
+                            },
                         )
                         .await,
                     );

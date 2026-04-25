@@ -47,6 +47,7 @@ max_width: 820px
             <li><a href="#trajectory">Trajectory</a></li>
             <li><a href="#skill-refine">Skill auto-refine</a></li>
             <li><a href="#activity-journal">Activity journal</a></li>
+            <li><a href="#judge">LLM-as-Judge</a></li>
             <li><a href="#gateway">Gateway</a></li>
             <li><a href="#observability">Observability</a></li>
             <li><a href="#sandbox">Sandbox</a></li>
@@ -816,6 +817,47 @@ maxWindowMinutes = 1440</code></pre>
 
         <h3>Daily maintenance</h3>
         <p>An always-on 24-hour ticker runs <code>run_hygiene</code> + <code>cleanup_workspace_files</code> regardless of these flags. When trajectory is enabled, it also performs trajectory compression on dormant sessions older than <code>compressAfterDays</code>. The first pass runs at startup; subsequent passes fire 24h apart.</p>
+    </div>
+
+    <!-- LLM-AS-JUDGE -->
+    <div id="judge" class="cfg-section">
+        <h2>LLM-as-Judge</h2>
+        <p>Poison-resistant semantic gate for tool calls, adopted from <a href="https://github.com/nearai/ironclaw/pull/2845">IronClaw PR #2845</a>. Fires after the operator approval workflow but before <code>registry.execute</code>: a small LLM looks at <code>(tool_name, args, user_intent)</code> and returns <code>{verdict: allow|block, reason: …}</code>. When the verdict is <code>block</code>, the tool call is rejected with the reason surfaced to the agent as a tool error so it can re-plan.</p>
+
+        <p>The judge sees <strong>only</strong> the tool name, the (credential-scrubbed) args, and the user's original message. It does NOT see the conversation history or prior tool results — including those would let an attacker poison the judge with the same injection that poisoned the agent.</p>
+
+        <p>Fail-open by default: timeouts, provider errors, and malformed JSON all default to <code>allow</code>. The judge is defense-in-depth, not the only gate — silent fail-open keeps a flaky sidecar from bricking the agent.</p>
+
+        <h3>Configuration</h3>
+        <p>Config path: <code>agents.defaults.judge</code></p>
+        <pre><code>[agents.defaults.judge]
+enabled = false
+maxTokens = 200
+timeoutSeconds = 5
+allowedTools = []
+blockedTools = []</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Master switch. Costs one small LLM call per covered tool dispatch when on.</td></tr>
+            <tr><td>maxTokens</td><td>integer</td><td>200</td><td>Per-call response token cap. Bound the verdict length.</td></tr>
+            <tr><td>timeoutSeconds</td><td>integer</td><td>5</td><td>Hard ceiling on the judge LLM call. Beyond this, fail-open.</td></tr>
+            <tr><td>allowedTools</td><td>string[]</td><td>[]</td><td>When non-empty, only these tools get judged. Use to roll out per-tool. Mutually exclusive with <code>blockedTools</code> (allow wins).</td></tr>
+            <tr><td>blockedTools</td><td>string[]</td><td>[]</td><td>Tools that never get judged even when <code>enabled = true</code>. Useful for high-volume read-only tools where the cost outweighs the safety win.</td></tr>
+        </table>
+
+        <h3>Provider/model</h3>
+        <p>The judge uses the main agent provider/model — there's no separate task override today. If you want a cheaper/dedicated judge model, request it. Cost is bounded by <code>maxTokens</code> + <code>timeoutSeconds</code> regardless.</p>
+
+        <h3>Recommended rollout</h3>
+        <ol>
+            <li>Leave <code>enabled = false</code> until you have a baseline.</li>
+            <li>Turn on for high-risk tools first via <code>allowedTools = ["exec", "write_file", "send_message"]</code>.</li>
+            <li>Watch <code>oxicrab_judge_blocked_total</code> (planned metric) and false-positive reports for a week.</li>
+            <li>Expand the allowlist as confidence grows.</li>
+        </ol>
+
+        <p>The judge sits between the operator approval workflow and tool execution: <code>exfiltration guard → MCP allowlist → operator approval → judge → param validation → registry.execute</code>.</p>
     </div>
 
     <!-- CONTEXT PROVIDERS -->

@@ -87,6 +87,13 @@ maxContentChars = 512
 defaultWindowMinutes = 60
 maxWindowMinutes = 1440
 
+[agents.defaults.judge]
+enabled = false
+maxTokens = 200
+timeoutSeconds = 5
+allowedTools = []
+blockedTools = []
+
 [agents.defaults.modelRouting]
 default = "claude-sonnet-4-5-20250929"
 fallbacks = []

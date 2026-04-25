@@ -189,6 +189,8 @@ pub struct AgentLoopConfig {
     pub approval_config: crate::config::ApprovalConfig,
     /// Reflexion-style failure reflection configuration.
     pub reflection_config: crate::config::ReflectionConfig,
+    /// LLM-as-Judge before-tool-call semantic gate. Off by default.
+    pub judge_config: crate::config::JudgeConfig,
     /// Trajectory collection (Track 3) — logs tool loop events and powers
     /// cross-session skill auto-save.
     pub trajectory_config: crate::config::TrajectoryConfig,
@@ -307,6 +309,7 @@ impl AgentLoopConfig {
             router_config: config.router.clone(),
             approval_config: config.agents.defaults.approval.clone(),
             reflection_config: config.agents.defaults.reflection.clone(),
+            judge_config: config.agents.defaults.judge.clone(),
             trajectory_config: config.agents.defaults.trajectory.clone(),
             skill_refine_config: config.agents.defaults.skill_refine.clone(),
             activity_journal_config: config.agents.defaults.activity_journal.clone(),
@@ -387,6 +390,7 @@ impl AgentLoopConfig {
             router_config: crate::config::RouterConfig::default(),
             approval_config: crate::config::ApprovalConfig::default(),
             reflection_config: crate::config::ReflectionConfig::default(),
+            judge_config: crate::config::JudgeConfig::default(),
             trajectory_config: crate::config::TrajectoryConfig::default(),
             skill_refine_config: crate::config::SkillRefineConfig::default(),
             activity_journal_config: crate::config::ActivityJournalConfig::default(),

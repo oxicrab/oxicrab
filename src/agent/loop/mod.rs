@@ -5,6 +5,7 @@ mod complexity;
 pub mod config;
 mod helpers;
 mod iteration;
+pub(super) mod judge;
 mod metadata;
 mod model_gateway;
 mod processing;
@@ -159,6 +160,8 @@ pub struct AgentLoop {
     approval_config: crate::config::ApprovalConfig,
     /// Reflexion-style failure reflection configuration.
     reflection_config: crate::config::ReflectionConfig,
+    /// LLM-as-Judge before-tool-call gate. Off by default.
+    judge_config: crate::config::JudgeConfig,
     /// Trajectory logging configuration (Track 3).
     trajectory_config: crate::config::TrajectoryConfig,
     /// Per-session, monotonically-increasing turn counter — bumped at the
@@ -211,6 +214,7 @@ impl AgentLoop {
             router_config,
             approval_config,
             reflection_config,
+            judge_config,
             trajectory_config,
             skill_refine_config,
             activity_journal_config,
@@ -729,6 +733,7 @@ impl AgentLoop {
             approval_store: Arc::new(crate::agent::approval::ApprovalStore::new()),
             approval_config,
             reflection_config,
+            judge_config,
             trajectory_config,
             trajectory_turn_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
             skill_refine_config,

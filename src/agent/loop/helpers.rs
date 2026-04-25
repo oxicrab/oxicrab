@@ -22,6 +22,17 @@ pub(super) struct ApprovalContext<'a> {
     pub sender_id: &'a str,
 }
 
+/// Context for the LLM-as-Judge gate, passed into [`execute_tool_call`].
+/// When `None`, the judge layer is skipped. The judge sees only
+/// `(tool_name, args, user_intent)` — no history, no prior results —
+/// for poison resistance.
+pub(super) struct JudgeContext<'a> {
+    pub config: &'a crate::config::JudgeConfig,
+    pub provider: &'a dyn crate::providers::base::LLMProvider,
+    pub model: &'a str,
+    pub user_intent: &'a str,
+}
+
 const SAVED_TO_PREFIX: &str = "saved to: ";
 const AUDIO_TAG_PREFIX: &str = "[audio: ";
 const TYPING_INDICATOR_INTERVAL_SECS: u64 = 4;
@@ -140,6 +151,7 @@ pub(super) async fn execute_tool_call(
     exfil_allow: Option<&crate::config::DenyByDefaultList>,
     workspace: Option<&std::path::Path>,
     approval_ctx: Option<ApprovalContext<'_>>,
+    judge_ctx: Option<JudgeContext<'_>>,
 ) -> ToolResult {
     // Exfiltration guard: block network-outbound tools the LLM shouldn't call
     if let Some(allow_tools) = exfil_allow {
@@ -193,6 +205,33 @@ pub(super) async fn execute_tool_call(
             tc_name, validation_error
         );
         return ToolResult::error(validation_error);
+    }
+
+    // LLM-as-Judge: poison-resistant semantic gate. Fires after the
+    // approval workflow (operators get the explicit click) but before
+    // execution. Judge sees only (tool_name, args, user_intent) — no
+    // history, no prior results — so an injected page can't poison
+    // the gate with the same payload that poisoned the agent.
+    if let Some(jctx) = judge_ctx
+        && let Some(verdict) = super::judge::judge_tool_call(
+            jctx.config,
+            jctx.provider,
+            jctx.model,
+            tc_name,
+            tc_args,
+            jctx.user_intent,
+        )
+        .await
+        && !verdict.allow
+    {
+        warn!(
+            "judge: blocked tool='{}' action='{}' reason='{}'",
+            tc_name, action, verdict.reason
+        );
+        return ToolResult::error(format!(
+            "Tool call blocked by safety judge: {}. Reconsider whether this call matches what the user asked for.",
+            verdict.reason
+        ));
     }
 
     match registry.execute(tc_name, tc_args.clone(), ctx).await {

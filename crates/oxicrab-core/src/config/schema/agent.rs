@@ -325,6 +325,73 @@ fn default_auto_suggest_max_steps() -> usize {
     8
 }
 
+/// LLM-as-Judge: a small-model second opinion gate that fires
+/// before each tool call. The judge sees only `(tool_name, args,
+/// user_intent)` — no conversation history, no prior tool results —
+/// so it stays poison-resistant. When the judge returns `block`, the
+/// tool call is rejected with the reason surfaced to the agent as a
+/// tool error so it can re-plan. Fail-open on timeout/error.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JudgeConfig {
+    /// Master switch. Off by default — costs one small LLM call per
+    /// covered tool dispatch.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Per-call response token cap.
+    #[serde(default = "default_judge_max_tokens", rename = "maxTokens")]
+    pub max_tokens: u32,
+    /// Hard ceiling on the judge LLM call. Beyond this the verdict
+    /// defaults to `allow` (fail-open). Defense-in-depth — the judge
+    /// must not turn a flaky sidecar into a brick.
+    #[serde(default = "default_judge_timeout", rename = "timeoutSeconds")]
+    pub timeout_seconds: u32,
+    /// When non-empty, the judge only fires for tools in this list.
+    /// Use to roll out per-tool. Mutually exclusive with `blockedTools`
+    /// (allow wins if both are set).
+    #[serde(default, rename = "allowedTools")]
+    pub allowed_tools: Vec<String>,
+    /// Tools that never get judged even when `enabled = true`. Useful
+    /// for high-volume read-only tools where the cost outweighs the
+    /// safety win.
+    #[serde(default, rename = "blockedTools")]
+    pub blocked_tools: Vec<String>,
+}
+
+impl Default for JudgeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_tokens: default_judge_max_tokens(),
+            timeout_seconds: default_judge_timeout(),
+            allowed_tools: vec![],
+            blocked_tools: vec![],
+        }
+    }
+}
+
+impl JudgeConfig {
+    /// True when the judge should fire for `tool`. Allow-wins-over-block
+    /// when both lists are configured (mirrors `ReflectionConfig`).
+    #[must_use]
+    pub fn covers_tool(&self, tool: &str) -> bool {
+        if !self.allowed_tools.is_empty() {
+            return self.allowed_tools.iter().any(|t| t == tool);
+        }
+        if self.blocked_tools.iter().any(|t| t == tool) {
+            return false;
+        }
+        true
+    }
+}
+
+fn default_judge_max_tokens() -> u32 {
+    200
+}
+
+fn default_judge_timeout() -> u32 {
+    5
+}
+
 /// Skill auto-refine — fires after a turn that loaded one or more
 /// skills into context AND ran ≥ `minToolCalls` tool calls. Writes a
 /// patched skill body when the LLM's confidence is ≥ `confidenceThreshold`.
@@ -1043,6 +1110,8 @@ pub struct AgentDefaults {
     pub skill_refine: SkillRefineConfig,
     #[serde(default, rename = "activityJournal")]
     pub activity_journal: ActivityJournalConfig,
+    #[serde(default)]
+    pub judge: JudgeConfig,
 }
 
 impl Default for AgentDefaults {
@@ -1068,6 +1137,7 @@ impl Default for AgentDefaults {
             trajectory: TrajectoryConfig::default(),
             skill_refine: SkillRefineConfig::default(),
             activity_journal: ActivityJournalConfig::default(),
+            judge: JudgeConfig::default(),
         }
     }
 }

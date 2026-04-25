@@ -1137,6 +1137,7 @@ impl AgentLoop {
             None,
             Some(self.workspace.as_path()),
             None, // direct dispatch: skip interactive approval
+            None, // direct dispatch: skip judge (no user intent)
         )
         .await;
 
