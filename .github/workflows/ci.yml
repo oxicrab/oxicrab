@@ -133,7 +133,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -196,7 +196,7 @@ jobs:
           tool: clippy-sarif,sarif-fmt
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -350,7 +350,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -416,7 +416,7 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -467,7 +467,7 @@ jobs:
           shared-key: ci-release-linux-${{ needs.changes.outputs.toolchain }}
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Install system dependencies
         run: |
@@ -561,7 +561,7 @@ jobs:
           shared-key: ci-release-linux-${{ needs.changes.outputs.toolchain }}
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Install system dependencies
         run: |
@@ -621,7 +621,7 @@ jobs:
           shared-key: ci-macos-release-${{ needs.changes.outputs.toolchain }}
 
       - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Install system dependencies
         run: command -v cmake || brew install cmake
