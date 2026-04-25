@@ -13,7 +13,10 @@ pub struct SubagentLogEntry {
 }
 
 impl MemoryDB {
-    /// Insert a subagent log entry.
+    /// Insert a subagent log entry. Content and metadata go through
+    /// the credential scrubber before persistence so a subagent that
+    /// echoes a tool's `Authorization: Bearer …` or `?api_key=…` into
+    /// its log doesn't leave the secret on disk.
     pub fn insert_subagent_log(
         &self,
         task_id: &str,
@@ -21,6 +24,15 @@ impl MemoryDB {
         content: &str,
         metadata: Option<&str>,
     ) -> Result<()> {
+        let content = oxicrab_safety::scrub_credentials_in_text(content);
+        let metadata = metadata.map(|m| {
+            // Try JSON first; fall back to text. Mirrors `scrub_dlq_payload`.
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(m) {
+                oxicrab_safety::scrub_credentials_in_json(&v).to_string()
+            } else {
+                oxicrab_safety::scrub_credentials_in_text(m)
+            }
+        });
         let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO subagent_logs (task_id, event_type, content, metadata)

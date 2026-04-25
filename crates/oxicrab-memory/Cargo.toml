@@ -13,6 +13,7 @@ rss = []
 
 [dependencies]
 oxicrab-core = { path = "../oxicrab-core" }
+oxicrab-safety = { path = "../oxicrab-safety" }
 anyhow = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }

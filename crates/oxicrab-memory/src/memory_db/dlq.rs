@@ -14,6 +14,17 @@ pub struct DlqEntry {
     pub status: String,
 }
 
+/// Scrub a DLQ payload: try to parse as JSON and walk the tree
+/// (catches `metadata.api_key` etc.); fall back to text scrub
+/// (catches `Authorization: Bearer …` lines) when not valid JSON.
+fn scrub_dlq_payload(payload: &str) -> String {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+        let scrubbed = oxicrab_safety::scrub_credentials_in_json(&value);
+        return scrubbed.to_string();
+    }
+    oxicrab_safety::scrub_credentials_in_text(payload)
+}
+
 impl MemoryDB {
     pub fn insert_dlq_entry(
         &self,
@@ -22,6 +33,12 @@ impl MemoryDB {
         payload: &str,
         error_message: &str,
     ) -> Result<i64> {
+        // Scrub credentials defensively — DLQ payload contains the full
+        // inbound message JSON, error_message echoes whatever the
+        // upstream failure produced. Callers don't need to remember to
+        // scrub themselves.
+        let payload = scrub_dlq_payload(payload);
+        let error_message = oxicrab_safety::scrub_credentials_in_text(error_message);
         let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         tx.execute(

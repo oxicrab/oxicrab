@@ -104,14 +104,28 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 }
 
 /// Truncate a tool params value to a concise summary string.
+///
+/// Credentials are scrubbed before truncation: any `authorization`,
+/// `api_key`, `token`, `secret`, `password` fields (and analogues) get
+/// replaced with `[REDACTED]`. URL values inside string fields also
+/// have sensitive query params redacted. This is structural, not
+/// pattern-based — it catches arbitrary `Bearer xxx` and
+/// `?api_key=USER_VAR` shapes that `LeakDetector` doesn't know about.
+/// Adopted from IronClaw PR #2529.
 pub fn summarize_params(params: &serde_json::Value) -> String {
-    let s = params.to_string();
+    let scrubbed = oxicrab_safety::scrub_credentials_in_json(params);
+    let s = scrubbed.to_string();
     truncate_str(&s, 200)
 }
 
-/// Truncate a tool result to a concise summary string.
+/// Truncate a tool result to a concise summary string. Header-style
+/// `Authorization: Bearer …` lines and URL-shaped strings get the
+/// same credential scrubbing as `summarize_params`. Tool result
+/// content is also separately scanned by `LeakDetector` upstream of
+/// this call; the scrubber covers the structured-but-unknown cases.
 pub fn summarize_result(content: &str) -> String {
-    truncate_str(content, 500)
+    let scrubbed = oxicrab_safety::scrub_credentials_in_text(content);
+    truncate_str(&scrubbed, 500)
 }
 
 impl MemoryDB {
