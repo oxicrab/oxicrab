@@ -3696,7 +3696,7 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
- "whatsapp-rust 0.4.3",
+ "whatsapp-rust",
  "which",
  "wiremock",
 ]
@@ -3735,7 +3735,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
- "whatsapp-rust 0.5.0",
+ "whatsapp-rust",
  "wiremock",
 ]
 
@@ -6743,49 +6743,6 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
 name = "wacore"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44cbef6572d5b79c2a14912fa20a0328e43d0106f80d43f19bc51747bbf2b005"
-dependencies = [
- "aes",
- "aes-gcm",
- "anyhow",
- "async-channel",
- "async-lock",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "ctr",
- "event-listener",
- "flate2",
- "futures",
- "hex",
- "hkdf",
- "hmac 0.12.1",
- "log",
- "md5",
- "once_cell",
- "pbkdf2",
- "prost",
- "rand 0.10.1",
- "serde",
- "serde-big-array",
- "serde_json",
- "sha1 0.10.6",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "typed-builder",
- "wacore-appstate 0.4.3",
- "wacore-binary 0.4.3",
- "wacore-derive 0.4.3",
- "wacore-libsignal 0.4.3",
- "wacore-noise 0.4.3",
- "waproto 0.4.3",
-]
-
-[[package]]
-name = "wacore"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5292fb723da7505e90cfd7a828dd397802b98e0f819a2bc058a6b3a9f2345306"
@@ -6819,34 +6776,12 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "typed-builder",
- "wacore-appstate 0.5.0",
- "wacore-binary 0.5.0",
- "wacore-derive 0.5.0",
- "wacore-libsignal 0.5.0",
- "wacore-noise 0.5.0",
- "waproto 0.5.0",
-]
-
-[[package]]
-name = "wacore-appstate"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16607b28046bcccaeb0e7f6df18acccee1851f1261b18d9388527c14d16c3d56"
-dependencies = [
- "anyhow",
- "bytemuck",
- "hex",
- "hkdf",
- "log",
- "prost",
- "serde",
- "serde-big-array",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "wacore-binary 0.4.3",
- "wacore-libsignal 0.4.3",
- "waproto 0.4.3",
+ "wacore-appstate",
+ "wacore-binary",
+ "wacore-derive",
+ "wacore-libsignal",
+ "wacore-noise",
+ "waproto",
 ]
 
 [[package]]
@@ -6866,22 +6801,9 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
- "wacore-binary 0.5.0",
- "wacore-libsignal 0.5.0",
- "waproto 0.5.0",
-]
-
-[[package]]
-name = "wacore-binary"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c60862ac59cc3831b587b7aa121a00423de41aaa5e2e38ff197fa0d533ca42d0"
-dependencies = [
- "flate2",
- "phf 0.13.1",
- "phf_codegen",
- "serde",
- "serde_json",
+ "wacore-binary",
+ "wacore-libsignal",
+ "waproto",
 ]
 
 [[package]]
@@ -6899,17 +6821,6 @@ dependencies = [
 
 [[package]]
 name = "wacore-derive"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b8fce79c1168bbdfeb477a434e5db81518a1a0deff6031bd739cfc2daf57f8a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "wacore-derive"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9546a14730f112eca3bc2e4cbd815df88046fa78530f110c3665492604e770"
@@ -6917,39 +6828,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "wacore-libsignal"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3c27a078fd82a46c93e8ba2eb6574f21a20e867c0d6af036a238421548605fc"
-dependencies = [
- "aes",
- "aes-gcm",
- "arrayref",
- "async-trait",
- "cbc",
- "chrono",
- "ctr",
- "curve25519-dalek",
- "derive_more 2.1.1",
- "displaydoc",
- "ghash 0.6.0",
- "hex",
- "hkdf",
- "hmac 0.12.1",
- "log",
- "prost",
- "rand 0.10.1",
- "serde",
- "sha1 0.10.6",
- "sha2 0.10.9",
- "subtle",
- "thiserror 2.0.18",
- "uuid",
- "waproto 0.4.3",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -6981,28 +6859,8 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "uuid",
- "waproto 0.5.0",
+ "waproto",
  "x25519-dalek",
-]
-
-[[package]]
-name = "wacore-noise"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de9a863783c5b33a3392f7f35abec51a4852fc49dc85b72a26a30f494bdbeb3b"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "bytes",
- "hkdf",
- "log",
- "prost",
- "rand 0.10.1",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "wacore-binary 0.4.3",
- "wacore-libsignal 0.4.3",
- "waproto 0.4.3",
 ]
 
 [[package]]
@@ -7020,9 +6878,9 @@ dependencies = [
  "rand 0.10.1",
  "sha2 0.10.9",
  "thiserror 2.0.18",
- "wacore-binary 0.5.0",
- "wacore-libsignal 0.5.0",
- "waproto 0.5.0",
+ "wacore-binary",
+ "wacore-libsignal",
+ "waproto",
 ]
 
 [[package]]
@@ -7051,17 +6909,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
-]
-
-[[package]]
-name = "waproto"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1988d9dae07ab39bd2de603f93fafc1395a1a9bdfc706290281363079f3d619"
-dependencies = [
- "prost",
- "prost-build",
- "serde",
 ]
 
 [[package]]
@@ -7279,39 +7126,6 @@ dependencies = [
 
 [[package]]
 name = "whatsapp-rust"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "847c1636fb1f9171657b2c574be0cab86c40072c432a8a989b2c09bbced18d10"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-lock",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "env_logger",
- "event-listener",
- "futures",
- "hex",
- "log",
- "prost",
- "rand 0.10.1",
- "scopeguard",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "wacore 0.4.3",
- "wacore-binary 0.4.3",
- "waproto 0.4.3",
- "whatsapp-rust-sqlite-storage 0.4.3",
- "whatsapp-rust-tokio-transport 0.4.3",
- "whatsapp-rust-ureq-http-client 0.4.3",
-]
-
-[[package]]
-name = "whatsapp-rust"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5b79e16847fe6e7ea8d103b4b575b1a1b77bd57cb4c292f7c50616b72a74374"
@@ -7335,32 +7149,12 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "wacore 0.5.0",
- "wacore-binary 0.5.0",
- "waproto 0.5.0",
- "whatsapp-rust-sqlite-storage 0.5.0",
- "whatsapp-rust-tokio-transport 0.5.0",
- "whatsapp-rust-ureq-http-client 0.5.0",
-]
-
-[[package]]
-name = "whatsapp-rust-sqlite-storage"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afeb0d4ddf65361b05c5a394d4ac8d28d3fb19ae04710f216e6d19d1fdf77988"
-dependencies = [
- "async-trait",
- "bincode",
- "diesel",
- "diesel_migrations",
- "libsqlite3-sys",
- "log",
- "prost",
- "serde_json",
- "tokio",
- "wacore 0.4.3",
- "wacore-binary 0.4.3",
- "waproto 0.4.3",
+ "wacore",
+ "wacore-binary",
+ "waproto",
+ "whatsapp-rust-sqlite-storage",
+ "whatsapp-rust-tokio-transport",
+ "whatsapp-rust-ureq-http-client",
 ]
 
 [[package]]
@@ -7377,29 +7171,8 @@ dependencies = [
  "log",
  "serde_json",
  "tokio",
- "wacore 0.5.0",
- "wacore-binary 0.5.0",
-]
-
-[[package]]
-name = "whatsapp-rust-tokio-transport"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b1b27738ad31fbb6cca2e553cf287b195bdaea78bc6c1641211b15eac4e6f2"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-trait",
- "bytes",
- "futures-util",
- "http",
- "log",
- "rustls 0.23.39",
- "tokio",
- "tokio-rustls 0.26.4",
- "tokio-websockets",
- "wacore 0.4.3",
- "webpki-roots 1.0.6",
+ "wacore",
+ "wacore-binary",
 ]
 
 [[package]]
@@ -7419,21 +7192,8 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-websockets",
- "wacore 0.5.0",
+ "wacore",
  "webpki-roots 1.0.6",
-]
-
-[[package]]
-name = "whatsapp-rust-ureq-http-client"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d60ffe4f4a10f0854ac61f59b121d859f0a6094384560e70eebcdab434394bd"
-dependencies = [
- "anyhow",
- "async-trait",
- "tokio",
- "ureq 3.3.0",
- "wacore 0.4.3",
 ]
 
 [[package]]
@@ -7446,7 +7206,7 @@ dependencies = [
  "async-trait",
  "tokio",
  "ureq 3.3.0",
- "wacore 0.5.0",
+ "wacore",
 ]
 
 [[package]]
