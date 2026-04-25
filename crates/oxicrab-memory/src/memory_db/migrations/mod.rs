@@ -269,6 +269,43 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 11 {
+        run_migration(conn, 11, || {
+            // Structured claims with confidence + status + evidence,
+            // adopted from openclaw's claims/wiki_lint pattern. Two
+            // tables — `claims` for the head record, `claim_evidence`
+            // for the 1:N pointer list (different evidence kinds need
+            // their own schemas; storing as JSON would block proper
+            // querying).
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS claims (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text            TEXT NOT NULL,
+                    confidence      REAL NOT NULL DEFAULT 0.5,
+                    status          TEXT NOT NULL DEFAULT 'open',
+                    last_seen_ms    INTEGER NOT NULL,
+                    created_at_ms   INTEGER NOT NULL,
+                    updated_at_ms   INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_claims_status
+                    ON claims(status, last_seen_ms);
+                CREATE INDEX IF NOT EXISTS idx_claims_confidence
+                    ON claims(confidence);
+
+                CREATE TABLE IF NOT EXISTS claim_evidence (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    claim_id      INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+                    pointer_kind  TEXT NOT NULL,
+                    pointer_value TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim
+                    ON claim_evidence(claim_id);",
+            )?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 

@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use tracing::warn;
 
+mod claims;
 pub mod collections;
 mod cost;
 mod cron;
@@ -25,6 +26,7 @@ mod traces;
 mod trajectories;
 mod workspace;
 
+pub use claims::{Claim, ClaimStatus, ContradictionPair, EvidencePointer};
 pub use collections::{
     AggFunction, AggregationRequest, AggregationResult, CollectionInfo, CollectionRecord,
     CollectionSchema, FieldDef, FieldType, FilterOp, RecordFilter,

@@ -1,4 +1,5 @@
 pub mod base;
+pub mod claim;
 pub mod collections;
 pub mod cron;
 pub mod finish_cron;

@@ -99,6 +99,7 @@ pub async fn register_all_tools(
     register_http(&mut tools);
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
+    register_claim(&mut tools, ctx);
     register_workspace(&mut tools, ctx);
     register_query_activity(&mut tools, ctx);
     register_interactive(&mut tools, ctx);
@@ -487,6 +488,15 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         ctx.memory.clone(),
         ctx.leak_detector.clone(),
     )));
+}
+
+fn register_claim(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::claim::ClaimTool;
+    let Some(ref db) = ctx.memory_db else {
+        return;
+    };
+    registry.register(Arc::new(ClaimTool::new(db.clone())));
+    info!("claim tool registered");
 }
 
 fn register_finish_cron(registry: &mut ToolRegistry) {
