@@ -57,21 +57,6 @@ pub struct WhatsAppConfig {
     pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
-    /// When true, only respond in groups when the bot's JID is mentioned
-    /// in `mentioned_jid` or the message is a reply to a bot message.
-    /// DMs are unaffected.
-    ///
-    /// **Defaults to `true`** because the historical leak that motivated
-    /// this gate (a bot replying to every message in a WhatsApp group)
-    /// is the failure mode that happens with `false`. Set explicitly to
-    /// `false` only for groups you control end-to-end and want the bot
-    /// to be a passive participant in.
-    #[serde(default = "default_whatsapp_mention_only", rename = "mentionOnly")]
-    pub mention_only: bool,
-}
-
-fn default_whatsapp_mention_only() -> bool {
-    true
 }
 
 impl Default for WhatsAppConfig {
@@ -81,7 +66,6 @@ impl Default for WhatsAppConfig {
             allow_from: DenyByDefaultList::default(),
             allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
-            mention_only: default_whatsapp_mention_only(),
         }
     }
 }

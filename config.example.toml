@@ -153,10 +153,6 @@ enabled = false
 allowFrom = []
 allowGroups = []
 dmPolicy = "allowlist"
-# Default true: in groups, only respond when @mentioned or quote-replied
-# to. Flip to false only for dedicated bot groups where the bot should
-# react to every message.
-mentionOnly = true
 
 [channels.twilio]
 enabled = false

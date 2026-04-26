@@ -23,8 +23,6 @@ use oxicrab_core::tools::base::{
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(feature = "embeddings")]
-use tracing::debug;
 
 pub struct SkillProposeTool {
     workspace_skills: PathBuf,
@@ -221,8 +219,12 @@ impl Tool for SkillProposeTool {
                                         Ok(n) if n > 0 => flag = true,
                                         Ok(_) => {}
                                         Err(e) => {
-                                            debug!(
-                                                "skill_propose: post-promote index_one failed: {e}"
+                                            // Promoted skill is on disk but
+                                            // not yet searchable — embedding
+                                            // service failure rather than a
+                                            // benign "no change" return.
+                                            tracing::warn!(
+                                                "skill_propose: post-promote index_one failed for '{name}': {e}"
                                             );
                                         }
                                     }

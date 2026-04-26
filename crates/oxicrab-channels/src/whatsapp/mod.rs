@@ -121,7 +121,6 @@ impl BaseChannel for WhatsAppChannel {
         let config_allow = self.config.allow_from.clone();
         let config_allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
-        let mention_only = self.config.mention_only;
         let client_for_storage = self.client.clone();
         let bot_jid_cache = self.bot_jid.clone();
 
@@ -237,15 +236,14 @@ impl BaseChannel for WhatsAppChannel {
                                         }
                                     }
 
-                                    // mention_only group gate: even in an allowlisted group,
-                                    // only forward messages that explicitly address the bot
-                                    // (mentioned in mentioned_jid OR a quote-reply to a bot
-                                    // message). Mirrors Telegram/Discord/Slack semantics so
-                                    // a bot in a noisy WhatsApp group doesn't reply to
-                                    // every message. Fails closed if the bot's own JID
-                                    // isn't yet known (rare startup window) — better to
-                                    // silently drop than to broadcast.
-                                    if is_group && mention_only {
+                                    // In groups the bot only responds when explicitly
+                                    // addressed: either listed in `mentioned_jid` or the
+                                    // message is a quote-reply to a prior bot message.
+                                    // A group is a shared space, so participation must
+                                    // be invited — use a DM for unconditional bot replies.
+                                    // Fails closed if the bot's own JID isn't yet known
+                                    // (rare startup window before pairing completes).
+                                    if is_group {
                                         let bot_jid_opt: Option<&String> = bot_jid_cache
                                             .get_or_try_init(|| async {
                                                 client
@@ -265,7 +263,7 @@ impl BaseChannel for WhatsAppChannel {
                                         let base_for_mention = msg.get_base_message();
                                         if !mention::message_mentions_bot(base_for_mention, bot_jid) {
                                             debug!(
-                                                "whatsapp: ignoring group message (mention_only enabled, bot not mentioned)"
+                                                "whatsapp: ignoring unaddressed group message"
                                             );
                                             return;
                                         }

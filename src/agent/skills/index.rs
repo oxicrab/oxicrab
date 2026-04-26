@@ -8,7 +8,7 @@
 //! nothing has changed. Usage counters are preserved across re-indexes.
 
 use crate::agent::memory::memory_db::MemoryDB;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::warn;
@@ -96,8 +96,16 @@ impl SkillIndex {
         for (path, name) in self.list_skill_files() {
             let path_str = path.to_string_lossy().to_string();
             live_paths.insert(path_str.clone());
-
-            self.index_one_inner(embeddings, &path, &name, &path_str, now_ms, &mut indexed);
+            // Per-file failures during a full rebuild shouldn't
+            // abort the whole pass — index_one_inner already logs
+            // file-read errors itself. Embedding-service failures
+            // bubble up here as Err and we keep going so one bad
+            // skill doesn't shadow the rest of the index.
+            if let Err(e) =
+                self.index_one_inner(embeddings, &path, &name, &path_str, now_ms, &mut indexed)
+            {
+                warn!("skills_index: rebuild skipped {path_str}: {e}");
+            }
         }
 
         // Drop entries for files that were removed from disk.
@@ -136,7 +144,7 @@ impl SkillIndex {
             &path_str,
             now_ms,
             &mut indexed,
-        );
+        )?;
         Ok(indexed)
     }
 
@@ -149,27 +157,28 @@ impl SkillIndex {
         path_str: &str,
         now_ms: i64,
         indexed: &mut u64,
-    ) {
+    ) -> Result<()> {
         let Ok(content) = std::fs::read_to_string(path) else {
             warn!("skills_index: unable to read {}", path.display());
-            return;
+            return Ok(());
         };
         let sha = sha256_hex(&content);
         if let Ok(Some((existing_sha, existing_model))) = self.db.get_skill_index_meta(path_str)
             && existing_sha == sha
             && existing_model == self.embedding_model_id
         {
-            return;
+            return Ok(());
         }
 
         let description = extract_description(&content).unwrap_or_else(|| name.to_string());
-        let embedding = match embeddings.embed_texts(&[&description]) {
-            Ok(mut v) => v.pop().unwrap_or_default(),
-            Err(e) => {
-                warn!("skills_index: embedding failed for {}: {e}", path.display());
-                return;
-            }
-        };
+        // An embedding-service failure is propagated to the caller so
+        // promote / propose paths can surface "skill saved but not yet
+        // searchable" rather than silently shipping a stale index.
+        let embedding = embeddings
+            .embed_texts(&[&description])
+            .with_context(|| format!("embedding failed for {}", path.display()))?
+            .pop()
+            .unwrap_or_default();
 
         let entry = SkillIndexEntry {
             path: path_str.to_string(),
@@ -183,11 +192,11 @@ impl SkillIndex {
             created_at_ms: now_ms,
             last_indexed_ms: now_ms,
         };
-        if let Err(e) = self.db.upsert_skill_index(&entry) {
-            warn!("skills_index: upsert failed for {}: {e}", entry.path);
-            return;
-        }
+        self.db
+            .upsert_skill_index(&entry)
+            .with_context(|| format!("upsert_skill_index for {}", entry.path))?;
         *indexed += 1;
+        Ok(())
     }
 
     /// Stub used when `embeddings` feature is disabled. Returns 0; the
