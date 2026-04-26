@@ -174,7 +174,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     }
 
     let agent = agent?;
-    let (http_state, _http_task) = match gateway_result? {
+    let (http_state, http_task) = match gateway_result? {
         Some((task, state)) => (Some(state), Some(task)),
         None => (None, None),
     };
@@ -242,16 +242,35 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 
     info!("all services started, gateway is running");
 
-    // Handle shutdown
+    // Handle shutdown. The HTTP task is brought into select! so a
+    // panic or bind-loss in the HTTP server triggers shutdown
+    // instead of detaching silently. When no HTTP server is
+    // configured, the arm sits on a never-completing pending future.
+    let http_arm = async move {
+        match http_task {
+            Some(handle) => {
+                let _ = handle.await;
+            }
+            None => std::future::pending::<()>().await,
+        }
+    };
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             println!("\nShutting down...");
             cron.stop().await;
             agent.stop().await;
-            // Channels will stop themselves when the task ends
+            // Explicit channel stop so background tasks (poll loops,
+            // webhook receivers) shut down before this function
+            // returns. Relying on task-drop alone left the ordering
+            // dependent on the outbound_tx ref-count.
         }
         _ = agent_task => {}
         _ = channels_task => {}
+        () = http_arm => {
+            warn!("HTTP API server exited unexpectedly — shutting down");
+            cron.stop().await;
+            agent.stop().await;
+        }
     }
 
     Ok(())
@@ -834,19 +853,35 @@ fn start_channels_loop(
             }
         });
 
-        // Spawn supervisor task: periodically checks channel health and restarts dead ones
+        // Spawn supervisor task: periodically checks channel health
+        // and restarts dead ones. The outer loop respawns the
+        // supervisor body if the inner task panics — without it, a
+        // single panic inside check_and_restart_unhealthy would kill
+        // the supervisor permanently and channels couldn't recover.
         tokio::spawn(async move {
             // Wait before first check to let channels fully initialize
             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                let restarted = channels_for_supervisor
-                    .lock()
-                    .await
-                    .check_and_restart_unhealthy()
-                    .await;
-                if restarted > 0 {
-                    info!("supervisor restarted {} channel(s)", restarted);
+                let channels_inner = channels_for_supervisor.clone();
+                let inner = tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        let restarted = channels_inner
+                            .lock()
+                            .await
+                            .check_and_restart_unhealthy()
+                            .await;
+                        if restarted > 0 {
+                            info!("supervisor restarted {} channel(s)", restarted);
+                        }
+                    }
+                });
+                match inner.await {
+                    Err(e) if e.is_panic() => {
+                        warn!("channel supervisor panicked ({e}); respawning in 5s");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    }
+                    Ok(()) | Err(_) => break,
                 }
             }
         });

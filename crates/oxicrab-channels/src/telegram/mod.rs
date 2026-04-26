@@ -394,6 +394,11 @@ impl BaseChannel for TelegramChannel {
     }
 
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
+        // Don't leak bot presence to disallowed groups via the typing
+        // indicator. Same gate as send().
+        if outbound_group_blocked(chat_id, &self.config.allow_groups) {
+            return Ok(());
+        }
         let chat_id = chat_id
             .parse::<i64>()
             .map_err(|e| anyhow::anyhow!("invalid Telegram chat_id: {e}"))?;

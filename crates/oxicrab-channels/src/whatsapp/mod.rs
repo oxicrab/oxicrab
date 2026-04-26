@@ -615,8 +615,20 @@ impl BaseChannel for WhatsAppChannel {
                 info!("processing {} queued WhatsApp messages", queue_size);
             }
 
-            // Send queued messages
+            // Send queued messages. Re-apply the outbound group gate
+            // here: a webhook or cron job that fired before the client
+            // connected may have queued a message for a group that was
+            // never in (or has been removed from) `allowGroups`. The
+            // entry-point check at the top of `send()` only covers the
+            // current message, not the drained queue.
             for queued_msg in queued {
+                if outbound_group_blocked(&queued_msg.chat_id, &self.config.allow_groups) {
+                    warn!(
+                        "whatsapp: dropping queued outbound to group {} — not in allowGroups",
+                        queued_msg.chat_id
+                    );
+                    continue;
+                }
                 if let Err(e) = Box::pin(send_whatsapp_message(client, &queued_msg)).await {
                     error!("failed to send queued WhatsApp message: {}", e);
                 }

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::io::Write;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::config::Config;
 
@@ -121,6 +121,19 @@ pub(super) fn onboard() -> Result<()> {
         _ => {}
     }
 
+    // Back up the existing config before overwriting. If the user
+    // had hand-edited fields the strict deserializer no longer
+    // accepts (or future-version keys), the rewrite would silently
+    // drop them. The backup gives them a reset path.
+    if config_path.exists() {
+        let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+        let backup = config_path.with_extension(format!("toml.bak.{ts}"));
+        if let Err(e) = std::fs::copy(&config_path, &backup) {
+            warn!("onboard: failed to back up existing config: {e}");
+        } else {
+            println!("\u{2713} Backed up existing config to {}", backup.display());
+        }
+    }
     crate::config::save_config(&config, Some(config_path.as_path()))?;
     println!("\u{2713} Wrote config to {}", config_path.display());
 
