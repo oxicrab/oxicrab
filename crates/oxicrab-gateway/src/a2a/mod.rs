@@ -22,6 +22,22 @@ const A2A_TIMEOUT_SECS: u64 = 120;
 /// Maximum number of A2A tasks retained in memory.
 const MAX_A2A_TASKS: usize = 1000;
 
+/// Task IDs follow `a2a-{uuid}` per spec, but tests and tools may
+/// emit non-UUID suffixes. Accept the prefix plus an alphanumeric /
+/// dash / underscore body up to 64 chars — rejects path traversal
+/// shapes and truly arbitrary input while leaving headroom for
+/// non-UUID identifiers.
+fn is_valid_a2a_task_id(id: &str) -> bool {
+    let Some(suffix) = id.strip_prefix("a2a-") else {
+        return false;
+    };
+    !suffix.is_empty()
+        && suffix.len() <= 64
+        && suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 // --- AgentCard types ---
 
 #[derive(Debug, Serialize)]
@@ -281,6 +297,16 @@ pub async fn get_task_handler(
     State(state): State<A2aState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
+    // Validate the task ID shape before HashMap lookup. The spec is
+    // `a2a-{uuid}`. Refusing arbitrary strings raises the cost of
+    // ID enumeration and rejects malformed inputs before they
+    // touch shared state.
+    if !is_valid_a2a_task_id(&task_id) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid task id"})),
+        );
+    }
     match state.store.get(&task_id) {
         Some(task) => match serde_json::to_value(task) {
             Ok(val) => (StatusCode::OK, Json(val)),

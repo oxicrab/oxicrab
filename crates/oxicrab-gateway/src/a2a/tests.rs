@@ -193,9 +193,12 @@ async fn test_get_task_not_found() {
     let (state, _rx) = make_a2a_state();
     let app = a2a_router(state);
 
+    // Well-formed but missing — should 404 (validation passes,
+    // store lookup fails). A bare "nonexistent" is rejected at the
+    // validation gate with 400.
     let req = Request::builder()
         .method("GET")
-        .uri("/a2a/tasks/nonexistent")
+        .uri("/a2a/tasks/a2a-missing")
         .body(Body::empty())
         .unwrap();
 

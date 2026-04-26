@@ -544,13 +544,22 @@ async fn chat_handler(
 
 /// GET /api/health — health check endpoint.
 ///
-/// Returns `"ready"` once the agent loop is running, `"starting"` during
-/// initialization. Kubernetes-style probes: use `/api/health` for liveness
-/// (always 200) and check `status == "ready"` for readiness.
+/// Returns `"ready"` once the agent loop (or echo placeholder) is
+/// running, `"starting"` during initialisation, `"echo"` when running
+/// without an LLM provider. Kubernetes-style probes: use
+/// `/api/health` for liveness (always 200) and check
+/// `status == "ready"` (or `"echo"`) for readiness.
 async fn health_handler(State(state): State<HttpApiState>) -> impl IntoResponse {
     let is_ready = state.ready.load(Ordering::SeqCst);
+    let status = if !is_ready {
+        "starting"
+    } else if state.echo_mode {
+        "echo"
+    } else {
+        "ready"
+    };
     Json(serde_json::json!({
-        "status": if is_ready { "ready" } else { "starting" },
+        "status": status,
         "version": VERSION
     }))
 }
@@ -1167,8 +1176,25 @@ pub async fn start<S: BuildHasher>(
                 ""
             }
         );
+        let limiter = Arc::new(governor::RateLimiter::keyed(quota));
+        // Periodic cleanup of stale per-IP buckets so a distributed
+        // attack with many unique IPs can't grow the keyed map
+        // without bound. retain_recent() drops any key whose
+        // theoretical arrival time is in the past (i.e., the bucket
+        // is indistinguishable from a fresh one).
+        {
+            let limiter = limiter.clone();
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                tick.tick().await;
+                loop {
+                    tick.tick().await;
+                    limiter.retain_recent();
+                }
+            });
+        }
         Some(RateLimitState {
-            limiter: Arc::new(governor::RateLimiter::keyed(quota)),
+            limiter,
             trust_proxy: rate_limit.trust_proxy,
             trusted_proxies: Arc::new(trusted_proxies),
             retry_after_secs,
