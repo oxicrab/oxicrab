@@ -541,7 +541,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
                 };
                 if !valid {
                     warn!(
-                        "media file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}). File may be corrupted.",
+                        "media file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}) — file may be corrupted",
                         path,
                         ext,
                         &data[..8.min(data.len())]

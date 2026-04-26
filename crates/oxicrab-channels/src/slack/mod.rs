@@ -997,9 +997,9 @@ impl BaseChannel for SlackChannel {
                         let error_str = e.to_string();
                         error!("Slack Socket Mode connection error: {}", error_str);
                         if error_str.contains("400") {
-                            warn!("400 Bad Request - The token format might be incorrect.");
+                            warn!("400 Bad Request — the token format might be incorrect");
                             warn!(
-                                "make sure your app_token starts with 'xapp-' and is a Socket Mode token."
+                                "make sure your app_token starts with 'xapp-' and is a Socket Mode token"
                             );
                             warn!(
                                 "you can generate a new token at: https://api.slack.com/apps/<your-app-id>/socket-mode"
