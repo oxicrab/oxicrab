@@ -131,6 +131,15 @@ impl AgentLoop {
         let mut any_tools_called = false;
         let mut last_was_tool_only = false;
         let mut tool_call_count: usize = 0;
+        // Text emitted alongside tool_calls is preserved here so we have
+        // a fallback if the final EndTurn comes back empty. Sonnet 4.6
+        // routinely emits text like "Let me check your calendar…" right
+        // before a tool_use block — without this the user gets
+        // "No response generated." even though the model DID say
+        // something useful. Cleared for each new run; multiple chunks
+        // joined by blank lines on fallback. Adopted from openfang's
+        // accumulated_text + moltis's last_answer_text patterns.
+        let mut accumulated_text: Vec<String> = Vec::new();
         // Capture the trigger user message up front so the refine hook
         // can use it (and replay select_skills_for_query against it).
         let initial_user_message = messages
@@ -170,6 +179,30 @@ impl AgentLoop {
         let mut trajectory_call_start: Vec<std::time::Instant> = Vec::new();
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
+        // Force-text mode: set when the LLM is stuck in a tool-loop
+        // failure pattern (consecutive empty responses, or every tool
+        // result in a row coming back as is_error). Once set, all
+        // tools are stripped from subsequent LLM calls so the model
+        // is forced to output text. Adopted from IronClaw's
+        // `ReasoningContext.force_text` flag.
+        let mut force_text_mode = false;
+        let mut consecutive_empty_responses: u8 = 0;
+        let mut consecutive_all_error_iterations: u8 = 0;
+        const FORCE_TEXT_AFTER_EMPTIES: u8 = 2;
+        const FORCE_TEXT_AFTER_ALL_ERROR: u8 = 2;
+        // Identical tool-call tracker: maps fingerprint(tool, args) →
+        // count. When the same call has fired
+        // DUPLICATE_CALL_THRESHOLD times AND the run has been going
+        // for at least DUPLICATE_CALL_MIN_ELAPSED_SECS, flip force-text
+        // mode. The time gate is critical — legitimate poll-until-ready
+        // workflows fire identical calls but want to keep going.
+        // Adopted from IronClaw's DuplicateToolCallTracker + Zeroclaw's
+        // time-gated identical-output check.
+        const DUPLICATE_CALL_THRESHOLD: u8 = 3;
+        const DUPLICATE_CALL_MIN_ELAPSED_SECS: u64 = 30;
+        let run_started = std::time::Instant::now();
+        let mut duplicate_call_counts: std::collections::HashMap<u64, u8> =
+            std::collections::HashMap::new();
         let mut collected_media: Vec<String> = Vec::new();
         let mut collected_tool_metadata: Vec<(String, HashMap<String, serde_json::Value>)> =
             Vec::new();
@@ -200,12 +233,58 @@ impl AgentLoop {
             );
 
             let wrapup_threshold = Self::compute_wrapup_threshold(effective_max_iterations);
+            // Hard-budget escalation at 90% — by this point the model
+            // MUST stop calling tools and produce text. Adopted from
+            // Microclaw + Zeroclaw's <system_notice type="iteration_budget">
+            // pattern; structured tag is more LLM-readable than prose.
+            let urgent_threshold = ((effective_max_iterations as f64) * 0.9).ceil() as usize;
 
             for iteration in 1..=effective_max_iterations {
+            // Force-text mode: strip tools so the model is compelled to
+            // output text. Triggered from the bottom of the previous
+            // iteration when consecutive failures cross the threshold.
+            // We rebuild tools_arc to empty AND inject a system notice
+            // so the model knows why its tools just disappeared.
+            let force_text_active = force_text_mode;
+            if force_text_active && !tools_arc.is_empty() {
+                warn!(
+                    "force-text mode: stripping {} tool definitions for remaining iterations \
+                     (consecutive_empty={} consecutive_all_error={})",
+                    tools_arc.len(),
+                    consecutive_empty_responses,
+                    consecutive_all_error_iterations,
+                );
+                tools_arc = Arc::new(Vec::new());
+                tool_names.clear();
+                messages.push(Message::system(
+                    "<system_notice type=\"force_text\">\
+                     Tools have been disabled for the remainder of this turn because previous \
+                     attempts produced no progress. Output a final user-facing text response \
+                     using whatever information you already have.\
+                     </system_notice>"
+                        .to_string(),
+                ));
+            }
             // Inject wrap-up hint when approaching iteration limit
             if iteration == wrapup_threshold && any_tools_called {
+                let remaining = effective_max_iterations.saturating_sub(iteration);
                 messages.push(Message::system(format!(
-                    "You have used {iteration} of {effective_max_iterations} iterations. Begin wrapping up — summarize progress and deliver results."
+                    "<system_notice type=\"iteration_budget\" remaining=\"{remaining}/{effective_max_iterations}\">\
+                     You're 70% through the tool-iteration budget. Wrap up: summarize progress \
+                     and deliver results in your next response.\
+                     </system_notice>"
+                )));
+            }
+            if iteration == urgent_threshold
+                && urgent_threshold > wrapup_threshold
+                && any_tools_called
+            {
+                let remaining = effective_max_iterations.saturating_sub(iteration);
+                messages.push(Message::system(format!(
+                    "<system_notice type=\"iteration_budget\" remaining=\"{remaining}/{effective_max_iterations}\" severity=\"urgent\">\
+                     You have very few iterations left. Stop calling tools. \
+                     Output a final user-facing text response NOW with whatever you have.\
+                     </system_notice>"
                 )));
             }
 
@@ -354,6 +433,19 @@ impl AgentLoop {
             // the next iteration will strip tools to force a text response.
             last_was_tool_only = response.has_tool_calls() && response.content.is_none();
 
+            // Force-text counters: empty-response counter increments
+            // when the model returned nothing AND no tool calls. Reset
+            // on any non-empty response so transient flakiness doesn't
+            // accumulate.
+            if !response.has_tool_calls() && response.content.is_none() {
+                consecutive_empty_responses = consecutive_empty_responses.saturating_add(1);
+                if any_tools_called && consecutive_empty_responses >= FORCE_TEXT_AFTER_EMPTIES {
+                    force_text_mode = true;
+                }
+            } else {
+                consecutive_empty_responses = 0;
+            }
+
             // Phantom-tool-call guard: some API gateways inject a
             // tool_calls payload while finish_reason indicates a real
             // stop (content_filter, error, stop). Without this check we
@@ -369,8 +461,56 @@ impl AgentLoop {
             }
 
             if response.has_tool_calls() {
+                // Duplicate-call detector. Fingerprint each call
+                // (tool name + canonical args) and bump the counter.
+                // After DUPLICATE_CALL_THRESHOLD AND past the
+                // time-gate, flip force-text mode and inject a
+                // notice so the model knows why we're stopping it.
+                let elapsed_secs = run_started.elapsed().as_secs();
+                let mut hit_duplicate = false;
+                for tc in &response.tool_calls {
+                    let fp = fingerprint_tool_call(&tc.name, &tc.arguments);
+                    let count = duplicate_call_counts.entry(fp).or_insert(0);
+                    *count = count.saturating_add(1);
+                    if *count >= DUPLICATE_CALL_THRESHOLD
+                        && elapsed_secs >= DUPLICATE_CALL_MIN_ELAPSED_SECS
+                    {
+                        hit_duplicate = true;
+                        warn!(
+                            "duplicate-call threshold hit: tool='{}' count={} elapsed={}s",
+                            tc.name, count, elapsed_secs
+                        );
+                    }
+                }
+                if hit_duplicate {
+                    force_text_mode = true;
+                    messages.push(Message::system(
+                        "<system_notice type=\"duplicate_calls\">\
+                         The same tool call has been repeated several times. \
+                         Tools have been disabled. Output a final text response \
+                         summarising what you have so far.\
+                         </system_notice>"
+                            .to_string(),
+                    ));
+                    response.tool_calls.clear();
+                    // Fall through; with cleared tool_calls the response
+                    // looks like an empty turn, which the empty-handler
+                    // below will deal with.
+                }
+            }
+            if response.has_tool_calls() {
                 any_tools_called = true;
                 tools_used.extend(response.tool_calls.iter().map(|tc| tc.name.clone()));
+                // Capture any text that came alongside the tool_calls.
+                // This is the prose Sonnet emits before a tool_use block
+                // ("Let me check…"), which is otherwise lost when the
+                // final iteration returns content=None. Used as the
+                // fallback content if the post-loop summary also fails.
+                if let Some(ref text) = response.content
+                    && !text.trim().is_empty()
+                {
+                    accumulated_text.push(text.clone());
+                }
                 ContextBuilder::add_assistant_message(
                     &mut messages,
                     response.content.as_deref(),
@@ -418,6 +558,22 @@ impl AgentLoop {
                     )
                     .await;
                 tool_call_count += response.tool_calls.len();
+
+                // Force-text counter: track iterations where every
+                // tool call came back as is_error=true. After
+                // FORCE_TEXT_AFTER_ALL_ERROR consecutive such
+                // iterations, strip tools so the model is compelled
+                // to acknowledge the failure to the user instead of
+                // looping on broken tools.
+                if !results.is_empty() && results.iter().all(|r| r.is_error) {
+                    consecutive_all_error_iterations =
+                        consecutive_all_error_iterations.saturating_add(1);
+                    if consecutive_all_error_iterations >= FORCE_TEXT_AFTER_ALL_ERROR {
+                        force_text_mode = true;
+                    }
+                } else {
+                    consecutive_all_error_iterations = 0;
+                }
                 // Trajectory: log results paired with the dispatched calls.
                 if let (Some(logger), Some(sid)) = (
                     trajectory_logger.as_ref(),
@@ -631,6 +787,39 @@ impl AgentLoop {
                 tool_metadata: collected_tool_metadata,
             });
         }
+
+            // Last resort before returning content=None: surface the
+            // text the model emitted alongside its tool_calls earlier
+            // in the run. Without this, an empty final EndTurn loses
+            // whatever the model already said (e.g. "Looking at your
+            // calendar…"). The user has been confused by exactly this.
+            if !accumulated_text.is_empty() {
+                let fallback = accumulated_text.join("\n\n");
+                let fallback = strip_think_tags(&fallback);
+                let fallback = prepend_display_text(
+                    fallback,
+                    &collected_tool_metadata,
+                    Some(&self.leak_detector),
+                    self.prompt_guard
+                        .as_ref()
+                        .map(|g| (g, &self.prompt_guard_config)),
+                );
+                warn!(
+                    "loop ended with empty final content; falling back to {} chars of text \
+                     emitted alongside earlier tool_calls",
+                    fallback.len()
+                );
+                return Ok(AgentLoopResult {
+                    content: Some(fallback),
+                    input_tokens: last_input_tokens,
+                    tools_used,
+                    media: collected_media,
+                    reasoning_content: None,
+                    reasoning_signature: None,
+                    response_metadata,
+                    tool_metadata: collected_tool_metadata,
+                });
+            }
 
             Ok(AgentLoopResult {
                 content: None,
@@ -1433,6 +1622,40 @@ struct PostLoopSummary {
     reasoning_signature: Option<String>,
 }
 
+/// Hash a tool call to a u64 for the duplicate-call detector.
+/// Canonicalises the args by serialising through `serde_json::Value`
+/// (sorts object keys lexicographically) so semantically identical
+/// payloads with different key order collapse to the same fingerprint.
+fn fingerprint_tool_call(name: &str, args: &serde_json::Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut h);
+    canonical_json_string(args).hash(&mut h);
+    h.finish()
+}
+
+/// Stable serialisation that sorts object keys. Two calls with
+/// `{"a":1,"b":2}` and `{"b":2,"a":1}` should fingerprint identically.
+fn canonical_json_string(v: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match v {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let parts: Vec<String> = keys
+                .into_iter()
+                .map(|k| format!("{k:?}:{}", canonical_json_string(&map[k])))
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        Value::Array(items) => {
+            let parts: Vec<String> = items.iter().map(canonical_json_string).collect();
+            format!("[{}]", parts.join(","))
+        }
+        other => other.to_string(),
+    }
+}
+
 /// Build a clean message list for the post-loop summary call. The
 /// inner agent loop's `messages` carries the full tool_use/tool_result
 /// protocol; replaying that list lets the model decide it has already
@@ -1511,6 +1734,56 @@ mod tests {
     //! build a minimal in-process registry with hand-rolled tools that
     //! exercise each branch of `classify_tool_call_concurrency`.
     use super::*;
+
+    #[test]
+    fn fingerprint_collapses_object_key_order() {
+        let a = json!({"a": 1, "b": 2, "c": 3});
+        let b = json!({"c": 3, "b": 2, "a": 1});
+        assert_eq!(
+            fingerprint_tool_call("foo", &a),
+            fingerprint_tool_call("foo", &b)
+        );
+    }
+
+    #[test]
+    fn fingerprint_collapses_nested_object_key_order() {
+        let a = json!({"outer": {"x": 1, "y": 2}});
+        let b = json!({"outer": {"y": 2, "x": 1}});
+        assert_eq!(
+            fingerprint_tool_call("foo", &a),
+            fingerprint_tool_call("foo", &b)
+        );
+    }
+
+    #[test]
+    fn fingerprint_distinguishes_different_args() {
+        let a = json!({"action": "list"});
+        let b = json!({"action": "delete"});
+        assert_ne!(
+            fingerprint_tool_call("foo", &a),
+            fingerprint_tool_call("foo", &b)
+        );
+    }
+
+    #[test]
+    fn fingerprint_distinguishes_different_tool_names() {
+        let a = json!({"action": "list"});
+        assert_ne!(
+            fingerprint_tool_call("foo", &a),
+            fingerprint_tool_call("bar", &a)
+        );
+    }
+
+    #[test]
+    fn fingerprint_preserves_array_order() {
+        let a = json!([1, 2, 3]);
+        let b = json!([3, 2, 1]);
+        assert_ne!(
+            fingerprint_tool_call("foo", &a),
+            fingerprint_tool_call("foo", &b)
+        );
+    }
+
     use crate::providers::base::ToolCallRequest;
     use async_trait::async_trait;
     use oxicrab_core::actions;
