@@ -87,7 +87,7 @@ impl BaseChannel for WhatsAppChannel {
             return Ok(());
         }
 
-        info!("Initializing WhatsApp channel...");
+        info!("initializing WhatsApp channel...");
 
         // Ensure session directory exists
         if let Some(parent) = self.session_path.parent() {
@@ -126,14 +126,14 @@ impl BaseChannel for WhatsAppChannel {
                 }
 
                 // Create SQLite backend for session storage
-                debug!("Creating WhatsApp SQLite backend at: {}", session_db_str);
+                debug!("creating WhatsApp SQLite backend at: {}", session_db_str);
                 let backend = match whatsapp_rust::store::SqliteStore::new(&session_db_str).await {
                     Ok(b) => Arc::new(b),
                     Err(e) => {
-                        error!("Failed to create WhatsApp backend: {}", e);
+                        error!("failed to create WhatsApp backend: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
-                        warn!("Retrying WhatsApp backend creation in {} seconds...", delay);
+                        warn!("retrying WhatsApp backend creation in {} seconds...", delay);
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
@@ -188,7 +188,7 @@ impl BaseChannel for WhatsAppChannel {
                                             &config_allow,
                                         ) {
                                             debug!(
-                                                "Ignoring device-synced outgoing message to {:?}",
+                                                "ignoring device-synced outgoing message to {:?}",
                                                 recip_str
                                             );
                                             return;
@@ -354,7 +354,7 @@ impl BaseChannel for WhatsAppChannel {
                                         .build();
 
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
-                                        error!("Failed to send WhatsApp inbound message: {}", e);
+                                        error!("failed to send WhatsApp inbound message: {}", e);
                                     }
                                 }
                                 #[allow(clippy::print_stdout)] // operator-facing pairing UI, not log noise
@@ -383,7 +383,7 @@ impl BaseChannel for WhatsAppChannel {
                                                     }
                                                 }
                                                 Err(e2) => {
-                                                    warn!("Failed to generate QR code: {}. Raw code: {}", e2, code);
+                                                    warn!("failed to generate QR code: {}. Raw code: {}", e2, code);
                                                     println!("Raw QR code data: {code}");
                                                 }
                                             }
@@ -408,7 +408,7 @@ impl BaseChannel for WhatsAppChannel {
                                 whatsapp_rust::types::events::Event::Disconnected(_disconnected) => {
                                     warn!("WhatsApp disconnected");
                                     if *running.lock().await {
-                                        info!("Will attempt to reconnect...");
+                                        info!("will attempt to reconnect...");
                                     }
                                 }
                                 whatsapp_rust::types::events::Event::Connected(_connected) => {
@@ -439,7 +439,7 @@ impl BaseChannel for WhatsAppChannel {
                         }
                     }
                     Err(e) => {
-                        error!("Failed to build WhatsApp bot: {}", e);
+                        error!("failed to build WhatsApp bot: {}", e);
                     }
                 }
 
@@ -553,13 +553,13 @@ impl BaseChannel for WhatsAppChannel {
             drop(queue);
 
             if queue_size > 0 {
-                info!("Processing {} queued WhatsApp messages", queue_size);
+                info!("processing {} queued WhatsApp messages", queue_size);
             }
 
             // Send queued messages
             for queued_msg in queued {
                 if let Err(e) = Box::pin(send_whatsapp_message(client, &queued_msg)).await {
-                    error!("Failed to send queued WhatsApp message: {}", e);
+                    error!("failed to send queued WhatsApp message: {}", e);
                 }
             }
 

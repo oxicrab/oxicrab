@@ -437,7 +437,7 @@ impl AgentLoop {
                 tokio::select! {
                     biased;
                     () = cancel_token.cancelled() => {
-                        info!("LLM request cancelled by token");
+                        info!("lLM request cancelled by token");
                         Err(anyhow::anyhow!("turn cancelled"))
                     }
                     r = async {
@@ -451,7 +451,7 @@ impl AgentLoop {
                                 r
                             } else {
                                 warn!(
-                                    "LLM request timed out after {}s — releasing session lock",
+                                    "lLM request timed out after {}s — releasing session lock",
                                     llm_timeout_secs
                                 );
                                 Err(anyhow::anyhow!(
@@ -793,7 +793,7 @@ impl AgentLoop {
                 if any_tools_called {
                     if consecutive_empty_responses <= 1 {
                         warn!(
-                            "LLM returned empty after tool calls on iteration {}, \
+                            "lLM returned empty after tool calls on iteration {}, \
                              nudging to continue or summarize",
                             iteration
                         );
@@ -808,7 +808,7 @@ impl AgentLoop {
                         continue;
                     }
                     warn!(
-                        "LLM returned empty after tool calls on iteration {} (post-nudge), \
+                        "lLM returned empty after tool calls on iteration {} (post-nudge), \
                          falling through to post-loop summary",
                         iteration
                     );
@@ -823,13 +823,13 @@ impl AgentLoop {
                         + fastrand::f64())
                         .min(MAX_RETRY_DELAY_SECS);
                     warn!(
-                        "LLM returned empty on iteration {}, retries left: {}, backing off {:.1}s",
+                        "lLM returned empty on iteration {}, retries left: {}, backing off {:.1}s",
                         iteration, empty_retries_left, delay
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs_f64(delay)).await;
                     continue;
                 }
-                warn!("LLM returned empty, no retries left - giving up");
+                warn!("lLM returned empty, no retries left - giving up");
                 break;
             }
         }
@@ -1372,7 +1372,7 @@ impl AgentLoop {
                     results[idx] = Some(match &wave_results[wave_pos] {
                         Ok(result) => result.clone(),
                         Err(join_err) => {
-                            error!("Tool task panicked: {:?}", join_err);
+                            error!("tool task panicked: {:?}", join_err);
                             ToolResult::error("Tool crashed unexpectedly")
                         }
                     });

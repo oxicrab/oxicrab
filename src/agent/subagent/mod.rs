@@ -143,7 +143,7 @@ impl SubagentManager {
             // The permit is held for the duration of the task and released
             // on drop (including abort/cancellation).
             let Ok(_permit) = semaphore.acquire().await else {
-                warn!("Subagent [{}] semaphore closed", task_id_clone);
+                warn!("subagent [{}] semaphore closed", task_id_clone);
                 return;
             };
 
@@ -245,7 +245,7 @@ async fn run_subagent(
         silent,
         context,
     } = params;
-    info!("Subagent [{}] starting task: {}", task_id, label);
+    info!("subagent [{}] starting task: {}", task_id, label);
 
     let result = if let Ok(r) = tokio::time::timeout(
         SUBAGENT_TIMEOUT,
@@ -256,7 +256,7 @@ async fn run_subagent(
         r
     } else {
         warn!(
-            "Subagent [{}] timed out after {}s",
+            "subagent [{}] timed out after {}s",
             task_id,
             SUBAGENT_TIMEOUT.as_secs()
         );
@@ -271,13 +271,13 @@ async fn run_subagent(
 
     match result {
         Ok(final_result) => {
-            info!("Subagent [{}] completed successfully", task_id);
+            info!("subagent [{}] completed successfully", task_id);
             if !silent {
                 announce_result(bus, &task_id, &label, &task, &final_result, &origin, "ok").await;
             }
         }
         Err(e) => {
-            warn!("Subagent [{}] failed: {}", task_id, e);
+            warn!("subagent [{}] failed: {}", task_id, e);
             if !silent {
                 announce_result(
                     bus,
@@ -351,7 +351,7 @@ async fn run_subagent_inner(
         .as_ref()
         .and_then(|db| ActivityLog::new(task_id, db.clone()));
     if let Some(ref mut l) = log {
-        info!("Subagent [{}] activity log: db-backed", task_id);
+        info!("subagent [{}] activity log: db-backed", task_id);
         l.log_start(task);
     }
 
@@ -361,7 +361,7 @@ async fn run_subagent_inner(
     // Log registered tools
     let registered_names = tools.tool_names();
     info!(
-        "Subagent [{}] tools registered: [{}], exfil_guard: {}",
+        "subagent [{}] tools registered: [{}], exfil_guard: {}",
         task_id,
         registered_names.join(", "),
         if config.exfil_guard.enabled {
@@ -382,7 +382,7 @@ async fn run_subagent_inner(
         if !matches.is_empty() {
             for m in &matches {
                 warn!(
-                    "Subagent [{}] prompt injection in task input ({:?}): {}",
+                    "subagent [{}] prompt injection in task input ({:?}): {}",
                     task_id, m.category, m.pattern_name
                 );
             }
@@ -423,7 +423,7 @@ async fn run_subagent_inner(
         if response.has_tool_calls() {
             let call_count = response.tool_calls.len();
             info!(
-                "Subagent [{}] iteration {}: {} tool call(s)",
+                "subagent [{}] iteration {}: {} tool call(s)",
                 task_id, iteration, call_count
             );
             if let Some(ref mut l) = log {
@@ -490,7 +490,7 @@ async fn run_subagent_inner(
                     let tool_matches = guard.scan(&result_str);
                     for m in &tool_matches {
                         warn!(
-                            "Subagent [{}] prompt injection in tool '{}' output ({:?}): {}",
+                            "subagent [{}] prompt injection in tool '{}' output ({:?}): {}",
                             task_id, tc.name, m.category, m.pattern_name
                         );
                     }
@@ -515,7 +515,7 @@ async fn run_subagent_inner(
                 let retry_num = EMPTY_RESPONSE_RETRIES - empty_retries_left;
                 let delay = (2_u64.pow(retry_num as u32) as f64 + fastrand::f64()).min(10.0);
                 warn!(
-                    "Subagent [{}] got empty response, retries left: {}, backing off {:.1}s",
+                    "subagent [{}] got empty response, retries left: {}, backing off {:.1}s",
                     task_id, empty_retries_left, delay
                 );
                 if let Some(ref mut l) = log {
@@ -525,7 +525,7 @@ async fn run_subagent_inner(
                 continue;
             }
             warn!(
-                "Subagent [{}] empty response, no retries left - giving up",
+                "subagent [{}] empty response, no retries left - giving up",
                 task_id
             );
             if let Some(ref mut l) = log {
@@ -537,7 +537,7 @@ async fn run_subagent_inner(
 
     if iteration >= max_iterations {
         warn!(
-            "Subagent [{}] reached max iterations ({})",
+            "subagent [{}] reached max iterations ({})",
             task_id, max_iterations
         );
     }
@@ -567,7 +567,7 @@ async fn execute_subagent_tool(
         // common LLM type mismatches like {"limit": "5"} before its
         // post-coerce schema check runs.
         debug!(
-            "Subagent [{}] executing: {} with arguments: {}",
+            "subagent [{}] executing: {} with arguments: {}",
             task_id, tool_name, tool_args
         );
 
@@ -579,7 +579,7 @@ async fn execute_subagent_tool(
         match registry.execute(tool_name, tool_args.clone(), &ctx).await {
             Ok(result) => (result.content, result.is_error),
             Err(e) => {
-                warn!("Subagent [{}] tool '{}' failed: {}", task_id, tool_name, e);
+                warn!("subagent [{}] tool '{}' failed: {}", task_id, tool_name, e);
                 let msg = crate::utils::path_sanitize::sanitize_error_message(
                     &format!("Tool execution failed: {e}"),
                     workspace,
@@ -588,7 +588,7 @@ async fn execute_subagent_tool(
             }
         }
     } else {
-        warn!("Subagent [{}] called unknown tool: {}", task_id, tool_name);
+        warn!("subagent [{}] called unknown tool: {}", task_id, tool_name);
         (format!("Error: tool '{tool_name}' does not exist"), true)
     }
 }
@@ -620,10 +620,10 @@ async fn announce_result(
     .build();
 
     if let Err(e) = bus.publish_inbound(msg).await {
-        warn!("Failed to publish inbound message from subagent: {}", e);
+        warn!("failed to publish inbound message from subagent: {}", e);
     }
     debug!(
-        "Subagent [{}] announced result to {}:{}",
+        "subagent [{}] announced result to {}:{}",
         task_id, origin.0, origin.1
     );
 }

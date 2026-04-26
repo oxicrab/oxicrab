@@ -331,7 +331,7 @@ impl Tool for ExecTool {
             std::env::current_dir()
                 .context("Failed to get current directory")
                 .unwrap_or_else(|e| {
-                    warn!("Failed to get current directory: {}, using '.'", e);
+                    warn!("failed to get current directory: {}, using '.'", e);
                     PathBuf::from(".")
                 })
         });

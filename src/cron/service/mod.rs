@@ -87,7 +87,7 @@ fn compute_next_run_with_last(
                     if let Ok(tz_val) = tz_str.parse::<Tz>() {
                         DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&tz_val))
                     } else {
-                        warn!("Invalid timezone '{}', falling back to UTC", tz_str);
+                        warn!("invalid timezone '{}', falling back to UTC", tz_str);
                         DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&Tz::UTC))
                     }
                 } else {
@@ -230,7 +230,7 @@ impl CronService {
                         } else {
                             "max runs reached"
                         };
-                        info!("Disabling cron job '{}' ({}): {}", job.name, job.id, reason);
+                        info!("disabling cron job '{}' ({}): {}", job.name, job.id, reason);
                         let db = service.db.clone();
                         let id = job.id.clone();
                         let res = tokio::task::spawn_blocking(move || {
@@ -257,7 +257,7 @@ impl CronService {
                             if first_tick {
                                 // On startup, skip missed jobs — just advance to next run
                                 info!(
-                                    "Skipping missed cron job '{}' (was due at {}ms, now {}ms)",
+                                    "skipping missed cron job '{}' (was due at {}ms, now {}ms)",
                                     job.id, job_next, now
                                 );
                                 let new_next = compute_next_run(&job.schedule, now);
@@ -371,7 +371,7 @@ impl CronService {
                     match pruned {
                         Ok(n) if n > 0 => {
                             info!(
-                                "Pruned {} disabled cron jobs older than {} days",
+                                "pruned {} disabled cron jobs older than {} days",
                                 n, PRUNE_DISABLED_AFTER_DAYS
                             );
                         }
@@ -471,7 +471,7 @@ impl CronService {
                                 Ok(())
                             });
                             if let Err(e) = res {
-                                warn!("Failed to update cron job '{}' state: {}", job_id, e);
+                                warn!("failed to update cron job '{}' state: {}", job_id, e);
                             }
                         })
                         .await;

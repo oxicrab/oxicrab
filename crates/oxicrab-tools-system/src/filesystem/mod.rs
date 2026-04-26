@@ -111,7 +111,7 @@ async fn backup_file(file_path: &Path, backup_dir: &Path) {
     };
     if let Err(e) = tokio::fs::create_dir_all(backup_dir).await {
         warn!(
-            "Failed to create backup dir {}: {}",
+            "failed to create backup dir {}: {}",
             backup_dir.display(),
             e
         );
@@ -122,7 +122,7 @@ async fn backup_file(file_path: &Path, backup_dir: &Path) {
     let backup_path = backup_dir.join(&backup_name);
     if let Err(e) = tokio::fs::copy(file_path, &backup_path).await {
         warn!(
-            "Failed to backup {} → {}: {}",
+            "failed to backup {} → {}: {}",
             file_path.display(),
             backup_path.display(),
             e

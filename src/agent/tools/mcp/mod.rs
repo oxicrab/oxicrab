@@ -58,7 +58,7 @@ impl McpManager {
                     servers.push(server);
                 }
                 Err(e) => {
-                    warn!("Failed to connect MCP server '{}': {}", name, e);
+                    warn!("failed to connect MCP server '{}': {}", name, e);
                 }
             }
         }
@@ -148,7 +148,7 @@ impl McpManager {
             .await
             else {
                 warn!(
-                    "Tool discovery timed out for MCP server '{}' (10s)",
+                    "tool discovery timed out for MCP server '{}' (10s)",
                     server.server_name
                 );
                 continue;
@@ -176,14 +176,14 @@ impl McpManager {
                         );
                         tools.push((server.trust_level.clone(), Arc::new(proxy)));
                         info!(
-                            "Discovered MCP tool '{}' from server '{}' (trust: {})",
+                            "discovered MCP tool '{}' from server '{}' (trust: {})",
                             mcp_tool.name, server.server_name, server.trust_level
                         );
                     }
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to list tools from MCP server '{}': {}",
+                        "failed to list tools from MCP server '{}': {}",
                         server.server_name, e
                     );
                 }
@@ -198,7 +198,7 @@ impl McpManager {
         for server in self.servers {
             if let Err(e) = server.client.cancel().await {
                 warn!(
-                    "Error shutting down MCP server '{}': {}",
+                    "error shutting down MCP server '{}': {}",
                     server.server_name, e
                 );
             }

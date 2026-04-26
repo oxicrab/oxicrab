@@ -167,7 +167,7 @@ impl AgentLoop {
 
         self.send_typing_indicator(&msg).await;
 
-        info!("Processing message from {}:{}", msg.channel, msg.sender_id);
+        info!("processing message from {}:{}", msg.channel, msg.sender_id);
         self.handle_event_triggered_jobs(&msg);
 
         let session_key = msg.session_key();
@@ -193,7 +193,7 @@ impl AgentLoop {
         }
 
         // Load session early — the router needs RouterContext from session metadata
-        debug!("Loading session: {}", session_key);
+        debug!("loading session: {}", session_key);
         let session = self.sessions.get_or_create(&session_key).await?;
 
         // Load router context and prune expired directives
@@ -283,12 +283,12 @@ impl AgentLoop {
             &session_key,
         );
 
-        debug!("Getting compacted history");
+        debug!("getting compacted history");
         let (checkpoint_before, _) = self.session_checkpoint_snapshot(&session_key).await;
         let history = self
             .get_compacted_history_timed(&session, &session.key)
             .await?;
-        debug!("Got {} history messages", history.len());
+        debug!("got {} history messages", history.len());
 
         // Transcribe and sanitize inbound content before the LLM sees it.
         let msg_content = self.prepare_inbound_content(&msg).await;
@@ -336,7 +336,7 @@ impl AgentLoop {
             )
         };
 
-        debug!("Acquiring context lock");
+        debug!("acquiring context lock");
         let is_group = msg
             .metadata
             .get(crate::bus::meta::IS_GROUP)
@@ -362,7 +362,7 @@ impl AgentLoop {
                 None,
             )?
         };
-        debug!("Built {} messages, starting agent loop", messages.len());
+        debug!("built {} messages, starting agent loop", messages.len());
 
         // Complexity-aware routing: score the message and resolve a model override
         let (complexity_score, complexity_band) = if let Some(ref scorer) = self.complexity_scorer {
@@ -708,7 +708,7 @@ impl AgentLoop {
                             }
                         }
                         Err(e) => {
-                            warn!("Failed to extract facts from conversation: {}", e);
+                            warn!("failed to extract facts from conversation: {}", e);
                         }
                     }
                 })
@@ -718,7 +718,7 @@ impl AgentLoop {
         if let Some(content) = loop_result.content {
             // Suppress sending if the LLM returned a [SILENT] response
             if content.starts_with("[SILENT]") {
-                debug!("Suppressing silent response");
+                debug!("suppressing silent response");
                 return Ok(None);
             }
             Ok(Some(
@@ -800,10 +800,10 @@ impl AgentLoop {
             for job in triggered {
                 let cron_svc = cron_svc.clone();
                 let job_id = job.id.clone();
-                info!("Event-triggered cron job '{}' ({})", job.name, job.id);
+                info!("event-triggered cron job '{}' ({})", job.name, job.id);
                 tokio::spawn(async move {
                     if let Err(e) = cron_svc.run_job(&job_id, true).await {
-                        warn!("Event-triggered job '{}' failed: {}", job_id, e);
+                        warn!("event-triggered job '{}' failed: {}", job_id, e);
                     }
                 });
             }
@@ -857,13 +857,13 @@ impl AgentLoop {
         }
 
         info!(
-            "Loading {} media files for LLM: {:?}",
+            "loading {} media files for LLM: {:?}",
             image_media.len(),
             image_media
         );
         let (images, warnings) = load_and_encode_images(&image_media);
         info!(
-            "Encoded {} images for LLM ({} warning(s))",
+            "encoded {} images for LLM ({} warning(s))",
             images.len(),
             warnings.len()
         );
@@ -871,7 +871,7 @@ impl AgentLoop {
     }
 
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
-        info!("Processing system message from {}", msg.sender_id);
+        info!("processing system message from {}", msg.sender_id);
 
         // Inbound secret scanning
         let msg_content = self.leak_detector.redact(&msg.content);

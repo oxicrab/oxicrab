@@ -28,7 +28,7 @@ pub(super) fn warn_if_public_gateway_without_auth(config: &Config) {
 
 pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let process_start = std::time::Instant::now();
-    info!("Loading configuration...");
+    info!("loading configuration...");
     let config = load_config(None)?;
     config.validate()?;
     crate::observability::init_metrics_exporter(&config);
@@ -36,8 +36,8 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let effective_model = model
         .as_deref()
         .unwrap_or(&config.agents.defaults.model_routing.default);
-    info!("Configuration loaded. Using model: {}", effective_model);
-    debug!("Workspace: {:?}", config.workspace_path());
+    info!("configuration loaded. Using model: {}", effective_model);
+    debug!("workspace: {:?}", config.workspace_path());
 
     // Ensure workspace directory exists before writing templates
     crate::utils::ensure_dir(config.workspace_path())
@@ -240,7 +240,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let agent_task = start_agent_loop(agent.clone());
     let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, http_state);
 
-    info!("All services started, gateway is running");
+    info!("all services started, gateway is running");
 
     // Handle shutdown
     tokio::select! {
@@ -258,7 +258,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 }
 
 pub(super) async fn gateway_echo() -> Result<()> {
-    info!("Loading configuration for echo mode...");
+    info!("loading configuration for echo mode...");
     let config = load_config(None)?;
     config.validate()?;
     crate::observability::init_metrics_exporter(&config);
@@ -349,7 +349,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
 
     let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, http_state);
 
-    info!("Echo gateway running");
+    info!("echo gateway running");
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
@@ -368,10 +368,10 @@ fn setup_provider(
     db: Option<Arc<dyn crate::utils::credential_store::OAuthTokenStore>>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model_routing.default);
-    info!("Creating LLM provider for model: {}", effective_model);
+    info!("creating LLM provider for model: {}", effective_model);
     let provider = crate::provider_factory::create_provider(config, model, db)?;
     info!(
-        "Provider created successfully. Default model: {}",
+        "provider created successfully. Default model: {}",
         provider.default_model()
     );
 
@@ -404,7 +404,7 @@ pub(super) type MessageBusSetup = (
 fn setup_message_bus_with_detector(
     leak_detector: Arc<crate::safety::LeakDetector>,
 ) -> Result<MessageBusSetup> {
-    debug!("Creating message bus...");
+    debug!("creating message bus...");
     let bus = MessageBus::with_leak_detector(
         30,   // DEFAULT_RATE_LIMIT
         60.0, // DEFAULT_RATE_WINDOW_S
@@ -419,12 +419,12 @@ fn setup_message_bus_with_detector(
         .take_outbound_rx()
         .ok_or_else(|| anyhow::anyhow!("Outbound receiver already taken"))?;
     let bus_for_channels = Arc::new(bus);
-    debug!("Message bus initialized");
+    debug!("message bus initialized");
     Ok((inbound_tx, outbound_tx, outbound_rx, bus_for_channels))
 }
 
 fn setup_cron_service(db: Arc<crate::agent::memory::memory_db::MemoryDB>) -> Arc<CronService> {
-    debug!("Initializing cron service...");
+    debug!("initializing cron service...");
     let cron = CronService::new(db);
     debug!("Cron service initialized");
     Arc::new(cron)
@@ -446,7 +446,7 @@ pub(super) async fn setup_agent(
     params: SetupAgentParams,
     config: &Config,
 ) -> Result<Arc<AgentLoop>> {
-    info!("Initializing agent loop...");
+    info!("initializing agent loop...");
     debug!(
         "  - Max tool iterations: {}",
         config.agents.defaults.max_tool_iterations
@@ -492,7 +492,7 @@ pub(super) async fn setup_agent(
         ))
         .await?,
     );
-    info!("Agent loop initialized");
+    info!("agent loop initialized");
     Ok(agent)
 }
 
@@ -502,7 +502,7 @@ async fn setup_cron_callbacks(
     bus: Arc<MessageBus>,
     memory_db: Arc<crate::agent::memory::memory_db::MemoryDB>,
 ) -> Result<()> {
-    debug!("Setting up cron job callback...");
+    debug!("setting up cron job callback...");
     let agent_clone = agent.clone();
     let bus_clone = bus.clone();
     let db_clone = memory_db;
@@ -615,7 +615,7 @@ async fn cron_job_execute(
                 .await
             {
                 error!(
-                    "Failed to publish echo message from cron to {}:{}: {}",
+                    "failed to publish echo message from cron to {}:{}: {}",
                     target.channel, target.to, e
                 );
             }
@@ -680,7 +680,7 @@ async fn cron_job_execute(
                 .await
             {
                 error!(
-                    "Failed to publish outbound message from cron to {}:{}: {}",
+                    "failed to publish outbound message from cron to {}:{}: {}",
                     target.channel, target.to, e
                 );
             }
@@ -741,10 +741,10 @@ fn setup_channels(
     // Register the pairing requester so channels can issue pairing codes
     oxicrab_channels::set_pairing_requester(Box::new(OxicrabPairingRequester));
 
-    info!("Initializing channels...");
+    info!("initializing channels...");
     let channels = ChannelManager::new(config, Arc::new(inbound_tx));
     info!(
-        "Channels initialized. Enabled: {:?}",
+        "channels initialized. Enabled: {:?}",
         channels.enabled_channels()
     );
     channels
@@ -773,19 +773,19 @@ impl oxicrab_channels::PairingRequester for OxicrabPairingRequester {
 }
 
 async fn start_services(cron: Arc<CronService>) -> Result<()> {
-    info!("Starting cron service...");
+    info!("starting cron service...");
     cron.start().await?;
     info!("Cron service started");
     Ok(())
 }
 
 fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
-    info!("Starting agent loop...");
+    info!("starting agent loop...");
     tokio::spawn(async move {
-        info!("Agent loop running");
+        info!("agent loop running");
         match agent.run().await {
-            Ok(()) => info!("Agent loop completed successfully"),
-            Err(e) => error!("Agent loop exited with error: {}", e),
+            Ok(()) => info!("agent loop completed successfully"),
+            Err(e) => error!("agent loop exited with error: {}", e),
         }
     })
 }
@@ -797,11 +797,11 @@ fn start_channels_loop(
     mut typing_rx: tokio::sync::mpsc::Receiver<(String, String)>,
     http_api_state: Option<crate::gateway::HttpApiState>,
 ) -> tokio::task::JoinHandle<()> {
-    info!("Starting all channels...");
+    info!("starting all channels...");
     tokio::spawn(async move {
         match channels.start_all().await {
-            Ok(()) => info!("All channels started successfully"),
-            Err(e) => error!("Error starting channels: {}", e),
+            Ok(()) => info!("all channels started successfully"),
+            Err(e) => error!("error starting channels: {}", e),
         }
 
         // Wrap in Arc<Mutex> for shared access between outbound loop,
@@ -853,7 +853,7 @@ fn start_channels_loop(
                     continue;
                 }
                 debug!(
-                    "Consumed outbound message: channel={}, chat_id={}, content_len={}",
+                    "consumed outbound message: channel={}, chat_id={}, content_len={}",
                     msg.channel,
                     msg.chat_id,
                     msg.content.len()
@@ -892,7 +892,7 @@ fn start_channels_loop(
                             .edit_message(&key.0, &key.1, existing_id, &content_snapshot)
                             .await
                         {
-                            debug!("Status edit failed, sending new: {}", e);
+                            debug!("status edit failed, sending new: {}", e);
                             status_msg_ids.remove(&key);
                             status_content.remove(&key);
                         } else {
@@ -919,7 +919,7 @@ fn start_channels_loop(
                                 // Channel doesn't support IDs (WhatsApp) — already sent
                             }
                             Err(err) => {
-                                error!("Status send failed: {}", err);
+                                error!("status send failed: {}", err);
                             }
                         }
                     }
@@ -928,28 +928,28 @@ fn start_channels_loop(
                     if let Some(msg_id) = status_msg_ids.remove(&key)
                         && let Err(e) = channels_guard.delete_message(&key.0, &key.1, &msg_id).await
                     {
-                        debug!("Status delete failed: {}", e);
+                        debug!("status delete failed: {}", e);
                     }
                     status_content.remove(&key);
 
                     if let Err(e) = channels_guard.send(&msg).await {
-                        error!("Error sending message to channels: {}", e);
+                        error!("error sending message to channels: {}", e);
                     } else {
-                        info!("Successfully sent outbound message to channel manager");
+                        info!("successfully sent outbound message to channel manager");
                     }
                 }
 
                 // Drop the lock before waiting for the next message
                 drop(channels_guard);
             } else {
-                warn!("Outbound message receiver closed");
+                warn!("outbound message receiver closed");
                 break;
             }
         }
 
         // Graceful shutdown - stop all channels when loop ends
         channels.lock().await.stop_all().await.unwrap_or_else(|e| {
-            error!("Error stopping channels during shutdown: {}", e);
+            error!("error stopping channels during shutdown: {}", e);
         });
     })
 }

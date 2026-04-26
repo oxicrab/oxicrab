@@ -23,7 +23,7 @@ impl TaskTracker {
         let mut tasks = self.tasks.lock().await;
         // If a task with this name already exists, abort it first
         if let Some(old_handle) = tasks.remove(&name) {
-            warn!("Aborting existing task '{}' before spawning new one", name);
+            warn!("aborting existing task '{}' before spawning new one", name);
             old_handle.abort();
         }
         tasks.insert(name, handle);
@@ -44,7 +44,7 @@ impl TaskTracker {
         let handle = tokio::spawn(async move {
             future.await;
             tasks.lock().await.remove(&name_clone);
-            debug!("Task '{}' completed and removed from tracker", name_clone);
+            debug!("task '{}' completed and removed from tracker", name_clone);
         });
         tasks_guard.insert(name, handle);
     }
@@ -58,10 +58,10 @@ impl TaskTracker {
         let count = tasks.len();
         for (name, handle) in tasks {
             handle.abort();
-            debug!("Cancelled task '{}'", name);
+            debug!("cancelled task '{}'", name);
         }
         if count > 0 {
-            info!("Cancelled {} tracked tasks", count);
+            info!("cancelled {} tracked tasks", count);
         }
     }
 }

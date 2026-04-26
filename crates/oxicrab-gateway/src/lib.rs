@@ -1117,7 +1117,7 @@ pub async fn start<S: BuildHasher>(
     // Set up A2A state if enabled
     let a2a_state = match a2a_config {
         Some(cfg) if cfg.enabled => {
-            info!("A2A protocol enabled");
+            info!("a2A protocol enabled");
             Some(a2a::A2aState {
                 config: cfg,
                 store: Arc::new(a2a::A2aTaskStore::new()),

@@ -73,7 +73,7 @@ impl Handler {
                             .ephemeral(true),
                     );
                     if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                        warn!("Failed to send pairing response: {}", e);
+                        warn!("failed to send pairing response: {}", e);
                     }
                     return;
                 }
@@ -84,7 +84,7 @@ impl Handler {
                             .ephemeral(true),
                     );
                     if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                        warn!("Failed to send unauthorized response: {}", e);
+                        warn!("failed to send unauthorized response: {}", e);
                     }
                     return;
                 }
@@ -94,7 +94,7 @@ impl Handler {
         // Defer response — shows "thinking..."
         let defer = CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new());
         if let Err(e) = cmd.create_response(&ctx.http, defer).await {
-            error!("Failed to defer Discord interaction: {}", e);
+            error!("failed to defer Discord interaction: {}", e);
             return;
         }
 
@@ -141,7 +141,7 @@ impl Handler {
                 .build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
-            error!("Failed to send Discord slash command to bus: {}", e);
+            error!("failed to send Discord slash command to bus: {}", e);
         }
     }
 
@@ -172,7 +172,7 @@ impl Handler {
                             .ephemeral(true),
                     );
                     if let Err(e) = comp.create_response(&ctx.http, response).await {
-                        warn!("Failed to send pairing response: {}", e);
+                        warn!("failed to send pairing response: {}", e);
                     }
                     return;
                 }
@@ -183,7 +183,7 @@ impl Handler {
                             .ephemeral(true),
                     );
                     if let Err(e) = comp.create_response(&ctx.http, response).await {
-                        warn!("Failed to send unauthorized response: {}", e);
+                        warn!("failed to send unauthorized response: {}", e);
                     }
                     return;
                 }
@@ -194,7 +194,7 @@ impl Handler {
         // Using Acknowledge instead of Defer to avoid showing a "thinking..." message
         let ack = CreateInteractionResponse::Acknowledge;
         if let Err(e) = comp.create_response(&ctx.http, ack).await {
-            error!("Failed to acknowledge Discord component interaction: {}", e);
+            error!("failed to acknowledge Discord component interaction: {}", e);
             return;
         }
 
@@ -253,7 +253,7 @@ impl Handler {
         let inbound_msg = builder.build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
-            error!("Failed to send Discord component interaction to bus: {}", e);
+            error!("failed to send Discord component interaction to bus: {}", e);
         }
     }
 }
@@ -287,7 +287,7 @@ impl EventHandler for Handler {
                 DmCheckResult::PairingRequired { code } => {
                     let reply = format_pairing_reply("discord", &sender_id, &code);
                     if let Err(e) = msg.reply(&ctx.http, &reply).await {
-                        warn!("Failed to send pairing reply: {}", e);
+                        warn!("failed to send pairing reply: {}", e);
                     }
                     return;
                 }
@@ -334,7 +334,7 @@ impl EventHandler for Handler {
                 "audio"
             };
             let Ok(media_dir) = crate::media_utils::media_dir() else {
-                warn!("Failed to create media directory");
+                warn!("failed to create media directory");
                 continue;
             };
             let file_path = media_dir.join(format!("discord_{}.{}", attachment.id, ext));
@@ -373,16 +373,16 @@ impl EventHandler for Handler {
                                     .await
                                     .unwrap_or_else(|e| Err(std::io::Error::other(e)))
                             {
-                                warn!("Failed to write Discord media file: {}", e);
+                                warn!("failed to write Discord media file: {}", e);
                             }
                             let path_str = file_path.to_string_lossy().to_string();
                             media_paths.push(path_str.clone());
                             content = format!("{content}\n[{tag}: {path_str}]");
                         }
-                        Err(e) => warn!("Failed to download Discord attachment: {}", e),
+                        Err(e) => warn!("failed to download Discord attachment: {}", e),
                     }
                 }
-                Err(e) => warn!("Failed to download Discord attachment: {}", e),
+                Err(e) => warn!("failed to download Discord attachment: {}", e),
             }
         }
 
@@ -398,7 +398,7 @@ impl EventHandler for Handler {
                 .build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
-            error!("Failed to send Discord inbound message: {}", e);
+            error!("failed to send Discord inbound message: {}", e);
         }
     }
 
@@ -620,7 +620,7 @@ impl BaseChannel for DiscordChannel {
             return Err(anyhow::anyhow!("Discord token is empty"));
         }
 
-        info!("Initializing Discord client...");
+        info!("initializing Discord client...");
         *self.running.lock().await = true;
 
         let token = self.config.token.clone();
@@ -660,7 +660,7 @@ impl BaseChannel for DiscordChannel {
                     bot_user_id: bot_user_id.clone(),
                 };
 
-                info!("Connecting to Discord gateway...");
+                info!("connecting to Discord gateway...");
                 let conn_start = std::time::Instant::now();
                 match Client::builder(
                     &token,
@@ -685,7 +685,7 @@ impl BaseChannel for DiscordChannel {
                         }
                     },
                     Err(e) => {
-                        error!("Failed to create Discord client: {}", e);
+                        error!("failed to create Discord client: {}", e);
                     }
                 }
 
@@ -979,7 +979,7 @@ impl DiscordChannel {
             if let Err(e) =
                 send_interaction_followup(&self.http_client, app_id, token, &payload).await
             {
-                error!("Failed to send Discord interaction followup: {}", e);
+                error!("failed to send Discord interaction followup: {}", e);
                 return Err(e);
             }
         }
@@ -996,7 +996,7 @@ impl DiscordChannel {
             send_interaction_followup(&self.http_client, app_id, token, &payload).await?;
         }
 
-        debug!("Sent Discord interaction followup successfully");
+        debug!("sent Discord interaction followup successfully");
         Ok(())
     }
 }

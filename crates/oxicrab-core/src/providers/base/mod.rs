@@ -363,7 +363,7 @@ pub trait LLMProvider: Send + Sync {
         for attempt in 0..=config.max_retries {
             if attempt > 0 {
                 warn!(
-                    "Provider retry attempt {}/{} after error: {}",
+                    "provider retry attempt {}/{} after error: {}",
                     attempt,
                     config.max_retries,
                     last_error
@@ -372,11 +372,11 @@ pub trait LLMProvider: Send + Sync {
                         .unwrap_or_default()
                 );
             }
-            debug!("Sending chat request (attempt {})", attempt);
+            debug!("sending chat request (attempt {})", attempt);
             let result = self.chat(req).await;
             match result {
                 Ok(response) => {
-                    debug!("Chat request succeeded on attempt {}", attempt);
+                    debug!("chat request succeeded on attempt {}", attempt);
                     return Ok(response);
                 }
                 Err(e) => {
@@ -400,7 +400,7 @@ pub trait LLMProvider: Send + Sync {
                                 crate::errors::OxicrabError::RateLimit { .. }
                                 | crate::errors::OxicrabError::Internal(_) => true,
                             });
-                    warn!("Chat request failed on attempt {}: {}", attempt, e);
+                    warn!("chat request failed on attempt {}: {}", attempt, e);
                     if !is_transient {
                         return Err(e);
                     }
@@ -408,7 +408,7 @@ pub trait LLMProvider: Send + Sync {
                     if attempt < config.max_retries {
                         // Use retry_after from rate limit if available, otherwise exponential backoff
                         let delay = if let Some(retry_secs) = rate_limit_delay {
-                            debug!("Using retry-after hint: {}s", retry_secs);
+                            debug!("using retry-after hint: {}s", retry_secs);
                             Duration::from_millis(retry_secs.saturating_mul(1000).max(1000))
                         } else {
                             // Jitter in +/- 25% range.
@@ -424,7 +424,7 @@ pub trait LLMProvider: Send + Sync {
                                 multiplied.clamp(1.0, config.max_delay_ms.max(1) as f64) as u64;
                             delay
                         };
-                        debug!("Waiting {}ms before retry", delay.as_millis());
+                        debug!("waiting {}ms before retry", delay.as_millis());
                         tokio::time::sleep(delay).await;
                     }
                 }

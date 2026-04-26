@@ -153,7 +153,7 @@ pub async fn register_all_tools(
 
     if tools.deferred_count() > 0 {
         info!(
-            "Registering tool_search with {} deferred tools",
+            "registering tool_search with {} deferred tools",
             tools.deferred_count()
         );
     }
@@ -268,7 +268,7 @@ fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         && browser_cfg.enabled
     {
         registry.register(oxicrab_tools_browser::create_browser_tool(browser_cfg));
-        info!("Browser tool registered");
+        info!("browser tool registered");
     }
 }
 
@@ -290,7 +290,7 @@ fn register_weather(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         registry.register(oxicrab_tools_api::create_weather_tool(
             weather_cfg.api_key.clone(),
         ));
-        info!("Weather tool registered");
+        info!("weather tool registered");
     }
 }
 
@@ -311,7 +311,7 @@ fn register_media(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         && media_cfg.enabled
     {
         registry.register(oxicrab_tools_api::create_media_tool(media_cfg));
-        info!("Media tool registered (Radarr/Sonarr)");
+        info!("media tool registered (Radarr/Sonarr)");
     }
 }
 
@@ -324,7 +324,7 @@ fn register_image_gen(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
             ig_cfg.google_api_key.clone(),
             ig_cfg.default_provider.clone(),
         ));
-        info!("Image generation tool registered");
+        info!("image generation tool registered");
     }
 }
 
@@ -531,7 +531,7 @@ fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
             mgr.clone(),
             ctx.workspace_ttl.clone(),
         )));
-        info!("Workspace tool registered");
+        info!("workspace tool registered");
     }
 }
 
@@ -638,7 +638,7 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
                 }
             }
             if !accepted.is_empty() {
-                info!("Registered {} MCP tool(s)", accepted.len());
+                info!("registered {} MCP tool(s)", accepted.len());
             }
             Some((accepted, manager))
         }

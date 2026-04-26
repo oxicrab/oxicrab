@@ -81,7 +81,7 @@ impl TmuxTool {
         let target = exact_target(session_name);
         let (code, _, stderr) = self.run_tmux(&["has-session", "-t", &target]).await?;
         if code != 0 && Self::is_session_missing(&stderr) {
-            debug!("Auto-creating missing tmux session '{}'", session_name);
+            debug!("auto-creating missing tmux session '{}'", session_name);
             self.run_tmux(&["new-session", "-d", "-s", session_name])
                 .await?;
         }

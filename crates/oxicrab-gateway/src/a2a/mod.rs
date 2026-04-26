@@ -207,7 +207,7 @@ pub async fn create_task_handler(
     };
     state.store.insert(task);
 
-    debug!("A2A task created: {}", task_id);
+    debug!("a2A task created: {}", task_id);
 
     // Create oneshot channel for the response
     let (tx, rx) = oneshot::channel();
@@ -228,7 +228,7 @@ pub async fn create_task_handler(
             TaskStatus::Failed,
             Some(format!("agent unavailable: {e}")),
         );
-        error!("A2A: failed to publish message: {}", e);
+        error!("a2A: failed to publish message: {}", e);
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"error": "agent unavailable"})),
@@ -253,7 +253,7 @@ pub async fn create_task_handler(
                 store.update_status(&tid, TaskStatus::Completed, Some(response.content));
             }
             Ok(Err(_)) => {
-                warn!("A2A response channel closed for task {}", tid);
+                warn!("a2A response channel closed for task {}", tid);
                 store.update_status(
                     &tid,
                     TaskStatus::Failed,
@@ -261,7 +261,7 @@ pub async fn create_task_handler(
                 );
             }
             Err(_) => {
-                warn!("A2A task {} timed out after {}s", tid, A2A_TIMEOUT_SECS);
+                warn!("a2A task {} timed out after {}s", tid, A2A_TIMEOUT_SECS);
                 store.update_status(&tid, TaskStatus::Failed, Some("timeout".to_string()));
             }
         }

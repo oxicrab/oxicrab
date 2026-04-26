@@ -175,7 +175,7 @@ pub(super) async fn execute_tool_call(
 
     // Check if tool exists before delegating to registry
     let Some(tool) = registry.get(tc_name) else {
-        warn!("LLM called unknown tool: {}", tc_name);
+        warn!("lLM called unknown tool: {}", tc_name);
         return ToolResult::error(format!(
             "Error: tool '{}' does not exist. Available tools: {}",
             tc_name,
@@ -239,7 +239,7 @@ pub(super) async fn execute_tool_call(
     match registry.execute(tc_name, tc_args.clone(), ctx).await {
         Ok(result) => result,
         Err(e) => {
-            warn!("Tool '{}' failed: {}", tc_name, e);
+            warn!("tool '{}' failed: {}", tc_name, e);
             let msg = crate::utils::path_sanitize::sanitize_error_message(
                 &format!("Tool execution failed: {e}"),
                 workspace,
@@ -490,7 +490,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
             .and_then(|n| n.to_str())
             .unwrap_or(path.as_str());
         if !file_path.exists() {
-            warn!("Media file not found: {}", path);
+            warn!("media file not found: {}", path);
             warnings.push(format!("'{display_name}' was not found on disk"));
             continue;
         }
@@ -505,7 +505,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
             "webp" => "image/webp",
             "pdf" => "application/pdf",
             _ => {
-                warn!("Unsupported media format: {}", ext);
+                warn!("unsupported media format: {}", ext);
                 warnings.push(format!(
                     "'{display_name}' has unsupported extension '.{ext}' (supported: jpg, png, gif, webp, pdf)"
                 ));
@@ -516,7 +516,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
             Ok(data) => {
                 if data.len() > MAX_IMAGE_SIZE {
                     warn!(
-                        "Media file too large ({} bytes, max {}): {}",
+                        "media file too large ({} bytes, max {}): {}",
                         data.len(),
                         MAX_IMAGE_SIZE,
                         path
@@ -541,7 +541,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
                 };
                 if !valid {
                     warn!(
-                        "Media file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}). File may be corrupted.",
+                        "media file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}). File may be corrupted.",
                         path,
                         ext,
                         &data[..8.min(data.len())]
@@ -553,7 +553,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
                 }
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
                 info!(
-                    "Encoded media for LLM: {} ({}, {} raw bytes, {} base64 chars)",
+                    "encoded media for LLM: {} ({}, {} raw bytes, {} base64 chars)",
                     path,
                     media_type,
                     data.len(),
@@ -565,7 +565,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
                 });
             }
             Err(e) => {
-                warn!("Failed to read media file {}: {}", path, e);
+                warn!("failed to read media file {}: {}", path, e);
                 warnings.push(format!("'{display_name}' could not be read: {e}"));
             }
         }
@@ -711,7 +711,7 @@ pub(super) fn cleanup_old_media(ttl_days: u32) -> Result<()> {
         }
     }
     if removed > 0 {
-        info!("Cleaned up {} old media files", removed);
+        info!("cleaned up {} old media files", removed);
     }
     Ok(())
 }

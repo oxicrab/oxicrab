@@ -46,7 +46,7 @@ impl EventMatcher {
             {
                 if pat.len() > 1024 {
                     warn!(
-                        "Event cron job '{}' has regex pattern exceeding 1024 chars, skipping",
+                        "event cron job '{}' has regex pattern exceeding 1024 chars, skipping",
                         job.id
                     );
                     continue;
@@ -57,7 +57,7 @@ impl EventMatcher {
                     }
                     Err(e) => {
                         warn!(
-                            "Event cron job '{}' has invalid regex '{}': {}",
+                            "event cron job '{}' has invalid regex '{}': {}",
                             job.id, pat, e
                         );
                     }

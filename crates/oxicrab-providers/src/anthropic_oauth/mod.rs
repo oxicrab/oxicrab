@@ -136,7 +136,7 @@ impl AnthropicOAuthProvider {
             Ok(Some(v)) => v,
             Ok(None) => return,
             Err(e) => {
-                debug!("Failed to read cached tokens: {}", e);
+                debug!("failed to read cached tokens: {}", e);
                 return;
             }
         };

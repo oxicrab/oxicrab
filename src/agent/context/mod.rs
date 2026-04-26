@@ -286,7 +286,7 @@ impl ContextBuilder {
                 && meta.len() > MAX_CONTEXT_FILE_SIZE
             {
                 warn!(
-                    "AGENTS.md is too large ({} bytes, max {}), using defaults",
+                    "aGENTS.md is too large ({} bytes, max {}), using defaults",
                     meta.len(),
                     MAX_CONTEXT_FILE_SIZE
                 );
@@ -300,7 +300,7 @@ impl ContextBuilder {
                     &datetime_natural,
                 );
             }
-            warn!("Failed to load AGENTS.md, using defaults");
+            warn!("failed to load AGENTS.md, using defaults");
         }
 
         // Fallback to defaults

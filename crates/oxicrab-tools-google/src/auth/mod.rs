@@ -161,7 +161,7 @@ pub async fn get_credentials(
                     return Ok(c.clone());
                 }
                 Err(e) => {
-                    warn!("Failed to refresh Google credentials: {}", e);
+                    warn!("failed to refresh Google credentials: {}", e);
                 }
             }
         }
@@ -234,7 +234,7 @@ pub async fn run_oauth_flow(
     let code = match get_code_via_browser(auth_url.clone(), port, csrf_token.secret()).await {
         Ok(code) => code,
         Err(e) => {
-            warn!("Browser flow failed ({}), falling back to manual flow", e);
+            warn!("browser flow failed ({}), falling back to manual flow", e);
             return run_manual_flow(
                 client_id,
                 client_secret,
@@ -305,7 +305,7 @@ async fn get_code_via_browser(
         return Err(anyhow::anyhow!("Failed to open browser: {e}"));
     }
 
-    info!("Waiting for OAuth redirect on port {}...", port);
+    info!("waiting for OAuth redirect on port {}...", port);
 
     // Start local server
     let listener = TcpListener::bind(format!("127.0.0.1:{port}")).await?;
@@ -627,7 +627,7 @@ fn load_credentials_from_file(path: &Path, scopes: &[&str]) -> Result<Option<Goo
         scopes.iter().map(ToString::to_string).collect();
     let cred_scopes: std::collections::HashSet<String> = creds.scopes.iter().cloned().collect();
     if !required_scopes.is_subset(&cred_scopes) {
-        warn!("Credential scopes don't match required scopes");
+        warn!("credential scopes don't match required scopes");
         return Ok(None);
     }
 

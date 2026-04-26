@@ -667,7 +667,7 @@ impl ToolRegistry {
         match handle.await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
-                warn!("Tool '{}' timed out after {}s", tool_name, timeout_secs);
+                warn!("tool '{}' timed out after {}s", tool_name, timeout_secs);
                 Ok(ToolResult::error(format!(
                     "Tool '{tool_name}' timed out after {timeout_secs}s"
                 )))
@@ -682,7 +682,7 @@ impl ToolRegistry {
                         .map(String::as_str)
                         .or_else(|| panic_payload.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown cause");
-                    error!("Tool '{tool_name}' panicked: {panic_msg}");
+                    error!("tool '{tool_name}' panicked: {panic_msg}");
                     // Return generic message to LLM (details stay in error log)
                     Ok(ToolResult::error(format!(
                         "Tool '{tool_name}' crashed unexpectedly"
@@ -859,7 +859,7 @@ impl ToolMiddleware for LoggingMiddleware {
         _tool: &dyn Tool,
     ) -> Option<ToolResult> {
         debug!(
-            "Executing tool: {} (channel={}) with arguments: {}",
+            "executing tool: {} (channel={}) with arguments: {}",
             name, ctx.channel, params
         );
         None
@@ -874,9 +874,9 @@ impl ToolMiddleware for LoggingMiddleware {
         result: &mut ToolResult,
     ) {
         if result.is_error {
-            warn!("Tool '{}' returned error: {}", name, result.content);
+            warn!("tool '{}' returned error: {}", name, result.content);
         } else {
-            info!("Tool '{}' completed ({} chars)", name, result.content.len());
+            info!("tool '{}' completed ({} chars)", name, result.content.len());
         }
     }
 }

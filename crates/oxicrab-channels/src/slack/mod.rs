@@ -509,7 +509,7 @@ impl SlackChannel {
                 self.send_slack_api_json_with_retry("chat.postMessage", &body)
                     .await
                     .map_err(|e| {
-                        error!("Error sending Slack message with blocks: {}", e);
+                        error!("error sending Slack message with blocks: {}", e);
                         anyhow::anyhow!("Slack send error: {e}")
                     })?
             } else {
@@ -523,7 +523,7 @@ impl SlackChannel {
                 self.send_slack_api_with_retry("chat.postMessage", &params)
                     .await
                     .map_err(|e| {
-                        error!("Error sending Slack message: {}", e);
+                        error!("error sending Slack message: {}", e);
                         anyhow::anyhow!("Slack send error: {e}")
                     })?
             };
@@ -546,7 +546,7 @@ impl SlackChannel {
                 .send_slack_api_json_with_retry("chat.postMessage", &body)
                 .await
                 .map_err(|e| {
-                    error!("Error sending Slack buttons-only message: {}", e);
+                    error!("error sending Slack buttons-only message: {}", e);
                     anyhow::anyhow!("Slack send error: {e}")
                 })?;
             if let Some(ts) = response.get("ts").and_then(Value::as_str) {
@@ -606,7 +606,7 @@ impl BaseChannel for SlackChannel {
 
     #[allow(clippy::too_many_lines)]
     async fn start(&mut self) -> Result<()> {
-        info!("Initializing Slack channel...");
+        info!("initializing Slack channel...");
         if self.config.bot_token.is_empty() {
             error!("Slack bot_token not configured");
             return Err(anyhow::anyhow!("Slack bot_token not configured"));
@@ -618,7 +618,7 @@ impl BaseChannel for SlackChannel {
 
         *self.running.lock().await = true;
 
-        info!("Starting Slack bot (Socket Mode)...");
+        info!("starting Slack bot (Socket Mode)...");
 
         // Connect to Socket Mode via WebSocket
         // Share channel state with the WS task via Arc
@@ -735,7 +735,7 @@ impl BaseChannel for SlackChannel {
                         }
                     }
                 }
-                debug!("Attempting to connect to Slack Socket Mode...");
+                debug!("attempting to connect to Slack Socket Mode...");
                 debug!(
                     "Slack app token configured (length: {} chars)",
                     app_token.len()
@@ -750,11 +750,11 @@ impl BaseChannel for SlackChannel {
                 {
                     Ok(r) => r,
                     Err(e) => {
-                        error!("Failed to call apps.connections.open: {}", e);
+                        error!("failed to call apps.connections.open: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
                         warn!(
-                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            "retrying Slack Socket Mode connection in {} seconds...",
                             delay
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -765,11 +765,11 @@ impl BaseChannel for SlackChannel {
                 let json: Value = match response.json().await {
                     Ok(j) => j,
                     Err(e) => {
-                        error!("Failed to parse apps.connections.open response: {}", e);
+                        error!("failed to parse apps.connections.open response: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
                         warn!(
-                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            "retrying Slack Socket Mode connection in {} seconds...",
                             delay
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -785,13 +785,13 @@ impl BaseChannel for SlackChannel {
                     error!("Slack apps.connections.open error: {}", error);
                     if error == "invalid_auth" {
                         warn!(
-                            "Invalid app_token - check that it starts with 'xapp-' and has 'connections:write' scope"
+                            "invalid app_token - check that it starts with 'xapp-' and has 'connections:write' scope"
                         );
                     }
                     let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                     reconnect_attempt += 1;
                     warn!(
-                        "Retrying Slack Socket Mode connection in {} seconds...",
+                        "retrying Slack Socket Mode connection in {} seconds...",
                         delay
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -799,11 +799,11 @@ impl BaseChannel for SlackChannel {
                 }
 
                 let Some(ws_url) = json.get("url").and_then(Value::as_str) else {
-                    error!("No 'url' field in apps.connections.open response");
+                    error!("no 'url' field in apps.connections.open response");
                     let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                     reconnect_attempt += 1;
                     warn!(
-                        "Retrying Slack Socket Mode connection in {} seconds...",
+                        "retrying Slack Socket Mode connection in {} seconds...",
                         delay
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -811,18 +811,18 @@ impl BaseChannel for SlackChannel {
                 };
 
                 debug!(
-                    "Received WebSocket URL from Slack (length: {} chars)",
+                    "received WebSocket URL from Slack (length: {} chars)",
                     ws_url.len()
                 );
 
                 let url = match url::Url::parse(ws_url) {
                     Ok(u) => u,
                     Err(e) => {
-                        error!("Failed to parse WebSocket URL: {}", e);
+                        error!("failed to parse WebSocket URL: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
                         warn!(
-                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            "retrying Slack Socket Mode connection in {} seconds...",
                             delay
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -833,7 +833,7 @@ impl BaseChannel for SlackChannel {
                 match tokio_tungstenite::connect_async(url.as_str()).await {
                     Ok((ws_stream, response)) => {
                         info!(
-                            "Connected to Slack Socket Mode (status: {})",
+                            "connected to Slack Socket Mode (status: {})",
                             response.status()
                         );
                         reconnect_attempt = 0;
@@ -851,7 +851,7 @@ impl BaseChannel for SlackChannel {
 
                                         // Handle hello message
                                         if event_type == "hello" {
-                                            info!("Received Socket Mode hello message");
+                                            info!("received Socket Mode hello message");
                                             continue;
                                         }
 
@@ -882,14 +882,14 @@ impl BaseChannel for SlackChannel {
                                                 "payload": {}
                                             });
                                             debug!(
-                                                "Sending Socket Mode acknowledgment for envelope_id: {}",
+                                                "sending Socket Mode acknowledgment for envelope_id: {}",
                                                 envelope_id_str
                                             );
                                             if let Err(e) =
                                                 write.send(Message::text(ack_msg.to_string())).await
                                             {
                                                 error!(
-                                                    "Failed to send Socket Mode acknowledgment: {}",
+                                                    "failed to send Socket Mode acknowledgment: {}",
                                                     e
                                                 );
                                             }
@@ -911,7 +911,7 @@ impl BaseChannel for SlackChannel {
                                             .await
                                         {
                                             error!(
-                                                "Error handling Slack interactive payload: {}",
+                                                "error handling Slack interactive payload: {}",
                                                 e
                                             );
                                         }
@@ -946,7 +946,7 @@ impl BaseChannel for SlackChannel {
                                                     .await
                                                     {
                                                         error!(
-                                                            "Error handling Slack message event: {}",
+                                                            "error handling Slack message event: {}",
                                                             e
                                                         );
                                                     }
@@ -962,7 +962,7 @@ impl BaseChannel for SlackChannel {
                                 }
                                 Ok(Message::Ping(data)) => {
                                     if let Err(e) = write.send(Message::Pong(data)).await {
-                                        error!("Failed to send Slack WebSocket pong: {}", e);
+                                        error!("failed to send Slack WebSocket pong: {}", e);
                                     }
                                 }
                                 Err(e) => {
@@ -999,10 +999,10 @@ impl BaseChannel for SlackChannel {
                         if error_str.contains("400") {
                             warn!("400 Bad Request - The token format might be incorrect.");
                             warn!(
-                                "Make sure your app_token starts with 'xapp-' and is a Socket Mode token."
+                                "make sure your app_token starts with 'xapp-' and is a Socket Mode token."
                             );
                             warn!(
-                                "You can generate a new token at: https://api.slack.com/apps/<your-app-id>/socket-mode"
+                                "you can generate a new token at: https://api.slack.com/apps/<your-app-id>/socket-mode"
                             );
                         } else if error_str.contains("403") {
                             warn!("403 Forbidden - Check that:");
@@ -1013,7 +1013,7 @@ impl BaseChannel for SlackChannel {
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
                         warn!(
-                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            "retrying Slack Socket Mode connection in {} seconds...",
                             delay
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -1032,7 +1032,7 @@ impl BaseChannel for SlackChannel {
         if let Some(handle) = self.ws_handle.take() {
             handle.abort();
         }
-        info!("Stopping Slack bot...");
+        info!("stopping Slack bot...");
         Ok(())
     }
 
@@ -1542,7 +1542,7 @@ async fn handle_slack_event(
     if let Some(ref bot_id) = *bot_user_id.lock().await
         && user_id == bot_id
     {
-        debug!("Ignoring message from bot itself (user_id: {})", user_id);
+        debug!("ignoring message from bot itself (user_id: {})", user_id);
         return Ok(());
     }
 
@@ -1551,7 +1551,7 @@ async fn handle_slack_event(
         let mut seen = seen_messages.lock().await;
         let msg_key = format!("{channel_id}:{user_id}:{ts}");
         if seen.contains(&msg_key) {
-            debug!("Ignoring duplicate Slack message: {}", msg_key);
+            debug!("ignoring duplicate Slack message: {}", msg_key);
             return Ok(());
         }
         seen.insert(msg_key.clone());
@@ -1561,7 +1561,7 @@ async fn handle_slack_event(
         if seen.len() > 5500 {
             let drain_count = seen.len() - 5000;
             seen.drain(..drain_count);
-            debug!("Pruned Slack dedup set to {} entries", seen.len());
+            debug!("pruned Slack dedup set to {} entries", seen.len());
         }
     }
 
@@ -1685,7 +1685,7 @@ async fn handle_slack_event(
                         let ext_no_dot = crate::media_utils::mime_to_extension(mimetype);
                         let ext = &format!(".{ext_no_dot}");
                         let Ok(media_dir) = crate::media_utils::media_dir() else {
-                            warn!("Failed to create media directory");
+                            warn!("failed to create media directory");
                             continue;
                         };
                         let file_path = media_dir.join(format!("slack_{file_id}{ext}"));
@@ -1706,7 +1706,7 @@ async fn handle_slack_event(
                                         MAX_IMAGE_DOWNLOAD
                                     );
                                 } else if is_image_magic_bytes(&bytes) {
-                                    info!("Downloaded Slack image: {} bytes", bytes.len());
+                                    info!("downloaded Slack image: {} bytes", bytes.len());
                                     let fp = file_path.clone();
                                     let b = bytes.clone();
                                     if let Err(e) =
@@ -1714,7 +1714,7 @@ async fn handle_slack_event(
                                             .await
                                             .unwrap_or_else(|e| Err(std::io::Error::other(e)))
                                     {
-                                        warn!("Failed to write Slack media file: {}", e);
+                                        warn!("failed to write Slack media file: {}", e);
                                     }
                                     let path_str = file_path.to_string_lossy().to_string();
                                     media_paths.push(path_str.clone());
@@ -1727,7 +1727,7 @@ async fn handle_slack_event(
                                     );
                                 }
                             }
-                            Err(e) => warn!("Failed to download Slack file: {}", e),
+                            Err(e) => warn!("failed to download Slack file: {}", e),
                         }
                     }
                 } else if is_audio {
@@ -1738,7 +1738,7 @@ async fn handle_slack_event(
                         let ext_no_dot = crate::media_utils::mime_to_extension(mimetype);
                         let ext = &format!(".{ext_no_dot}");
                         let Ok(media_dir) = crate::media_utils::media_dir() else {
-                            warn!("Failed to create media directory");
+                            warn!("failed to create media directory");
                             continue;
                         };
                         let file_path = media_dir.join(format!("slack_{file_id}{ext}"));
@@ -1755,7 +1755,7 @@ async fn handle_slack_event(
                                     );
                                     continue;
                                 }
-                                info!("Downloaded Slack audio: {} bytes", bytes.len());
+                                info!("downloaded Slack audio: {} bytes", bytes.len());
                                 let fp = file_path.clone();
                                 let b = bytes.clone();
                                 if let Err(e) =
@@ -1763,13 +1763,13 @@ async fn handle_slack_event(
                                         .await
                                         .unwrap_or_else(|e| Err(std::io::Error::other(e)))
                                 {
-                                    warn!("Failed to write Slack audio file: {}", e);
+                                    warn!("failed to write Slack audio file: {}", e);
                                 }
                                 let path_str = file_path.to_string_lossy().to_string();
                                 media_paths.push(path_str.clone());
                                 content_parts.push(format!("[audio: {path_str}]"));
                             }
-                            Err(e) => warn!("Failed to download Slack audio file: {}", e),
+                            Err(e) => warn!("failed to download Slack audio file: {}", e),
                         }
                     }
                 } else {

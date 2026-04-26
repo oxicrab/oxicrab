@@ -69,16 +69,16 @@ impl ProviderErrorHandler {
     /// Handle rate limiting errors.
     pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> OxicrabError {
         if let Some(seconds) = retry_after {
-            warn!("Rate limit hit. Retry after {} seconds", seconds);
+            warn!("rate limit hit. Retry after {} seconds", seconds);
         } else {
-            warn!("Rate limit hit (status: {})", status);
+            warn!("rate limit hit (status: {})", status);
         }
         OxicrabError::RateLimit { retry_after }
     }
 
     /// Handle authentication errors.
     pub fn handle_auth_error(status: u16, error_text: &str) -> OxicrabError {
-        warn!("Authentication error (status: {}): {}", status, error_text);
+        warn!("authentication error (status: {}): {}", status, error_text);
         OxicrabError::Auth(format!(
             "Authentication failed. Please check your API key or credentials. Error: {error_text}"
         ))

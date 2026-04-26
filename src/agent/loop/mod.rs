@@ -383,7 +383,7 @@ impl AgentLoop {
             let mgr_for_cleanup = SessionManager::with_db(memory.db());
             tokio::spawn(async move {
                 if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl).await {
-                    warn!("Session cleanup failed: {}", e);
+                    warn!("session cleanup failed: {}", e);
                 }
             });
         }
@@ -393,7 +393,7 @@ impl AgentLoop {
             let ttl = media_ttl_days;
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = cleanup_old_media(ttl) {
-                    warn!("Media cleanup failed: {}", e);
+                    warn!("media cleanup failed: {}", e);
                 }
             });
         }
@@ -737,7 +737,7 @@ impl AgentLoop {
                     let m = EventMatcher::from_jobs(&jobs);
                     if !m.is_empty() {
                         info!(
-                            "Event matcher initialized with {} event-triggered job(s)",
+                            "event matcher initialized with {} event-triggered job(s)",
                             jobs.iter()
                                 .filter(|j| matches!(
                                     j.schedule,
@@ -749,7 +749,7 @@ impl AgentLoop {
                     m
                 }
                 Err(e) => {
-                    warn!("Failed to load cron jobs for event matcher: {}", e);
+                    warn!("failed to load cron jobs for event matcher: {}", e);
                     EventMatcher::from_jobs(&[])
                 }
             };
@@ -1026,7 +1026,7 @@ impl AgentLoop {
 
             if let Some(msg) = msg_opt {
                 info!(
-                    "Agent received inbound message: channel={}, sender_id={}, chat_id={}, content_len={}",
+                    "agent received inbound message: channel={}, sender_id={}, chat_id={}, content_len={}",
                     msg.channel,
                     msg.sender_id,
                     msg.chat_id,
@@ -1040,7 +1040,7 @@ impl AgentLoop {
                     Ok(Some(outbound_msg)) => {
                         // Send response back through the bus
                         info!(
-                            "Agent generated outbound message: channel={}, chat_id={}, content_len={}",
+                            "agent generated outbound message: channel={}, chat_id={}, content_len={}",
                             outbound_msg.channel,
                             outbound_msg.chat_id,
                             outbound_msg.content.len()
@@ -1053,19 +1053,19 @@ impl AgentLoop {
                                 .await;
                         }
                         if let Err(e) = self.bus.publish_outbound(outbound_msg).await {
-                            error!("Failed to send outbound message: {}", e);
+                            error!("failed to send outbound message: {}", e);
                         } else {
-                            info!("Successfully sent outbound message to bus");
+                            info!("successfully sent outbound message to bus");
                         }
                     }
                     Ok(None) => {
                         // No response (e.g., empty after delivery tool)
                         debug!(
-                            "No outbound message needed (content delivered via tool or suppressed)"
+                            "no outbound message needed (content delivered via tool or suppressed)"
                         );
                     }
                     Err(e) => {
-                        error!("Error processing message: {}", e);
+                        error!("error processing message: {}", e);
                         let user_message = Self::classify_error_for_user(&e.to_string());
                         // Send an error outbound so channels can clean up
                         // (e.g. Slack removes the thinking emoji on any outbound)
@@ -1074,18 +1074,18 @@ impl AgentLoop {
                                 .metadata(msg_metadata)
                                 .build();
                         if let Err(send_err) = self.bus.publish_outbound(error_outbound).await {
-                            error!("Failed to send error outbound message: {}", send_err);
+                            error!("failed to send error outbound message: {}", send_err);
                         }
                     }
                 }
             } else {
                 // Channel closed — all senders dropped
-                info!("Inbound channel closed, stopping agent loop");
+                info!("inbound channel closed, stopping agent loop");
                 break;
             }
         }
 
-        info!("Agent loop stopped");
+        info!("agent loop stopped");
         Ok(())
     }
 

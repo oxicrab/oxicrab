@@ -246,7 +246,7 @@ impl ObsidianCache {
                     if queue_len > 0 {
                         info!("API reachable — flushing {} queued writes", queue_len);
                         if let Err(e) = self.flush_write_queue().await {
-                            warn!("Opportunistic queue flush failed: {}", e);
+                            warn!("opportunistic queue flush failed: {}", e);
                         }
                     }
                     Ok(format!("Written to '{path}'."))
@@ -285,7 +285,7 @@ impl ObsidianCache {
                     if queue_len > 0 {
                         info!("API reachable — flushing {} queued writes", queue_len);
                         if let Err(e) = self.flush_write_queue().await {
-                            warn!("Opportunistic queue flush failed: {}", e);
+                            warn!("opportunistic queue flush failed: {}", e);
                         }
                     }
                     Ok(format!("Appended to '{path}'."))
@@ -353,7 +353,7 @@ impl ObsidianCache {
             return Ok(());
         }
 
-        info!("Flushing {} queued writes", queue.len());
+        info!("flushing {} queued writes", queue.len());
         let mut remaining = Vec::new();
 
         for item in queue.drain(..) {
@@ -368,7 +368,7 @@ impl ObsidianCache {
                             item.path.strip_suffix(".md").unwrap_or(&item.path)
                         );
                         warn!(
-                            "Conflict detected for '{}', saving remote as '{}'",
+                            "conflict detected for '{}', saving remote as '{}'",
                             item.path, conflict_path
                         );
                         let _ = self.write_to_cache(&conflict_path, &remote_content).await;
@@ -384,10 +384,10 @@ impl ObsidianCache {
             };
 
             if let Err(e) = result {
-                warn!("Failed to flush write for '{}': {}", item.path, e);
+                warn!("failed to flush write for '{}': {}", item.path, e);
                 remaining.push(item);
             } else {
-                debug!("Flushed queued write: {}", item.path);
+                debug!("flushed queued write: {}", item.path);
             }
         }
 
@@ -433,7 +433,7 @@ impl ObsidianCache {
 
                         if existing_hash != Some(&hash) {
                             if let Err(e) = self.write_to_cache(file_path, &content).await {
-                                warn!("Failed to cache '{}': {}", file_path, e);
+                                warn!("failed to cache '{}': {}", file_path, e);
                                 continue;
                             }
                             if state.files.contains_key(file_path) {
@@ -454,7 +454,7 @@ impl ObsidianCache {
                         );
                     }
                     Err(e) => {
-                        warn!("Failed to download '{}': {}", file_path, e);
+                        warn!("failed to download '{}': {}", file_path, e);
                     }
                 }
             }
@@ -519,7 +519,7 @@ impl ObsidianCache {
         let state_clone = state.clone();
         drop(state);
         if let Err(e) = self.persist_state(&state_clone) {
-            warn!("Failed to persist sync state: {}", e);
+            warn!("failed to persist sync state: {}", e);
         }
     }
 
