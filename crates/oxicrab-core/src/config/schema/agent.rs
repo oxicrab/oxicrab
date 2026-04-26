@@ -186,7 +186,7 @@ fn default_reflection_max_tokens() -> u32 {
     200
 }
 
-/// Configuration for the skill library (Track 2 of self-improvement).
+/// Configuration for the skill library.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillsConfig {
     /// Maintain the embedding-indexed `skills_index` table. When false,
@@ -236,11 +236,11 @@ fn default_skills_prune_days() -> u32 {
     30
 }
 
-/// Trajectory collection (Track 3 of self-improvement) — logs every
-/// tool call, tool result, and turn-end into `trajectory_events`. Pure
-/// observability when `enabled = true` and `autoSuggest.enabled = false`;
-/// the auto-suggest pipeline reads the same table to detect repeating
-/// cross-session workflows and persist them as skills.
+/// Trajectory collection — logs every tool call, tool result, and
+/// turn-end into `trajectory_events`. Pure observability when `enabled
+/// = true` and `autoSuggest.enabled = false`; the auto-suggest pipeline
+/// reads the same table to detect repeating cross-session workflows and
+/// persist them as skills.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrajectoryConfig {
     /// Master switch. Off by default — costs one INSERT per tool call
@@ -299,8 +299,7 @@ pub struct TrajectoryAutoSuggestConfig {
     /// When `true`, fire a small LLM call to write a purpose-specific
     /// skill body for the staged candidate. When `false`, a fixed
     /// template is used. The LLM call costs roughly 1k tokens per
-    /// staged candidate; the template path is free. Adopted from
-    /// OpenCrust's auto-skill writer.
+    /// staged candidate; the template path is free.
     #[serde(default, rename = "useLlmBody")]
     pub use_llm_body: bool,
 }
@@ -668,8 +667,7 @@ pub struct MemoryConfig {
     pub max_context_chars: usize,
     /// Recall-driven promotion: surface daily notes that get repeatedly
     /// retrieved and promote them to durable knowledge entries before
-    /// the retention purge drops them. Adopted from openclaw's
-    /// `recordShortTermRecalls` + `short-term-promotion` pattern.
+    /// the retention purge drops them.
     #[serde(default)]
     pub promotion: MemoryPromotionConfig,
 }
@@ -1172,7 +1170,7 @@ pub struct AgentDefaults {
     pub judge: JudgeConfig,
     /// Hard timeout (seconds) on each LLM request — prevents a hung
     /// provider from holding the per-session lock indefinitely.
-    /// 0 disables. Default 300s. Adopted from nanobot PR #3428.
+    /// 0 disables. Default 300s.
     #[serde(
         default = "default_llm_request_timeout_secs",
         rename = "llmRequestTimeoutSeconds"

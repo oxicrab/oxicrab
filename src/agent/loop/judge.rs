@@ -1,7 +1,5 @@
 //! LLM-as-Judge: poison-resistant semantic gate for tool calls.
 //!
-//! Adopted from [IronClaw PR #2845](https://github.com/nearai/ironclaw/pull/2845).
-//!
 //! ## Why
 //!
 //! oxicrab already gates tool calls with several layers — the

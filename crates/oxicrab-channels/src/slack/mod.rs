@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 mod formatting;
+pub mod streaming;
+pub use streaming::SlackStreamConsumer;
 
 const MAX_USER_CACHE: usize = 1000;
 
@@ -573,6 +575,18 @@ impl SlackChannel {
 impl BaseChannel for SlackChannel {
     fn name(&self) -> &'static str {
         "slack"
+    }
+
+    fn stream_consumer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn oxicrab_core::streaming::StreamConsumer>> {
+        if !self.config.stream {
+            return None;
+        }
+        Some(std::sync::Arc::new(SlackStreamConsumer::new(
+            self.config.bot_token.clone(),
+            self.client.clone(),
+        )))
     }
 
     #[allow(clippy::too_many_lines)]

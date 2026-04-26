@@ -117,6 +117,7 @@ allowFrom = []
 dmPolicy = "allowlist"
 mentionOnly = false
 allowGroups = []
+stream = false
 
 [channels.discord]
 enabled = false
@@ -125,6 +126,7 @@ allowFrom = []
 dmPolicy = "allowlist"
 mentionOnly = false
 allowGroups = []
+stream = false
 
 [[channels.discord.commands]]
 name = "ask"
@@ -144,6 +146,7 @@ dmPolicy = "allowlist"
 allowGroups = []
 thinkingEmoji = "eyes"
 doneEmoji = "white_check_mark"
+stream = false
 
 [channels.whatsapp]
 enabled = false

@@ -1,4 +1,4 @@
-//! `skill_propose` tool — exposes Track 2b helpers to the LLM.
+//! `skill_propose` tool — exposes the staged-skill helpers to the LLM.
 //!
 //! Action-based tool with four actions:
 //! * `propose` — write a candidate skill body to

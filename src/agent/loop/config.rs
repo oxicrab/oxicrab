@@ -29,18 +29,23 @@ pub struct AgentRunOverrides {
     pub routing_policy: Option<crate::router::RoutingPolicy>,
     /// Pending-message queue handle. When set, the agent loop drains
     /// the queue between tool waves and injects messages as synthetic
-    /// user turns INSIDE the current run (not coalesced into the
-    /// next run). Mirrors microclaw's chat_turn_queue.drain_pending +
-    /// IronClaw's LoopSignal::InjectMessage. Skipped for cron / direct
-    /// dispatch paths (no queue available).
+    /// user turns inside the current run (not coalesced into the
+    /// next run). Skipped for cron / direct dispatch paths (no queue
+    /// available).
     pub pending_queue: Option<Arc<std::sync::Mutex<Vec<crate::bus::InboundMessage>>>>,
     /// Cancellation token. When set, the agent loop checks the token
-    /// before each LLM call and aborts cleanly if cancelled. T2.2 —
-    /// adopted from Zeroclaw's `cancellation_token` + tokio::select!
-    /// pattern. The session-cancel API on `AgentLoop` registers a
-    /// token per session_key so external callers (e.g. a `/stop`
-    /// router rule) can cancel by key.
+    /// before each LLM call and aborts cleanly if cancelled. The
+    /// session-cancel API on `AgentLoop` registers a token per
+    /// `session_key` so external callers (e.g. a `/stop` router rule)
+    /// can cancel by key.
     pub cancellation_token: Option<tokio_util::sync::CancellationToken>,
+    /// Streaming dispatcher. When `Some`, the iteration loop calls
+    /// `chat_stream` for the final-text turn and emits `StreamEvent`s
+    /// to it (Begin / Delta×N / End). When `None`, the loop uses
+    /// non-streaming `chat()`.
+    /// Per-turn isolation is enforced by the dispatcher's `turn_id`,
+    /// not by session state.
+    pub stream_dispatcher: Option<crate::providers::streaming::StreamDispatcher>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -177,7 +182,7 @@ pub struct AgentLoopConfig {
     pub voice_config: Option<crate::config::VoiceConfig>,
     /// Memory configuration (archive/purge days)
     pub memory_config: Option<crate::config::MemoryConfig>,
-    /// Skill library configuration (Track 2 of self-improvement).
+    /// Skill library configuration.
     pub skills_config: crate::config::SkillsConfig,
     /// Cognitive routines configuration for checkpoint pressure signals
     pub cognitive_config: crate::config::CognitiveConfig,
@@ -206,9 +211,9 @@ pub struct AgentLoopConfig {
     /// LLM-as-Judge before-tool-call semantic gate. Off by default.
     pub judge_config: crate::config::JudgeConfig,
     /// Hard timeout (seconds) on each LLM request. 0 disables.
-    /// Default 300. Adopted from nanobot PR #3428.
+    /// Default 300.
     pub llm_request_timeout_secs: u32,
-    /// Trajectory collection (Track 3) — logs tool loop events and powers
+    /// Trajectory collection — logs tool loop events and powers
     /// cross-session skill auto-save.
     pub trajectory_config: crate::config::TrajectoryConfig,
     /// Skill auto-refine — patches skills based on session learnings.

@@ -51,7 +51,7 @@ impl LLMResponse {
     /// blocks while the underlying `finish_reason` is `content_filter`
     /// / `error` / `stop`. Without this guard, the agent loop
     /// dispatches the phantom calls, gets empty results back, and
-    /// loops forever. Adopted from nanobot PR #3225.
+    /// loops forever.
     ///
     /// Returns `true` only when both:
     /// - `tool_calls` is non-empty
@@ -267,9 +267,80 @@ impl ChatRequestBuilder {
     }
 }
 
+/// One streamed event from a streaming chat call. The set of variants
+/// matches what every Anthropic / OpenAI / Gemini stream produces;
+/// providers map their wire formats into this enum.
+///
+/// All deltas are full strings (not codepoint deltas) — receivers
+/// treat them as concatenable text. `Finish` is always the LAST event;
+/// it carries the complete `LLMResponse` so the agent loop's existing
+/// post-stream logic (tool-call handling, finish_reason guards, cost
+/// recording) keeps working unchanged.
+#[derive(Debug, Clone)]
+pub enum StreamChunk {
+    /// Incremental text content for the user-visible response.
+    Delta { text: String },
+    /// Reasoning / extended-thinking delta. Not displayed live but
+    /// accumulated for persistence.
+    ReasoningDelta { text: String },
+    /// A tool call has started. id/name are immutable for the rest
+    /// of the stream; arguments are streamed via `ToolCallArgs`.
+    ToolCallStart { id: String, name: String },
+    /// Argument fragment for an active tool call.
+    ToolCallArgs { id: String, args_delta: String },
+    /// Stream finished. Always carries the full reconstituted response.
+    Finish { response: LLMResponse },
+    /// Provider-side error mid-stream. Receiver should fall back to
+    /// non-streaming using whatever content was accumulated so far.
+    Error { message: String },
+}
+
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
     async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse>;
+
+    /// Streaming variant. Default impl wraps `chat()` and emits a
+    /// single `Delta` + `Finish` so callers don't branch on
+    /// "this provider supports streaming." Providers that natively
+    /// stream override this for true delta delivery.
+    ///
+    /// Providers MUST respect `cancel` — if the token fires, they
+    /// should drop the in-flight request and yield `Error` (or simply
+    /// stop yielding; receivers detect the dropped sender).
+    async fn chat_stream(
+        &self,
+        req: &ChatRequest,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<std::pin::Pin<Box<dyn futures_util::Stream<Item = StreamChunk> + Send>>>
+    {
+        // Default: eagerly run non-streaming `chat()` (respecting the
+        // cancel token) and emit a single `Delta` + `Finish`, or
+        // `Error`. Resolving the future before constructing the
+        // stream avoids the lifetime gymnastics of capturing `&self`
+        // / `&req` inside an owned `'static` stream.
+        let response_result: anyhow::Result<LLMResponse> = tokio::select! {
+            biased;
+            () = cancel.cancelled() => Err(anyhow::anyhow!("cancelled before chat completion")),
+            r = self.chat(req) => r,
+        };
+
+        let stream = async_stream::stream! {
+            match response_result {
+                Ok(resp) => {
+                    if let Some(text) = resp.content.clone()
+                        && !text.is_empty()
+                    {
+                        yield StreamChunk::Delta { text };
+                    }
+                    yield StreamChunk::Finish { response: resp };
+                }
+                Err(e) => {
+                    yield StreamChunk::Error { message: e.to_string() };
+                }
+            }
+        };
+        Ok(Box::pin(stream))
+    }
 
     fn default_model(&self) -> &str;
 

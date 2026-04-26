@@ -287,7 +287,8 @@ token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 allowFrom = ["123456789"]
 allowGroups = []
 dmPolicy = "allowlist"
-mentionOnly = false</code></pre>
+mentionOnly = false
+stream = false</code></pre>
     </div>
 
     <h3>Supported features</h3>
@@ -300,6 +301,7 @@ mentionOnly = false</code></pre>
       <span>Animation (GIF) handling</span>
       <span>Typing indicators</span>
       <span>Message editing</span>
+      <span>Progressive streaming (<code>stream=true</code>)</span>
       <span>Message deletion</span>
       <span>HTML formatting</span>
       <span>Group chat support</span>
@@ -350,6 +352,7 @@ allowFrom = ["123456789012345678"]
 allowGroups = []
 dmPolicy = "allowlist"
 mentionOnly = false
+stream = false
 
 [[channels.discord.commands]]
 name = "ask"
@@ -456,7 +459,8 @@ allowFrom = ["U01234567"]
 allowGroups = []
 dmPolicy = "allowlist"
 thinkingEmoji = "eyes"
-doneEmoji = "white_check_mark"</code></pre>
+doneEmoji = "white_check_mark"
+stream = false</code></pre>
     </div>
     <div class="note"><strong>Note:</strong> The <code>appToken</code> must be a Socket Mode token (starts with <code>xapp-</code>), not a bot token. Socket Mode allows your app to receive events without exposing a public HTTP endpoint.</div>
 
@@ -732,6 +736,17 @@ dmPolicy = "pairing"</code></pre>
 
     <h3>Auto-reconnection</h3>
     <p>All channels implement exponential backoff retry loops (5&ndash;60 seconds). Reconnection is automatic after network disconnects or backend errors.</p>
+
+    <h3>Streaming responses</h3>
+    <p>Telegram, Discord, and Slack support progressive message edits so the user sees the agent's reply build up in real time instead of all at once. Set <code>stream = true</code> on the channel to opt in. Off by default.</p>
+    <ul>
+      <li><strong>Per-turn isolation:</strong> each agent run gets its own UUID <code>turn_id</code>; the channel keeps a <code>DashMap&lt;turn_id, message_id&gt;</code> so late deltas can never edit a previous turn's message.</li>
+      <li><strong>Edit throttle:</strong> ~1 edit/sec per message to stay well under Telegram's 1/sec, Discord's 5/sec, and Slack's 50/min ceilings.</li>
+      <li><strong>Tool-call iterations are NOT streamed</strong> &mdash; only the final-text turn after tools complete. Tool execution feedback continues to use the typing indicator.</li>
+      <li><strong>Sidecar message:</strong> media attachments and interactive buttons land in a follow-up <code>OutboundMessage</code> after the stream ends, so streamed turns are full-featured.</li>
+      <li><strong>WhatsApp and Twilio</strong> have no live-edit API and are not streamable.</li>
+    </ul>
+    <p>Telemetry counters: <code>oxicrab_streaming_turns_total{outcome}</code>, <code>oxicrab_streaming_edit_failures_total{reason}</code>, <code>oxicrab_streaming_fallback_to_nonstream_total{reason}</code>.</p>
 
     <h3>Approval channel target</h3>
     <p>The <a href="config.html#operator-approval">operator approval</a> workflow can route approval requests to a dedicated channel. The <code>channel</code> field in <code>[agents.defaults.approval]</code> uses <code>"channel_type:chat_id"</code> format. The bot must be a member of the target channel. To find the channel ID for each platform:</p>

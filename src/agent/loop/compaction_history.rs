@@ -98,9 +98,8 @@ impl AgentLoop {
                 // Track explicit LLM failure separately from "nothing
                 // extractable". When the LLM fails outright we still
                 // advance the watermark so the next compaction cycle
-                // doesn't re-summarise the same chunk forever (a real
-                // failure mode in nanobot PR #3413/14 — the fix avoids
-                // a runaway cost loop on persistent provider errors).
+                // doesn't re-summarise the same chunk forever and burn
+                // cost in a loop on persistent provider errors.
                 let mut llm_failed = false;
                 match compactor.flush_to_memory(old_messages).await {
                     Ok(ref facts) if !facts.is_empty() => {

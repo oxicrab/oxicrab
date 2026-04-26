@@ -562,18 +562,10 @@ async fn execute_subagent_tool(
     workspace: Option<&std::path::Path>,
     origin: &(String, String),
 ) -> (String, bool) {
-    if let Some(tool) = tool_opt {
-        // Validate params before execution
-        if let Some(validation_error) =
-            crate::agent::agent_loop::validate_tool_params(tool.as_ref(), tool_args)
-        {
-            warn!(
-                "Subagent [{}] tool '{}' param validation failed: {}",
-                task_id, tool_name, validation_error
-            );
-            return (validation_error, true);
-        }
-
+    if tool_opt.is_some() {
+        // Don't pre-validate: the registry's coerce step rescues
+        // common LLM type mismatches like {"limit": "5"} before its
+        // post-coerce schema check runs.
         debug!(
             "Subagent [{}] executing: {} with arguments: {}",
             task_id, tool_name, tool_args

@@ -25,6 +25,9 @@ const MAX_TELEGRAM_DOWNLOAD: u32 = 25 * 1024 * 1024;
 /// Telegram limits `callback_data` to 64 bytes.
 const CALLBACK_DATA_MAX_BYTES: usize = 64;
 
+pub mod streaming;
+pub use streaming::TelegramStreamConsumer;
+
 pub struct TelegramChannel {
     config: TelegramConfig,
     inbound_tx: mpsc::Sender<InboundMessage>,
@@ -35,6 +38,17 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
+    /// Build a `TelegramStreamConsumer` that edits messages in this
+    /// channel as deltas arrive. Returns `None` when streaming is
+    /// disabled in config so the caller can skip registration.
+    pub fn stream_consumer(&self) -> Option<TelegramStreamConsumer> {
+        if self.config.stream {
+            Some(TelegramStreamConsumer::new(self.bot.clone()))
+        } else {
+            None
+        }
+    }
+
     pub fn new(config: TelegramConfig, inbound_tx: mpsc::Sender<InboundMessage>) -> Self {
         let bot = Bot::new(&config.token);
         Self {
@@ -186,6 +200,17 @@ fn extension_from_tg_path(tg_path: &str, fallback: &str) -> String {
 impl BaseChannel for TelegramChannel {
     fn name(&self) -> &'static str {
         "telegram"
+    }
+
+    fn stream_consumer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn oxicrab_core::streaming::StreamConsumer>> {
+        if !self.config.stream {
+            return None;
+        }
+        Some(std::sync::Arc::new(TelegramStreamConsumer::new(
+            self.bot.clone(),
+        )))
     }
 
     async fn start(&mut self) -> Result<()> {
@@ -376,13 +401,14 @@ impl BaseChannel for TelegramChannel {
         // Send media attachments first
         send_media_attachments(&self.bot, tg_chat_id, &msg.media).await;
 
-        // Fix #7: convert markdown to HTML first, THEN split
+        // Convert markdown to HTML first, THEN split — splitting raw
+        // markdown can cut a `*bold*` mid-pair and produce broken HTML.
         let html_content = markdown_to_telegram_html(&msg.content);
         let html_chunks = split_message(&html_content, 4096);
         // Also split raw content for fallback (matched by index)
         let raw_chunks = split_message(&msg.content, 4096);
 
-        // Fix #1: build inline keyboard from unified button metadata
+        // Build inline keyboard from unified button metadata
         let keyboard = build_inline_keyboard(msg, Some(&self.dispatch_store));
 
         for (i, html_chunk) in html_chunks.iter().enumerate() {
@@ -403,6 +429,26 @@ impl BaseChannel for TelegramChannel {
             .await?;
         }
 
+        // Sidecar case: empty content with buttons attached. Without
+        // this, the chunk loop above never runs and the keyboard is
+        // dropped — common after a streamed turn delivers via
+        // editMessageText and the buttons land in a follow-up
+        // OutboundMessage.
+        if html_chunks.is_empty()
+            && let Some(kb) = keyboard
+        {
+            send_chunk(
+                &self.bot,
+                tg_chat_id,
+                "\u{200B}",
+                "\u{200B}",
+                reply_to_msg_id,
+                Some(kb),
+                is_group,
+            )
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -418,10 +464,8 @@ impl BaseChannel for TelegramChannel {
             .as_deref()
             .and_then(|id| id.parse::<i32>().ok());
 
-        // Fix #3: send media like send() does
         send_media_attachments(&self.bot, tg_chat_id, &msg.media).await;
 
-        // Fix #7: convert then split
         let html_content = markdown_to_telegram_html(&msg.content);
         let html_chunks = split_message(&html_content, 4096);
         let raw_chunks = split_message(&msg.content, 4096);
@@ -569,7 +613,7 @@ async fn handle_message(
         }
     }
 
-    // Fix #6: mention-only filtering in groups
+    // Mention-only filtering in groups
     if is_group && mention_only {
         let is_mentioned = is_bot_mentioned(&msg, bot_username, bot_user_id).await;
         if !is_mentioned {
@@ -578,7 +622,8 @@ async fn handle_message(
         }
     }
 
-    // Common builder setup: set ts metadata (Fix #5)
+    // Common builder setup: set ts metadata so threading works
+    // across both single-text and media-attached inbound messages.
     let build_msg = |sender: String, content: String, media: Vec<String>| {
         InboundMessage::builder("telegram", sender, msg.chat.id.to_string(), content)
             .media(media)

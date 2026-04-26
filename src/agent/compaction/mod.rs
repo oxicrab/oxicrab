@@ -89,9 +89,8 @@ fn extract_message_text(content: Option<&Value>) -> Cow<'_, str> {
 }
 
 /// Placeholder body for synthesized tool results when the original
-/// was dropped by compaction. Adopted from openclaw's
-/// `tool-replay-repair`: stripping the orphaned `tool_use` loses the
-/// "I tried X" context; synthesizing a stub preserves it so the
+/// was dropped by compaction. Stripping the orphaned `tool_use` loses
+/// the "I tried X" context; synthesizing a stub preserves it so the
 /// model can reason about its prior attempts.
 const SYNTHESIZED_TOOL_RESULT: &str = "(tool result was dropped by compaction; treat as unknown outcome and re-run if you need the actual result)";
 

@@ -84,12 +84,11 @@ async fn test_primary_succeeds_with_valid_response() {
     let primary = MockProvider::ok("local-model", text_response("hello from local"));
     let fallback = MockProvider::ok("cloud-model", text_response("hello from cloud"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("hello from local"));
@@ -100,12 +99,11 @@ async fn test_primary_fails_falls_back_to_secondary() {
     let primary = MockProvider::err("local-model", "connection refused");
     let fallback = MockProvider::ok("cloud-model", text_response("hello from cloud"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("hello from cloud"));
@@ -129,12 +127,11 @@ async fn test_malformed_tool_calls_fall_back() {
         tool_response("web_search", json!({"query": "test"})),
     );
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.tool_calls[0].name, "web_search");
@@ -158,12 +155,11 @@ async fn test_malformed_tool_args_fall_back() {
         tool_response("web_search", json!({"query": "test"})),
     );
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.tool_calls[0].name, "web_search");
@@ -177,12 +173,11 @@ async fn test_primary_succeeds_with_valid_tool_calls() {
     );
     let fallback = MockProvider::ok("cloud-model", text_response("should not reach"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.tool_calls[0].name, "web_search");
@@ -193,12 +188,11 @@ async fn test_text_only_response_returned_as_is() {
     let primary = MockProvider::ok("local-model", text_response("just text, no tools"));
     let fallback = MockProvider::ok("cloud-model", text_response("should not reach"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("just text, no tools"));
@@ -213,12 +207,11 @@ async fn test_text_only_with_tools_available_not_rejected() {
     let primary = MockProvider::ok("local-model", text_response("Sure, I can help with that."));
     let fallback = MockProvider::ok("cloud-model", text_response("should not reach fallback"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     // Request WITH tools but tool_choice=None (auto)
     let req = ChatRequest::builder(vec![], 1024)
@@ -243,12 +236,11 @@ async fn test_both_providers_fail_returns_fallback_error() {
     let primary = MockProvider::err("local-model", "connection refused");
     let fallback = MockProvider::err("cloud-model", "API quota exceeded");
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     let err = provider.chat(&make_request()).await.unwrap_err();
     assert!(
@@ -262,12 +254,11 @@ fn test_default_model_returns_primary() {
     let primary = MockProvider::ok("local-model", text_response(""));
     let fallback = MockProvider::ok("cloud-model", text_response(""));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "local-model".to_string(),
-        "cloud-model".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "local-model".to_string()),
+        (fallback, "cloud-model".to_string()),
+    ])
+    .unwrap();
 
     assert_eq!(provider.default_model(), "local-model");
 }
@@ -345,12 +336,11 @@ async fn test_fallback_stops_on_auth_error() {
     let primary = MockProvider::auth_err("model-a", "invalid API key");
     let fallback = MockProvider::ok("model-b", text_response("should not reach"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "model-a".to_string(),
-        "model-b".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "model-a".to_string()),
+        (fallback, "model-b".to_string()),
+    ])
+    .unwrap();
 
     let err = provider.chat(&make_request()).await.unwrap_err();
     assert!(
@@ -369,12 +359,11 @@ async fn test_fallback_actual_model_tagging() {
     let primary = MockProvider::err("model-a", "timeout");
     let fallback = MockProvider::ok("model-b", text_response("from fallback"));
 
-    let provider = FallbackProvider::pair(
-        primary,
-        fallback,
-        "model-a".to_string(),
-        "model-b".to_string(),
-    );
+    let provider = FallbackProvider::new(vec![
+        (primary, "model-a".to_string()),
+        (fallback, "model-b".to_string()),
+    ])
+    .unwrap();
 
     let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("from fallback"));

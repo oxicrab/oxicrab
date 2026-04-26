@@ -9,3 +9,7 @@ pub mod base {
 pub mod fixture {
     pub use oxicrab_core::providers::fixture::*;
 }
+
+pub mod streaming {
+    pub use oxicrab_core::streaming::*;
+}

@@ -293,12 +293,10 @@ impl MemoryStore {
             let mut total_chars = 0;
             for hit in hits {
                 // Heading prefix for at-a-glance scanning + explicit
-                // Source: trailer for grounding (the model is trained
-                // to quote `Source:` lines when citing). Adopted from
-                // openclaw's `memory.citations` decoration. The
-                // suppression-in-group-chats variant is handled at the
-                // call site by passing is_group=true to use the
-                // shorter form.
+                // `_Source: ..._` trailer for grounding (the model is
+                // trained to quote `Source:` lines when citing). In
+                // group chats the call site sets is_group=true to use
+                // the shorter form (no trailer).
                 let chunk = if is_group {
                     format!("**{}**: {}", hit.source_key, hit.content)
                 } else {

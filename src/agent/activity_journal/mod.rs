@@ -1,5 +1,4 @@
-//! Append-only NDJSON timeline of every conversation turn — adopted
-//! from Panther's [activity journal pattern](https://github.com/PantherApex/Panther).
+//! Append-only NDJSON timeline of every conversation turn.
 //!
 //! Each line is a self-contained JSON object with a UTC timestamp,
 //! session key, role (`user`/`agent`/`system`), and content. The journal

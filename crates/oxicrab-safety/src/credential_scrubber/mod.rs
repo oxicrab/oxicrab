@@ -1,9 +1,8 @@
 //! Credential scrubbing for tool args and recorded HTTP requests.
 //!
-//! Adopted from IronClaw [PR #2529](https://github.com/nearai/ironclaw/pull/2529):
-//! `LeakDetector` only catches *known secret shapes* (sk-ant-api…, ghp_…,
-//! AKIA…). Tool calls routinely carry credentials via header values
-//! and URL query params that don't match any known shape — an
+//! `LeakDetector` only catches *known secret shapes* (sk-ant-api…,
+//! ghp_…, AKIA…). Tool calls routinely carry credentials via header
+//! values and URL query params that don't match any known shape — an
 //! arbitrary `Authorization: Bearer xxx` or `?api_key=USER_VAR`. Those
 //! end up in `cron_execution_traces`, `tool_reflections`, and the DLQ
 //! payload field unless we strip them at the recording boundary.

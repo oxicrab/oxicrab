@@ -293,8 +293,18 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                         warn!("skipping tool_use block with empty name");
                         continue;
                     }
+                    let id = block["id"].as_str().unwrap_or_default().to_string();
+                    if id.is_empty() {
+                        // tool_call_id is the dedup key for reflection
+                        // outcome write-back, trajectory logging, and
+                        // tool_call_id linkage in convert_messages.
+                        // Multiple "" IDs collide and cross-credit
+                        // reflection outcomes. Drop the block.
+                        warn!("skipping tool_use block with empty id (name={})", name);
+                        continue;
+                    }
                     tool_calls.push(ToolCallRequest {
-                        id: block["id"].as_str().unwrap_or_default().to_string(),
+                        id,
                         name,
                         arguments: block.get("input").cloned().unwrap_or(json!({})),
                     });

@@ -89,8 +89,13 @@ impl OpenAIProvider {
         if let Some(tool_calls_array) = message["tool_calls"].as_array() {
             for tc in tool_calls_array {
                 if let Some(function) = tc["function"].as_object() {
-                    let arguments = match function["arguments"].as_str() {
-                        Some(s) => match serde_json::from_str(s) {
+                    // OpenAI canonical: arguments is a JSON-encoded
+                    // string. Some Azure / proxy gateways emit an
+                    // object instead, so accept both — falling
+                    // through to `json!({})` would silently run the
+                    // tool with empty args.
+                    let arguments = match function.get("arguments") {
+                        Some(serde_json::Value::String(s)) => match serde_json::from_str(s) {
                             Ok(v) => v,
                             Err(e) => {
                                 warn!(
@@ -101,7 +106,16 @@ impl OpenAIProvider {
                                 continue;
                             }
                         },
-                        None => json!({}),
+                        Some(value @ serde_json::Value::Object(_)) => value.clone(),
+                        Some(serde_json::Value::Null) | None => json!({}),
+                        Some(other) => {
+                            warn!(
+                                "skipping tool call '{}': unsupported arguments type ({:?})",
+                                function["name"].as_str().unwrap_or("unknown"),
+                                other
+                            );
+                            continue;
+                        }
                     };
 
                     let name = function["name"].as_str().unwrap_or_default().to_string();

@@ -1,5 +1,7 @@
 use crate::bus::events::OutboundMessage;
+use crate::streaming::StreamConsumer;
 use async_trait::async_trait;
+use std::sync::Arc;
 
 #[async_trait]
 pub trait BaseChannel: Send + Sync {
@@ -8,6 +10,18 @@ pub trait BaseChannel: Send + Sync {
     async fn start(&mut self) -> anyhow::Result<()>;
     async fn stop(&mut self) -> anyhow::Result<()>;
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
+
+    /// Return a channel-specific stream consumer that the agent loop
+    /// can use to deliver final-text responses progressively
+    /// (`editMessageText` / `chat.update` / etc.). Default: `None`,
+    /// meaning the channel does not support streaming and the agent
+    /// loop should fall back to non-streaming delivery.
+    ///
+    /// Channels that opt in MUST gate this on their per-channel
+    /// `stream` config flag so operators retain full control.
+    fn stream_consumer(&self) -> Option<Arc<dyn StreamConsumer>> {
+        None
+    }
 
     /// Check if the channel's background task is still running.
     /// Returns `true` if healthy, `false` if the task has exited or panicked.

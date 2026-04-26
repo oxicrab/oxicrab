@@ -199,7 +199,7 @@ pub(super) enum StatsCommands {
         #[arg(long, short = 'd', default_value = "7")]
         days: u32,
     },
-    /// Show reflection (Track 1 self-improvement) statistics
+    /// Show reflection statistics
     Reflections {
         /// Number of days to look back (default: 7)
         #[arg(long, short = 'd', default_value = "7")]

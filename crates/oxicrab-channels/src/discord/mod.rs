@@ -30,6 +30,8 @@ use tracing::{debug, error, info, warn};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
 mod payloads;
+pub mod streaming;
+pub use streaming::DiscordStreamConsumer;
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
@@ -599,6 +601,17 @@ async fn send_interaction_media_followup(
 impl BaseChannel for DiscordChannel {
     fn name(&self) -> &'static str {
         "discord"
+    }
+
+    fn stream_consumer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn oxicrab_core::streaming::StreamConsumer>> {
+        if !self.config.stream {
+            return None;
+        }
+        Some(std::sync::Arc::new(DiscordStreamConsumer::new(
+            self.serenity_http.clone(),
+        )))
     }
 
     async fn start(&mut self) -> Result<()> {

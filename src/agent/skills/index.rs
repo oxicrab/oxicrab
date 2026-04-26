@@ -1,8 +1,7 @@
 //! Embedding-indexed skill retrieval.
 //!
-//! Track 2a of the self-improvement design. Maintains an embedding
-//! index of all skill descriptions in the `skills_index` `SQLite` table
-//! and provides `top_k_for_query` for retrieval.
+//! Maintains an embedding index of all skill descriptions in the
+//! `skills_index` `SQLite` table and provides `top_k_for_query`.
 //!
 //! Indexing is lazy and incremental: on rebuild, files whose sha256
 //! matches the stored value are skipped, so re-indexing is a no-op when

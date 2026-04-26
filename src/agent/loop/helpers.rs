@@ -3,8 +3,8 @@ use crate::agent::tools::base::{ExecutionContext, ToolResult};
 use crate::bus::OutboundMessage;
 use crate::providers::base::ImageData;
 use anyhow::Result;
+#[cfg(test)]
 use jsonschema::error::ValidationErrorKind;
-use regex::Regex;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,7 +47,7 @@ pub(super) const MAX_IMAGES: usize = 5;
 ///
 /// Only paths inside the oxicrab media directory are accepted to prevent
 /// untrusted tool output (e.g. MCP servers) from exfiltrating arbitrary files.
-pub(super) fn extract_media_paths(result: &str) -> Vec<String> {
+pub(crate) fn extract_media_paths(result: &str) -> Vec<String> {
     let media_dir = crate::utils::media::media_dir().ok();
     let mut paths = Vec::new();
 
@@ -93,6 +93,12 @@ fn is_safe_media_path(path: &str, media_dir: Option<&std::path::Path>) -> bool {
 /// Validate tool arguments against the tool's JSON schema.
 /// Uses full JSON Schema validation (draft auto-detected by `jsonschema`).
 /// Returns None if valid, `Some(error_message)` if invalid.
+///
+/// Test-only helper. Production validation runs inside the
+/// registry's Phase 0.6 (`validate_against_schema`) AFTER
+/// `coerce_params_to_schema`, so the registry can rescue common
+/// LLM type mismatches (e.g. `{"limit": "5"}`) before validating.
+#[cfg(test)]
 pub(crate) fn validate_tool_params(
     tool: &dyn crate::agent::tools::base::Tool,
     params: &Value,
@@ -387,10 +393,9 @@ async fn await_approval(
             // Clean up the timed-out entry to prevent unbounded growth
             approval.store.remove(&approval_id);
             warn!("approval timed out for {tool_name}.{display_action} (requested by {sender_id})");
-            // F#4 fix: include the (redacted) request the operator
-            // didn't act on so the LLM has context to retry / pivot.
-            // Previously the error was opaque ("approval timed out —
-            // action not executed") and the model couldn't recover.
+            // Include the (redacted) request the operator didn't act on
+            // so the LLM has context to retry or pivot — without it the
+            // model only sees "approval timed out" and can't recover.
             let redacted_params = approval.leak_detector.redact(&params.to_string());
             let trimmed_params = if redacted_params.chars().count() > 400 {
                 let mut end = 400;
@@ -468,60 +473,10 @@ fn format_approval_request(
     lines.join("\n")
 }
 
-/// Action claim regex fragments. Each captures a distinct hallucination pattern.
-/// Composed into `ACTION_CLAIM_RE` via alternation.
-///
-/// Pattern groups:
-/// - `FIRST_PERSON_PERFECT`: "I've updated", "I have created"
-/// - `FIRST_PERSON_PAST`: "I updated", "I wrote", "I created"
-/// - `PASSIVE_CHANGES`: "Changes have been made", "Updates were applied"
-/// - `PASSIVE_ENTITY`: "File has been updated", "Config was modified"
-/// - `STATUS_ALL`: "All tools working", "All tests passed"
-/// - `ADVERB_PAST`: "Successfully executed", "Already completed"
-/// - `TERSE_LINE_START`: "Created: ...", "Done!", "Updated —"
-/// - `PRESENT_PROGRESSIVE`: "I'm creating...", "I am updating..."
-/// - `GERUND_LINE_START`: "Creating now...", "Setting up the events..."
-/// - `INTENT_STATEMENT`: "Let me create...", "I'll add...", "Going to schedule..."
-pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
-    // "I've updated/written/created..." or "I have updated/written/created..."
-    r"\bI(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|retrieved|processed|searched|checked|verified|completed|performed|called|started|listed|read|generated|triggered|downloaded|uploaded|moved|renamed|opened|closed|built|pushed|pulled|scanned|submitted|reviewed|organized)\b",
-    // "I updated/wrote/created..." (simple past)
-    r"\bI (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|retrieved|processed|searched|checked|verified|completed|performed|called|started|listed|read|generated|triggered|downloaded|uploaded|moved|renamed|opened|closed|built|pushed|pulled|scanned|submitted|reviewed|organized)\b",
-    // "Changes have been made", "Updates were applied"
-    r"\b(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)\b",
-    // "File has been updated", "Config was modified"
-    r"\b(?:File|Config|Settings?) (?:has been|was) (?:updated|written|created|modified|saved|deleted)\b",
-    // "All tools working", "All tests passed"
-    r"\bAll (?:tools?|tests?|checks?) (?:are |were |have been )?(?:fully )?(?:working|functional|successful|passing|passed|completed)\b",
-    // "Successfully executed", "Already completed"
-    r"\b(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|retrieved|processed|ran|performed|called|created|updated|sent|deleted|generated|triggered|configured|scheduled|built|searched|listed|submitted)\b",
-    // Terse line-start claims: "Created: ...", "Done!", "Updated —"
-    r"(?:^|\n)\s*(?:\w+ )?(?:Created|Updated|Deleted|Removed|Added|Saved|Sent|Scheduled|Completed|Done|Configured|Fixed|Applied|Deployed|Executed|Started|Enabled|Disabled|Retrieved|Processed|Generated|Submitted|Triggered|Marked(?: as)? (?:complete|done)) *[:\u{2014}!]",
-    // "I'm creating/updating/adding..." or "I am creating..."
-    r"\bI(?:'m| am) (?:creating|updating|deleting|removing|adding|modifying|configuring|setting up|saving|sending|scheduling|enabling|disabling|fixing|deploying|executing|installing|editing|fetching|retrieving|processing|searching|checking|starting|running|writing|reading|completing|generating|triggering|building|testing|listing|submitting|downloading|uploading|reviewing|scanning|opening|closing|moving|renaming|organizing)\b",
-    // Gerund line-start: "Creating now...", "Setting up the events...", "Creating 4 calendar events now..."
-    r"(?:^|\n)\s*(?:Creating|Updating|Deleting|Removing|Adding|Modifying|Configuring|Setting up|Saving|Sending|Scheduling|Enabling|Disabling|Deploying|Executing|Installing|Editing|Fetching|Retrieving|Processing|Running|Writing|Completing|Generating|Triggering|Building|Testing|Listing|Submitting|Downloading|Uploading|Reviewing|Scanning|Opening|Organizing) (?:\w+ )*?(?:now\b|the |your |it\b|them\b|this |that |all |for |to )",
-    // Intent: "Let me create...", "I'll create...", "Going to create..."
-    r"\b(?:Let me|I'll|I will|Going to|About to) (?:create|update|delete|remove|add|modify|configure|set up|save|send|schedule|enable|disable|fix|deploy|execute|install|edit|fetch|retrieve|process|get|show|list|find|look up|search|check|start|run|write|read|complete|open|close|move|rename|download|upload|generate|trigger|build|test|review|scan|submit|pull|push|mark|organize|browse|summarize)\b",
-];
-
-/// Regex that matches phrases where the LLM claims to have performed an action.
-/// Built from composable `ACTION_CLAIM_PATTERNS` fragments.
-static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    let combined = ACTION_CLAIM_PATTERNS.join("|");
-    Regex::new(&format!("(?i)(?:{combined})")).expect("Invalid action claim regex")
-});
-
-/// Returns `true` if the text contains phrases claiming actions were performed.
-pub fn contains_action_claims(text: &str) -> bool {
-    ACTION_CLAIM_RE.is_match(text)
-}
-
 /// Load media files (images and documents) from disk and base64-encode them for LLM consumption.
 /// Skips files that are missing, too large, or have unsupported formats.
 /// Returns `(encoded_images, skip_warnings)` so the caller can surface
-/// total or partial failure to the user instead of dropping silently
-/// (F#11/F#12 fix).
+/// total or partial failure to the user instead of dropping silently.
 pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>, Vec<String>) {
     use base64::Engine;
 

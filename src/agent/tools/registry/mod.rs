@@ -518,11 +518,21 @@ impl ToolRegistry {
         }
     }
 
+    /// Marker that signals a schema hint has already been appended.
+    /// Re-injecting on every retry would accumulate KB of identical
+    /// schema dumps and accelerate context exhaustion.
+    const SCHEMA_HINT_MARKER: &'static str = "\n\nTool description: ";
+
     /// When a tool returns an error, append its description and parameter schema
     /// as a hint so the LLM can self-correct without needing the full schema in
     /// every request. Caps: 500 char description, 3000 char schema.
+    /// Idempotent — won't double-append if the marker is already present.
     fn inject_schema_hint(tool: &dyn Tool, result: &mut ToolResult) {
         use std::fmt::Write as _;
+
+        if result.content.contains(Self::SCHEMA_HINT_MARKER) {
+            return;
+        }
 
         let desc = tool.description();
         let desc_capped = if desc.len() > 500 {
@@ -539,7 +549,8 @@ impl ToolRegistry {
 
         let _ = write!(
             result.content,
-            "\n\nTool description: {desc_capped}\nExpected parameters:\n{schema_capped}"
+            "{}{desc_capped}\nExpected parameters:\n{schema_capped}",
+            Self::SCHEMA_HINT_MARKER
         );
     }
 
@@ -568,23 +579,27 @@ impl ToolRegistry {
         let mut nonfinite = Vec::new();
         find_nonfinite_number_strings(&params, &schema, "", &mut nonfinite);
         if !nonfinite.is_empty() {
-            return Ok(ToolResult::error(format!(
+            let mut result = ToolResult::error(format!(
                 "invalid parameter: non-finite number value(s) at {}",
                 nonfinite.join(", ")
-            )));
+            ));
+            // Inject the same schema hint as the middleware-stage
+            // path so the LLM sees the same correction guidance
+            // regardless of which validation rejected the call.
+            Self::inject_schema_hint(tool.as_ref(), &mut result);
+            return Ok(result);
         }
 
-        // Phase 0.6: JSON-schema validate AFTER coerce. Validating
-        // before coerce rejects calls like {"action":"foo","limit":"5"}
-        // even though coerce would fix the string→integer mismatch.
-        // Running validate post-coerce makes the schema authoritative
-        // on STRUCTURE while letting the coerce pass smooth over LLM
-        // type quirks. Adopted from moltis pre-dispatch validation
-        // pattern (non_streaming.rs:499-516).
+        // JSON-schema validate AFTER coerce. Validating before coerce
+        // rejects calls like {"action":"foo","limit":"5"} even though
+        // coerce would fix the string→integer mismatch. Running validate
+        // post-coerce makes the schema authoritative on STRUCTURE while
+        // letting the coerce pass smooth over LLM type quirks.
         if let Some(err) = validate_against_schema(&schema, &params) {
-            return Ok(ToolResult::error(format!(
-                "Invalid arguments for tool '{name}': {err}"
-            )));
+            let mut result =
+                ToolResult::error(format!("Invalid arguments for tool '{name}': {err}"));
+            Self::inject_schema_hint(tool.as_ref(), &mut result);
+            return Ok(result);
         }
 
         // Phase 1: before_execute middleware chain
@@ -786,7 +801,34 @@ impl ToolMiddleware for TruncationMiddleware {
             return;
         }
 
+        // Extract media paths before truncation. A screenshot tool
+        // whose "saved to: /path/to/foo.png" line lands past the cap
+        // would otherwise lose the path entirely and the user never
+        // sees the image. Stash the paths in metadata so the agent
+        // loop's collected_media pickup is reliable.
         let raw_len = result.content.len();
+        if raw_len > self.max_chars {
+            let paths = crate::agent::agent_loop::extract_media_paths(&result.content);
+            if !paths.is_empty() {
+                let entry = result.metadata.get_or_insert_with(HashMap::new);
+                let mut existing: Vec<Value> = entry
+                    .get(crate::bus::meta::MEDIA_PATHS)
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                for p in paths {
+                    let v = Value::String(p);
+                    if !existing.contains(&v) {
+                        existing.push(v);
+                    }
+                }
+                entry.insert(
+                    crate::bus::meta::MEDIA_PATHS.to_string(),
+                    Value::Array(existing),
+                );
+            }
+        }
+
         // Stash + truncate when content exceeds limit and stash is available
         if raw_len > self.max_chars
             && let Some(ref stash) = self.stash

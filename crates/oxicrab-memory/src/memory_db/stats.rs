@@ -129,11 +129,10 @@ impl MemoryDB {
         Ok(count as u64)
     }
 
-    /// One row of recall-driven promotion data.
-    /// Adopted from openclaw's `recordShortTermRecalls` + `short-term-promotion`:
-    /// memory entries that survived the search cut N times across M unique
-    /// queries are promotion candidates — daily notes that are actually
-    /// useful should become durable knowledge instead of being purged.
+    /// One row of recall-driven promotion data. Memory entries that
+    /// survived the search cut N times across M unique queries are
+    /// promotion candidates — daily notes that are actually useful
+    /// should become durable knowledge instead of being purged.
     pub fn find_promotion_candidates(
         &self,
         min_recalls: u32,
@@ -180,8 +179,8 @@ impl MemoryDB {
     }
 
     /// Rewrite a memory entry's `source_key` in place. Used by recall-
-    /// driven promotion to move a daily note (`daily:2026-04-25:Facts`)
-    /// to a durable knowledge entry (`knowledge:auto:2026-04-25:Facts`).
+    /// driven promotion to move a daily note (`daily:YYYY-MM-DD:Facts`)
+    /// to a durable knowledge entry (`knowledge:auto:YYYY-MM-DD:Facts`).
     /// Returns the number of rows updated.
     pub fn promote_source_key(&self, old_key: &str, new_key: &str) -> Result<usize> {
         let conn = self.lock_conn()?;

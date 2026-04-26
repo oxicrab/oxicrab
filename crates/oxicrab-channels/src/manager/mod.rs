@@ -140,6 +140,22 @@ impl ChannelManager {
         &self.enabled_channels
     }
 
+    /// Collect every channel's `StreamConsumer` (if any) keyed by
+    /// channel name. Callers register these with the agent loop so
+    /// streaming-capable channels deliver final-text responses via
+    /// progressive edits instead of one terminal `sendMessage`.
+    pub fn stream_consumers(
+        &self,
+    ) -> Vec<(
+        String,
+        std::sync::Arc<dyn oxicrab_core::streaming::StreamConsumer>,
+    )> {
+        self.channels
+            .iter()
+            .filter_map(|c| c.stream_consumer().map(|sc| (c.name().to_string(), sc)))
+            .collect()
+    }
+
     pub async fn start_all(&mut self) -> Result<()> {
         let channel_count = self.channels.len();
         let mut handles = Vec::with_capacity(channel_count);

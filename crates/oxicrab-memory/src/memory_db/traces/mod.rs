@@ -111,7 +111,6 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 /// have sensitive query params redacted. This is structural, not
 /// pattern-based — it catches arbitrary `Bearer xxx` and
 /// `?api_key=USER_VAR` shapes that `LeakDetector` doesn't know about.
-/// Adopted from IronClaw PR #2529.
 pub fn summarize_params(params: &serde_json::Value) -> String {
     let scrubbed = oxicrab_safety::scrub_credentials_in_json(params);
     let s = scrubbed.to_string();

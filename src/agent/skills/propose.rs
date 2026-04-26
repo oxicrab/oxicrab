@@ -1,4 +1,4 @@
-//! Track 2b: `skill_propose` tool.
+//! `skill_propose` tool helpers.
 //!
 //! Lets the agent stage a candidate skill file under
 //! `~/.oxicrab/skills/staged/` for operator approval. Promoting a

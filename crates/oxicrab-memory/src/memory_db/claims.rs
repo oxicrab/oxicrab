@@ -1,7 +1,6 @@
 //! Structured claims with confidence + status + evidence.
 //!
-//! Adopted from openclaw's claims/wiki_lint pattern. The intent is to
-//! treat memory entries as **assertions**, not prose:
+//! Treats memory entries as **assertions**, not prose:
 //!
 //! - `text`: what's being claimed
 //! - `confidence`: how sure the source was (0.0–1.0). Hedges land low.
@@ -394,8 +393,7 @@ fn tokenize(s: &str) -> Vec<String> {
 /// Detect explicit polarity markers — negation (`not`, `no`, `never`,
 /// `dislike`, `don't`) or contradictory verbs (`prefers` X vs Y).
 /// Returns true only when the two strings disagree in obvious ways;
-/// the caller still has to confirm. Adapted from openclaw's
-/// `wiki_lint` heuristic — kept conservative.
+/// the caller still has to confirm. Kept conservative.
 fn has_opposite_polarity(a: &str, b: &str) -> bool {
     let a_lower = a.to_lowercase();
     let b_lower = b.to_lowercase();

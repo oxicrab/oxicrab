@@ -213,6 +213,14 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 
     let channels = setup_channels(&config, inbound_tx);
 
+    // Hand each channel's stream consumer (if any) to the agent loop
+    // so streaming-capable channels deliver final-text responses
+    // progressively.
+    for (name, consumer) in channels.stream_consumers() {
+        info!("registering stream consumer for channel: {}", name);
+        agent.register_stream_consumer(&name, consumer);
+    }
+
     println!("Starting oxicrab gateway...");
     println!("Enabled channels: {:?}", channels.enabled_channels());
     if config.gateway.enabled {

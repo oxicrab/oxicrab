@@ -1,8 +1,8 @@
 //! Skill auto-refine — patches existing skills based on session
-//! learnings. Adopted from `OpenCrust`'s two-round confidence-gated
-//! refinement (PR #354). The signal: a skill was loaded into context,
-//! the agent ran ≥ N tool calls, and the LLM thinks the skill body
-//! could be tightened to match what just happened.
+//! learnings via a two-round confidence-gated refinement. The signal:
+//! a skill was loaded into context, the agent ran ≥ N tool calls, and
+//! the LLM thinks the skill body could be tightened to match what just
+//! happened.
 //!
 //! Round 1 asks for a JSON assessment with `should_patch`,
 //! `confidence`, and `reason`. Round 2 only fires when confidence

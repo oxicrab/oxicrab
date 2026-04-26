@@ -15,16 +15,13 @@ mod replay;
 #[cfg(test)]
 use crate::agent::tools::base::ExecutionContext;
 #[cfg(test)]
-use helpers::ACTION_CLAIM_PATTERNS;
-#[cfg(test)]
 use helpers::MAX_IMAGES;
 use helpers::cleanup_old_media;
-pub use helpers::contains_action_claims;
-pub(crate) use helpers::validate_tool_params;
+pub(crate) use helpers::extract_media_paths;
 #[cfg(test)]
 use helpers::{
-    execute_tool_call, extract_media_paths, load_and_encode_images, strip_document_tags,
-    strip_think_tags,
+    execute_tool_call, load_and_encode_images, strip_document_tags, strip_think_tags,
+    validate_tool_params,
 };
 #[cfg(test)]
 use iteration::{classify_tool_call_concurrency, partition_into_waves};
@@ -72,6 +69,15 @@ const PREFLIGHT_COMPACTION_RATIO: usize = 4; // numerator of 4/5
 /// Maximum pending messages per session before new arrivals are dropped.
 const MAX_PENDING_MESSAGES_PER_SESSION: usize = 10;
 
+/// A shared queue of inbound messages awaiting injection into an
+/// in-flight agent run.
+type PendingQueue = Arc<std::sync::Mutex<Vec<InboundMessage>>>;
+
+/// Slot wrapping the optional active pending-queue handle. Wrapped
+/// in `Arc<Mutex<...>>` so the `set_pending_queue` RAII guard can
+/// swap the slot without taking exclusive ownership of `AgentLoop`.
+type PendingQueueSlot = Arc<std::sync::Mutex<Option<PendingQueue>>>;
+
 /// Per-session state: a processing lock plus a queue for messages that arrive
 /// while the lock is held. Messages in the queue are coalesced and processed
 /// as a single turn once the current run completes.
@@ -79,8 +85,8 @@ struct SessionState {
     processing: tokio::sync::Mutex<()>,
     /// Queue of messages received while the session is busy. Wrapped
     /// in `Arc<Mutex<...>>` so a handle can be passed to the agent
-    /// loop for mid-turn injection (T2.1) without copying the queue.
-    pending: Arc<std::sync::Mutex<Vec<InboundMessage>>>,
+    /// loop for mid-turn injection without copying the queue.
+    pending: PendingQueue,
 }
 
 struct CachedSemanticIndex {
@@ -91,8 +97,8 @@ struct CachedSemanticIndex {
 /// RAII guard returned by `AgentLoop::set_pending_queue`. Restores the
 /// previous slot value when dropped so nested calls don't leak state.
 pub(super) struct PendingQueueGuard<'a> {
-    slot: &'a Arc<std::sync::Mutex<Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>>>>,
-    prev: Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>>,
+    slot: &'a PendingQueueSlot,
+    prev: Option<PendingQueue>,
 }
 
 impl Drop for PendingQueueGuard<'_> {
@@ -195,9 +201,9 @@ pub struct AgentLoop {
     judge_config: crate::config::JudgeConfig,
     /// Hard timeout (seconds) on each LLM request. Prevents a hung
     /// provider from holding the per-session lock indefinitely.
-    /// 0 disables. Default 300s. Adopted from nanobot PR #3428.
+    /// 0 disables. Default 300s.
     llm_request_timeout_secs: u32,
-    /// Trajectory logging configuration (Track 3).
+    /// Trajectory logging configuration.
     trajectory_config: crate::config::TrajectoryConfig,
     /// Per-session, monotonically-increasing turn counter — bumped at the
     /// end of each agent run when trajectory logging is enabled.
@@ -210,12 +216,18 @@ pub struct AgentLoop {
     /// Set by `process_message_with_pending` before invoking the
     /// inner loop; cleared on RAII drop. Read by
     /// `run_agent_loop_with_overrides` to drain queued messages
-    /// mid-turn (T2.1).
-    active_pending_queue: Arc<std::sync::Mutex<Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>>>>,
+    /// mid-turn.
+    active_pending_queue: PendingQueueSlot,
     /// Per-session cancellation tokens. Registered when a turn starts;
     /// `cancel_session(key)` looks up the token and fires it. The
-    /// agent loop checks the token before each LLM call. T2.2.
+    /// agent loop checks the token before each LLM call.
     session_cancel_tokens: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
+    /// Channel-side stream consumers, keyed by channel name (e.g.
+    /// `"telegram"`). When a consumer is registered for a channel,
+    /// `process_message_unlocked` builds a `StreamDispatcher` per
+    /// turn and pumps deltas through the consumer. Channels register
+    /// via [`AgentLoop::register_stream_consumer`] at startup.
+    stream_consumers: Arc<DashMap<String, Arc<dyn crate::providers::streaming::StreamConsumer>>>,
     /// Sender for outbound messages (approval requests, user feedback).
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
 }
@@ -298,7 +310,7 @@ impl AgentLoop {
             context_builder.set_providers(runner);
         }
 
-        // Wire up the embedding-indexed skill retriever (Track 2a).
+        // Wire up the embedding-indexed skill retriever.
         // The model id defaults to the configured embeddings model when
         // not overridden in [agents.defaults.skills]. Resolved out
         // here so it can also flow into `ToolBuildContext` for
@@ -469,8 +481,6 @@ impl AgentLoop {
                         // for daily entries that crossed the recall
                         // thresholds and rewrite their source_key to
                         // `knowledge:` so they survive retention purge.
-                        // Adopted from openclaw recordShortTermRecalls /
-                        // short-term-promotion.
                         if promotion_config.enabled {
                             match db_b.find_promotion_candidates(
                                 promotion_config.min_recalls,
@@ -840,8 +850,29 @@ impl AgentLoop {
             activity_journal,
             active_pending_queue: Arc::new(std::sync::Mutex::new(None)),
             session_cancel_tokens: Arc::new(DashMap::new()),
+            stream_consumers: Arc::new(DashMap::new()),
             outbound_tx,
         })
+    }
+
+    /// Register a channel-side stream consumer. Channels call this at
+    /// startup to opt into progressive-edit streaming for their
+    /// final-text turns. Each call replaces any prior registration
+    /// for the same channel name.
+    pub fn register_stream_consumer(
+        &self,
+        channel: &str,
+        consumer: Arc<dyn crate::providers::streaming::StreamConsumer>,
+    ) {
+        self.stream_consumers.insert(channel.to_string(), consumer);
+    }
+
+    /// Look up a registered stream consumer for the given channel.
+    pub(super) fn stream_consumer_for(
+        &self,
+        channel: &str,
+    ) -> Option<Arc<dyn crate::providers::streaming::StreamConsumer>> {
+        self.stream_consumers.get(channel).map(|e| e.clone())
     }
 
     /// Cancel an in-flight turn for the given session key. Returns
@@ -876,10 +907,7 @@ impl AgentLoop {
     }
 
     /// RAII guard returned by `set_pending_queue`. Clears the slot on drop.
-    pub(super) fn set_pending_queue(
-        &self,
-        queue: Arc<std::sync::Mutex<Vec<InboundMessage>>>,
-    ) -> PendingQueueGuard<'_> {
+    pub(super) fn set_pending_queue(&self, queue: PendingQueue) -> PendingQueueGuard<'_> {
         let prev = self
             .active_pending_queue
             .lock()
@@ -891,9 +919,7 @@ impl AgentLoop {
         }
     }
 
-    pub(super) fn current_pending_queue(
-        &self,
-    ) -> Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>> {
+    pub(super) fn current_pending_queue(&self) -> Option<PendingQueue> {
         self.active_pending_queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1228,8 +1254,8 @@ impl AgentLoop {
         let session_key = msg.session_key();
 
         // Cancel commands bypass the lock and fire the active session's
-        // cancel token. T2.2 — without this, `/stop` would queue
-        // behind the in-flight turn and never cancel anything.
+        // cancel token. Without this, `/stop` would queue behind the
+        // in-flight turn and never cancel anything.
         if processing::is_cancel_command(&msg.content) {
             let was_active = self.cancel_session(&session_key);
             let response_text = if was_active {
@@ -1296,7 +1322,7 @@ impl AgentLoop {
 
         // Process the initial message — pass the pending queue handle so
         // the agent loop can drain mid-turn instead of waiting for the
-        // post-turn coalesce. T2.1 mid-turn injection.
+        // post-turn coalesce.
         let result = self
             .process_message_with_pending(msg, Some(state.pending.clone()))
             .await;

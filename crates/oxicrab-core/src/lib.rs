@@ -12,6 +12,7 @@ pub mod dispatch;
 pub mod errors;
 pub mod providers;
 pub mod safety;
+pub mod streaming;
 pub mod time;
 pub mod tools;
 pub mod utils;

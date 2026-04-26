@@ -6,7 +6,8 @@ use super::{
 use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
 use crate::agent::trajectory::TrajectoryLogger;
-use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
+use crate::providers::base::{LLMProvider, LLMResponse, Message, StreamChunk, ToolCallRequest};
+use crate::providers::streaming::StreamOutcome;
 
 use super::helpers::{
     ApprovalContext, execute_tool_call, extract_media_paths, start_typing, strip_think_tags,
@@ -101,15 +102,30 @@ pub(super) fn partition_into_waves(classifications: &[ToolConcurrency]) -> Vec<V
 
 const SESSION_KEY_META_KEY: &str = "session_key";
 
+/// After this many consecutive empty responses with `any_tools_called`,
+/// flip force-text mode and strip tools from subsequent LLM calls.
+const FORCE_TEXT_AFTER_EMPTIES: u8 = 2;
+
+/// After this many consecutive iterations where every tool call
+/// failed, flip force-text mode so the model produces a user-facing
+/// message instead of looping on the same broken tool.
+const FORCE_TEXT_AFTER_ALL_ERROR: u8 = 2;
+
+/// Number of times an identical tool fingerprint must fire before
+/// the duplicate-call detector engages. Combined with the time-gate
+/// below to avoid penalising legitimate poll-until-ready loops.
+const DUPLICATE_CALL_THRESHOLD: u8 = 3;
+
+/// The duplicate-call detector only engages after the run has been
+/// going for at least this long. Short runs that fire the same call
+/// 3× in 5 seconds are usually intentional retries, not stuck loops.
+const DUPLICATE_CALL_MIN_ELAPSED_SECS: u64 = 30;
+
 impl AgentLoop {
     /// Core agent loop implementation with per-invocation overrides.
     ///
     /// Iterates up to `max_iterations` rounds of: LLM call → parallel tool execution → append results.
-    /// Uses `tool_choice=None` (auto) on all iterations. The
-    /// `contains_action_claims` regex remains as a public utility for
-    /// external consumers but is intentionally not wired into the loop —
-    /// pattern-based second-guessing of LLM text caused false positives
-    /// (see CLAUDE.md "No `tool_choice` forcing"). At 70% of max iterations, a wrap-up
+    /// Uses `tool_choice=None` (auto) on all iterations. At 70% of max iterations, a wrap-up
     /// nudge is injected.
     ///
     /// Returns an `AgentLoopResult` with response text, input tokens, tool names used, and media paths.
@@ -133,11 +149,8 @@ impl AgentLoop {
         let mut tool_call_count: usize = 0;
         // Cancellation token: register a token for this session so
         // external callers (`AgentLoop::cancel_session(key)`) can
-        // abort the in-flight turn. Drops on guard. T2.2.
-        let cancel_token = overrides
-            .cancellation_token
-            .clone()
-            .unwrap_or_else(tokio_util::sync::CancellationToken::new);
+        // abort the in-flight turn. Drops on guard.
+        let cancel_token = overrides.cancellation_token.clone().unwrap_or_default();
         let _cancel_guard = exec_ctx
             .metadata
             .get(SESSION_KEY_META_KEY)
@@ -149,8 +162,7 @@ impl AgentLoop {
         // before a tool_use block — without this the user gets
         // "No response generated." even though the model DID say
         // something useful. Cleared for each new run; multiple chunks
-        // joined by blank lines on fallback. Adopted from openfang's
-        // accumulated_text + moltis's last_answer_text patterns.
+        // joined by blank lines on fallback.
         let mut accumulated_text: Vec<String> = Vec::new();
         // Capture the trigger user message up front so the refine hook
         // can use it (and replay select_skills_for_query against it).
@@ -195,23 +207,15 @@ impl AgentLoop {
         // failure pattern (consecutive empty responses, or every tool
         // result in a row coming back as is_error). Once set, all
         // tools are stripped from subsequent LLM calls so the model
-        // is forced to output text. Adopted from IronClaw's
-        // `ReasoningContext.force_text` flag.
+        // is forced to output text.
         let mut force_text_mode = false;
         let mut consecutive_empty_responses: u8 = 0;
         let mut consecutive_all_error_iterations: u8 = 0;
-        const FORCE_TEXT_AFTER_EMPTIES: u8 = 2;
-        const FORCE_TEXT_AFTER_ALL_ERROR: u8 = 2;
         // Identical tool-call tracker: maps fingerprint(tool, args) →
-        // count. When the same call has fired
-        // DUPLICATE_CALL_THRESHOLD times AND the run has been going
-        // for at least DUPLICATE_CALL_MIN_ELAPSED_SECS, flip force-text
-        // mode. The time gate is critical — legitimate poll-until-ready
-        // workflows fire identical calls but want to keep going.
-        // Adopted from IronClaw's DuplicateToolCallTracker + Zeroclaw's
-        // time-gated identical-output check.
-        const DUPLICATE_CALL_THRESHOLD: u8 = 3;
-        const DUPLICATE_CALL_MIN_ELAPSED_SECS: u64 = 30;
+        // count. The detector engages once a fingerprint hits
+        // DUPLICATE_CALL_THRESHOLD AND the run has been going for
+        // DUPLICATE_CALL_MIN_ELAPSED_SECS — both gates protect
+        // legitimate poll-until-ready workflows from being killed.
         let run_started = std::time::Instant::now();
         let mut duplicate_call_counts: std::collections::HashMap<u64, u8> =
             std::collections::HashMap::new();
@@ -246,9 +250,8 @@ impl AgentLoop {
 
             let wrapup_threshold = Self::compute_wrapup_threshold(effective_max_iterations);
             // Hard-budget escalation at 90% — by this point the model
-            // MUST stop calling tools and produce text. Adopted from
-            // Microclaw + Zeroclaw's <system_notice type="iteration_budget">
-            // pattern; structured tag is more LLM-readable than prose.
+            // MUST stop calling tools and produce text. The <system_notice>
+            // structured tag is more LLM-readable than prose.
             let urgent_threshold = ((effective_max_iterations as f64) * 0.9).ceil() as usize;
 
             for iteration in 1..=effective_max_iterations {
@@ -313,11 +316,8 @@ impl AgentLoop {
                 self.temperature
             };
             // Let the model decide when to use tools (auto mode). No
-            // post-hoc hallucination check is wired today (the
-            // contains_action_claims regex is a public utility but
-            // intentionally inert — see CLAUDE.md "No `tool_choice`
-            // forcing"). False-completion claims are tracked instead by
-            // the IronClaw-flagged button-autodispatch project.
+            // post-hoc hallucination check is wired — pattern-based
+            // second-guessing of LLM text caused false positives.
             let tool_choice: Option<String> = None;
 
             // Pre-flight token estimation: trim oldest non-system messages if
@@ -403,31 +403,51 @@ impl AgentLoop {
                 )
             };
             // Wrap the LLM call in:
-            // - a hard timeout (nanobot #3428, prevents session-lock
-            //   starvation on hung providers)
+            // - a hard timeout (prevents session-lock starvation on
+            //   hung providers)
             // - a cancellation-token select so the user / external
-            //   `cancel_session` can abort cleanly mid-call (T2.2).
+            //   `cancel_session` can abort cleanly mid-call.
             // Cancellation takes priority over both timeout and
             // completion via tokio::select!'s biased polling.
             let llm_timeout_secs = self.llm_request_timeout_secs;
-            let invoke_future =
-                super::model_gateway::ModelGateway::invoke(effective_provider.as_ref(), request);
-            let response = tokio::select! {
-                biased;
-                () = cancel_token.cancelled() => {
-                    info!("LLM request cancelled by token");
-                    Err(anyhow::anyhow!("turn cancelled"))
-                }
-                r = async {
-                    if llm_timeout_secs > 0 {
-                        match tokio::time::timeout(
-                            std::time::Duration::from_secs(llm_timeout_secs.into()),
-                            invoke_future,
-                        )
-                        .await
-                        {
-                            Ok(r) => r,
-                            Err(_) => {
+            // Stream only when a dispatcher is attached AND the
+            // request is known to be final-text — `last_was_tool_only`
+            // strips tools for this call, so the model can't return
+            // a tool_calls payload. Tool-calling iterations stay on
+            // the non-streaming path because partial tool_call deltas
+            // would force speculative parsing.
+            let stream_now = last_was_tool_only && overrides.stream_dispatcher.is_some();
+            let response = if stream_now {
+                let dispatcher = overrides.stream_dispatcher.clone().expect("checked above");
+                run_streaming_call(
+                    effective_provider.as_ref(),
+                    &request,
+                    cancel_token.clone(),
+                    llm_timeout_secs,
+                    &dispatcher,
+                )
+                .await
+            } else {
+                let invoke_future = super::model_gateway::ModelGateway::invoke(
+                    effective_provider.as_ref(),
+                    request,
+                );
+                tokio::select! {
+                    biased;
+                    () = cancel_token.cancelled() => {
+                        info!("LLM request cancelled by token");
+                        Err(anyhow::anyhow!("turn cancelled"))
+                    }
+                    r = async {
+                        if llm_timeout_secs > 0 {
+                            if let Ok(r) = tokio::time::timeout(
+                                std::time::Duration::from_secs(llm_timeout_secs.into()),
+                                invoke_future,
+                            )
+                            .await
+                            {
+                                r
+                            } else {
                                 warn!(
                                     "LLM request timed out after {}s — releasing session lock",
                                     llm_timeout_secs
@@ -436,11 +456,11 @@ impl AgentLoop {
                                     "LLM request timed out after {llm_timeout_secs}s"
                                 ))
                             }
+                        } else {
+                            invoke_future.await
                         }
-                    } else {
-                        invoke_future.await
-                    }
-                } => r,
+                    } => r,
+                }
             };
 
             // Stop typing indicator after LLM call returns (guard aborts on drop)
@@ -457,6 +477,26 @@ impl AgentLoop {
             let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
             self.record_tokens_background(&response, cost_model, overrides.request_id.as_deref());
 
+            // Phantom-tool-call guard: some API gateways inject a
+            // tool_calls payload while finish_reason indicates a real
+            // stop (content_filter, error, stop). Without this check
+            // we dispatch the phantom call, get nothing back, and
+            // loop until max_iterations.
+            //
+            // MUST run before the tool-only / empty-response
+            // classifications below — otherwise a real text-stop with
+            // a phantom tool_calls block would set
+            // last_was_tool_only=true and the NEXT iteration would
+            // strip tools for what was actually a normal text turn.
+            if response.has_tool_calls() && !response.is_tool_use_finish() {
+                warn!(
+                    "discarding phantom tool_calls block: finish_reason={:?} \
+                     (gateway injection or provider bug)",
+                    response.finish_reason
+                );
+                response.tool_calls.clear();
+            }
+
             // Track whether this response had tool calls but no text — if so,
             // the next iteration will strip tools to force a text response.
             last_was_tool_only = response.has_tool_calls() && response.content.is_none();
@@ -472,20 +512,6 @@ impl AgentLoop {
                 }
             } else {
                 consecutive_empty_responses = 0;
-            }
-
-            // Phantom-tool-call guard: some API gateways inject a
-            // tool_calls payload while finish_reason indicates a real
-            // stop (content_filter, error, stop). Without this check we
-            // dispatch the phantom call, get nothing back, and loop
-            // until max_iterations. Adopted from nanobot PR #3225.
-            if response.has_tool_calls() && !response.is_tool_use_finish() {
-                warn!(
-                    "discarding phantom tool_calls block: finish_reason={:?} \
-                     (gateway injection or provider bug)",
-                    response.finish_reason
-                );
-                response.tool_calls.clear();
             }
 
             if response.has_tool_calls() {
@@ -674,17 +700,16 @@ impl AgentLoop {
                     &mut collected_media,
                     &mut collected_tool_metadata,
                     &mut checkpoint_tracker,
+                    &mut duplicate_call_counts,
                     exec_ctx,
                 )
                 .await;
 
                 // Mid-turn injection: drain any queued user messages
                 // and append them as new user-role Message entries
-                // for the next iteration. T2.1 — adopted from
-                // microclaw chat_turn_queue.drain_pending pattern.
-                // The queue handle is on AgentLoop, set by
-                // process_message_with_pending. Skipped for cron /
-                // direct dispatch (no queue handle).
+                // for the next iteration. The queue handle is on
+                // AgentLoop, set by process_message_with_pending.
+                // Skipped for cron / direct dispatch (no queue handle).
                 if let Some(queue_arc) = self.current_pending_queue() {
                     let drained: Vec<crate::bus::InboundMessage> = {
                         let mut q = queue_arc
@@ -697,11 +722,8 @@ impl AgentLoop {
                             "mid-turn injection: {} queued message(s) appended to in-flight turn",
                             drained.len()
                         );
-                        for queued in drained {
-                            messages.push(Message::user(format!(
-                                "[New message from user mid-turn] {}",
-                                queued.content
-                            )));
+                        for queued in &drained {
+                            inject_queued_message(&mut messages, queued);
                         }
                     }
                 }
@@ -773,7 +795,10 @@ impl AgentLoop {
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
                     let retry_num = EMPTY_RESPONSE_RETRIES - empty_retries_left;
-                    let delay = (RETRY_BACKOFF_BASE.pow(retry_num as u32) as f64 + fastrand::f64())
+                    // saturating_pow guards against overflow if
+                    // EMPTY_RESPONSE_RETRIES is ever bumped.
+                    let delay = (RETRY_BACKOFF_BASE.saturating_pow(retry_num as u32) as f64
+                        + fastrand::f64())
                         .min(MAX_RETRY_DELAY_SECS);
                     warn!(
                         "LLM returned empty on iteration {}, retries left: {}, backing off {:.1}s",
@@ -1401,6 +1426,7 @@ impl AgentLoop {
         collected_media: &mut Vec<String>,
         collected_tool_metadata: &mut Vec<(String, HashMap<String, serde_json::Value>)>,
         checkpoint_tracker: &mut CheckpointTracker,
+        duplicate_call_counts: &mut HashMap<u64, u8>,
         exec_ctx: &ExecutionContext,
     ) {
         // Add all results to messages in order and collect media.
@@ -1425,7 +1451,33 @@ impl AgentLoop {
         }
         for (tc, result) in tool_calls.iter().zip(results) {
             if !result.is_error {
-                collected_media.extend(extract_media_paths(&result.content));
+                // A successful repeat (poll loop, page-load wait,
+                // retry-after-status) should not be flagged as a
+                // stuck-in-a-rut loop. Reset the per-fingerprint
+                // counter so the duplicate detector only fires when
+                // the same args genuinely fail to make progress.
+                let fp = fingerprint_tool_call(&tc.name, &tc.arguments);
+                duplicate_call_counts.remove(&fp);
+
+                // Prefer pre-truncation media paths recorded by
+                // TruncationMiddleware in metadata. Re-scanning the
+                // truncated content can miss paths that landed past
+                // the cap.
+                let from_meta = result
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get(crate::bus::meta::MEDIA_PATHS))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect::<Vec<_>>()
+                    });
+                if let Some(paths) = from_meta {
+                    collected_media.extend(paths);
+                } else {
+                    collected_media.extend(extract_media_paths(&result.content));
+                }
             }
             // Collect metadata sideband (stripped from LLM context)
             if let Some(meta) = result.metadata {
@@ -1562,7 +1614,7 @@ impl AgentLoop {
     /// ended after tool calls without producing a final text response.
     async fn generate_post_loop_summary(
         &self,
-        messages: &mut Vec<Message>,
+        messages: &mut [Message],
         effective_model: &str,
         effective_provider: &dyn LLMProvider,
         request_id: Option<&str>,
@@ -1679,6 +1731,60 @@ struct PostLoopSummary {
 }
 
 /// Hash a tool call to a u64 for the duplicate-call detector.
+/// Append a mid-turn-queued [`InboundMessage`] to the in-flight
+/// `messages` vector, preserving the queued message's media
+/// (encoded as image content blocks), action-dispatch payload
+/// (rendered as a structured note so the model can react), and
+/// any interesting metadata. The bare `queued.content`-only
+/// rendering would silently drop attachments, button clicks, and
+/// webhook payloads that arrived mid-turn.
+fn inject_queued_message(messages: &mut Vec<Message>, queued: &crate::bus::InboundMessage) {
+    use std::fmt::Write as _;
+    let mut text = format!("[New message from user mid-turn] {}", queued.content);
+
+    if let Some(action) = &queued.action {
+        // Render the action dispatch so the model sees what was
+        // clicked / which webhook fired. Source label disambiguates
+        // button vs webhook vs directive vs tool-chain.
+        let _ = write!(
+            text,
+            "\n[mid-turn action: tool={} source={} params={}]",
+            action.tool,
+            action.source.label(),
+            serde_json::to_string(&action.params).unwrap_or_else(|_| "<unserializable>".into())
+        );
+    }
+
+    let interesting_meta: Vec<String> = queued
+        .metadata
+        .iter()
+        .filter(|(k, _)| {
+            // Limit to channel-side identifiers users might care
+            // about; skip internal session bookkeeping like ts.
+            matches!(k.as_str(), "sender_id" | "is_group" | "user_id")
+        })
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
+    if !interesting_meta.is_empty() {
+        let _ = write!(
+            text,
+            "\n[mid-turn metadata: {}]",
+            interesting_meta.join(", ")
+        );
+    }
+
+    let (images, warnings) = AgentLoop::encode_non_audio_media(&queued.media);
+    if !warnings.is_empty() {
+        let _ = write!(text, "\n[mid-turn media warnings: {}]", warnings.join("; "));
+    }
+
+    if images.is_empty() {
+        messages.push(Message::user(text));
+    } else {
+        messages.push(Message::user_with_images(text, images));
+    }
+}
+
 /// Canonicalises the args by serialising through `serde_json::Value`
 /// (sorts object keys lexicographically) so semantically identical
 /// payloads with different key order collapse to the same fingerprint.
@@ -1713,20 +1819,21 @@ fn canonical_json_string(v: &serde_json::Value) -> String {
 }
 
 /// Build a clean message list for the post-loop summary call. The
-/// inner agent loop's `messages` carries the full tool_use/tool_result
-/// protocol; replaying that list lets the model decide it has already
-/// "answered" by calling tools. We strip the protocol entirely and
-/// present:
+/// inner agent loop's `messages` carries the full
+/// `tool_use`/`tool_result` protocol; replaying that list lets the
+/// model decide it has already "answered" by calling tools. We strip
+/// the protocol entirely and present:
 ///
 /// - a focused system prompt
 /// - the most recent user-role message that triggered the turn
 /// - all tool-result content concatenated as a plain user message
 ///
 /// This bypasses the model's internal "did I already answer?" check
-/// because the result blocks no longer carry tool_call_id linkage.
+/// because the result blocks no longer carry `tool_call_id` linkage.
 const POST_LOOP_TOOL_DATA_CAP: usize = 8_000;
 
 fn build_clean_summary_messages(messages: &[Message]) -> Vec<Message> {
+    use std::fmt::Write as _;
     let system = Message::system(
         "You are responding to the user. The user's question is below, followed by data \
          from tools that were just executed on their behalf. Write a brief user-facing reply \
@@ -1753,7 +1860,6 @@ fn build_clean_summary_messages(messages: &[Message]) -> Vec<Message> {
 
     // Collect tool-result content in chronological order, with a
     // total-size cap so a runaway tool can't blow the prompt.
-    use std::fmt::Write as _;
     let mut tool_block = String::new();
     let mut total = 0usize;
     let _ = writeln!(tool_block, "Tool results:");
@@ -1781,6 +1887,150 @@ fn build_clean_summary_messages(messages: &[Message]) -> Vec<Message> {
     }
 
     vec![system, user_query, Message::user(tool_block)]
+}
+
+/// Drive a streaming LLM call and pump deltas into `dispatcher`.
+///
+/// Returns the same `LLMResponse` shape as the non-streaming path so
+/// downstream loop logic is unchanged. The dispatcher's lifecycle is
+/// strictly bounded by this function: at most one `Begin`, zero or
+/// more `Delta`s, and at most one `End`. `Begin` is only sent on the
+/// first non-empty `Delta` chunk — providers that never emit text
+/// (pure tool-call response, or empty completion) get no events at
+/// all, so the channel layer never shows a stale "thinking" message.
+async fn run_streaming_call(
+    provider: &dyn LLMProvider,
+    request: &crate::providers::base::ChatRequest,
+    cancel: tokio_util::sync::CancellationToken,
+    timeout_secs: u32,
+    dispatcher: &crate::providers::streaming::StreamDispatcher,
+) -> Result<LLMResponse> {
+    use futures_util::StreamExt;
+
+    let stream_open = if timeout_secs > 0 {
+        let Ok(r) = tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs.into()),
+            provider.chat_stream(request, cancel.clone()),
+        )
+        .await
+        else {
+            metrics::counter!(
+                "oxicrab_streaming_fallback_to_nonstream_total",
+                "reason" => "open_timeout",
+            )
+            .increment(1);
+            return Err(anyhow::anyhow!(
+                "stream open timed out after {timeout_secs}s"
+            ));
+        };
+        r
+    } else {
+        provider.chat_stream(request, cancel.clone()).await
+    };
+
+    let mut stream = match stream_open {
+        Ok(s) => s,
+        Err(e) => {
+            metrics::counter!(
+                "oxicrab_streaming_fallback_to_nonstream_total",
+                "reason" => "open_error",
+            )
+            .increment(1);
+            return Err(e);
+        }
+    };
+
+    let mut accumulated = String::new();
+    let mut begin_sent = false;
+    let mut response: Option<LLMResponse> = None;
+    let mut error: Option<String> = None;
+
+    loop {
+        let next = tokio::select! {
+            biased;
+            () = cancel.cancelled() => None,
+            c = stream.next() => c,
+        };
+        let Some(chunk) = next else {
+            break;
+        };
+        match chunk {
+            StreamChunk::Delta { text } => {
+                if text.is_empty() {
+                    continue;
+                }
+                accumulated.push_str(&text);
+                if !begin_sent {
+                    if dispatcher.begin() {
+                        begin_sent = true;
+                    } else {
+                        // Receiver gone — keep collecting the response
+                        // for the non-streaming fallback path, but
+                        // stop emitting events.
+                        debug!("stream consumer receiver dropped; ceasing dispatch");
+                    }
+                }
+                if begin_sent {
+                    let _ = dispatcher.delta(&accumulated);
+                }
+            }
+            StreamChunk::Finish { response: r } => {
+                response = Some(r);
+                break;
+            }
+            StreamChunk::Error { message } => {
+                error = Some(message);
+                break;
+            }
+            StreamChunk::ReasoningDelta { .. }
+            | StreamChunk::ToolCallStart { .. }
+            | StreamChunk::ToolCallArgs { .. } => {
+                // Not displayed live in v1 (see streaming-v2.md
+                // "Out of scope"). Reasoning is recovered from the
+                // final response; tool calls are handled by the
+                // post-stream loop.
+            }
+        }
+    }
+
+    if let Some(resp) = response {
+        let final_content = resp.content.clone().unwrap_or_default();
+        if begin_sent {
+            let _ = dispatcher.end(StreamOutcome::Complete, &final_content);
+        }
+        metrics::counter!(
+            "oxicrab_streaming_turns_total",
+            "outcome" => "complete",
+        )
+        .increment(1);
+        Ok(resp)
+    } else if let Some(err) = error {
+        if begin_sent {
+            let _ = dispatcher.end(StreamOutcome::Failed, &accumulated);
+        }
+        metrics::counter!(
+            "oxicrab_streaming_turns_total",
+            "outcome" => "failed",
+        )
+        .increment(1);
+        metrics::counter!(
+            "oxicrab_streaming_fallback_to_nonstream_total",
+            "reason" => "stream_error",
+        )
+        .increment(1);
+        Err(anyhow::anyhow!("stream error: {err}"))
+    } else {
+        // Cancelled or stream ended without Finish/Error.
+        if begin_sent {
+            let _ = dispatcher.end(StreamOutcome::Cancelled, &accumulated);
+        }
+        metrics::counter!(
+            "oxicrab_streaming_turns_total",
+            "outcome" => "cancelled",
+        )
+        .increment(1);
+        Err(anyhow::anyhow!("turn cancelled"))
+    }
 }
 
 #[cfg(test)]

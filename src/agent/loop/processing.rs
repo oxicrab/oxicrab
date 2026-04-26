@@ -6,11 +6,116 @@ use super::helpers::{
 };
 use crate::agent::tools::base::ExecutionContext;
 use crate::bus::{InboundMessage, OutboundMessage};
+use crate::providers::streaming::{StreamConsumer, StreamDispatcher, StreamEvent};
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+/// Drain `StreamEvent`s from the agent loop and dispatch them to the
+/// channel-side `StreamConsumer`. Sets `was_active` to true on the
+/// first non-no-op `Begin` so the caller can decide whether the
+/// visible message has already been delivered.
+/// After this many edit failures the pump abandons streaming for the
+/// rest of the turn: it stops calling the consumer, clears the
+/// `was_active` flag, and lets the caller deliver the final content
+/// via the normal non-streaming outbound path. Matches the design
+/// doc's "fail-safe to non-streaming" requirement.
+const STREAM_FAILURE_THRESHOLD: u32 = 3;
+
+async fn run_stream_pump(
+    consumer: Arc<dyn StreamConsumer>,
+    mut rx: UnboundedReceiver<StreamEvent>,
+    was_active: Arc<AtomicBool>,
+) {
+    let mut failures: u32 = 0;
+    let mut abandoned = false;
+    while let Some(event) = rx.recv().await {
+        if abandoned {
+            // Drain remaining events without dispatching so the
+            // dispatcher doesn't block on a full mpsc buffer, but
+            // don't touch the channel API.
+            continue;
+        }
+        match event {
+            StreamEvent::Begin {
+                turn_id, chat_id, ..
+            } => {
+                if let Err(e) = consumer.begin(&turn_id, &chat_id).await {
+                    warn!("stream consumer begin failed: {e}");
+                    metrics::counter!(
+                        "oxicrab_streaming_edit_failures_total",
+                        "reason" => "begin",
+                    )
+                    .increment(1);
+                    // begin() failure means there's no live message
+                    // to edit — abandon immediately so the caller
+                    // delivers via the normal path.
+                    abandoned = true;
+                    continue;
+                }
+                was_active.store(true, Ordering::Release);
+            }
+            StreamEvent::Delta {
+                turn_id,
+                accumulated,
+            } => {
+                if let Err(e) = consumer.update(&turn_id, &accumulated).await {
+                    warn!("stream consumer update failed: {e}");
+                    metrics::counter!(
+                        "oxicrab_streaming_edit_failures_total",
+                        "reason" => "update",
+                    )
+                    .increment(1);
+                    failures = failures.saturating_add(1);
+                    if failures >= STREAM_FAILURE_THRESHOLD {
+                        warn!(
+                            "stream edits failed {failures}× — abandoning stream, falling back \
+                             to non-streaming delivery"
+                        );
+                        // Drop was_active so processing.rs delivers
+                        // the final content via the normal path.
+                        was_active.store(false, Ordering::Release);
+                        metrics::counter!(
+                            "oxicrab_streaming_fallback_to_nonstream_total",
+                            "reason" => "edit_failures",
+                        )
+                        .increment(1);
+                        abandoned = true;
+                    }
+                }
+            }
+            StreamEvent::End {
+                turn_id,
+                outcome,
+                final_content,
+            } => {
+                if let Err(e) = consumer.end(&turn_id, outcome, &final_content).await {
+                    warn!("stream consumer end failed: {e}");
+                    metrics::counter!(
+                        "oxicrab_streaming_edit_failures_total",
+                        "reason" => "end",
+                    )
+                    .increment(1);
+                    // A failed final edit means the user may be
+                    // looking at stale partial content. Treat the
+                    // same as edit-failure threshold: hand off to
+                    // the non-streaming fallback.
+                    was_active.store(false, Ordering::Release);
+                    metrics::counter!(
+                        "oxicrab_streaming_fallback_to_nonstream_total",
+                        "reason" => "end_failure",
+                    )
+                    .increment(1);
+                }
+            }
+        }
+    }
+}
 
 const REQUEST_ID_META_KEY: &str = "request_id";
 const SESSION_KEY_META_KEY: &str = "session_key";
@@ -41,7 +146,7 @@ impl AgentLoop {
     /// the per-session pending-message queue. The handle is stashed
     /// on `self` for the duration of the call so downstream
     /// `run_agent_loop_with_overrides` invocations can attach it via
-    /// `AgentRunOverrides.pending_queue`. T2.1: mid-turn user-message
+    /// `AgentRunOverrides.pending_queue`. Mid-turn user-message
     /// injection — drains queued messages between tool waves so they
     /// land in the IN-FLIGHT turn instead of being coalesced into the
     /// next run.
@@ -209,11 +314,11 @@ impl AgentLoop {
             strip_document_tags(&strip_image_tags(&msg_content))
         };
 
-        // F#11/F#12 fix: surface partial / total media-encoding failures
-        // to the LLM so it can tell the user. Without this, "I uploaded
-        // 3 images" silently drops 2 corrupt ones and the model
-        // pretends nothing was wrong. The warnings are appended to the
-        // user content as a system-style aside.
+        // Surface partial / total media-encoding failures to the LLM so
+        // it can tell the user. Without this, "I uploaded 3 images"
+        // silently drops 2 corrupt ones and the model pretends nothing
+        // was wrong. The warnings are appended to the user content as
+        // a system-style aside.
         let content = if media_warnings.is_empty() {
             content
         } else {
@@ -346,9 +451,70 @@ impl AgentLoop {
         }
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
+
+        // Streaming hookup: when the inbound channel has a registered
+        // `StreamConsumer`, build a per-turn dispatcher and pump task.
+        // The agent loop's iteration logic emits Begin/Delta/End for
+        // final-text turns; the pump translates those into the
+        // channel's progressive-edit API. The turn_id is fresh per
+        // run so per-turn isolation holds even across overlapping
+        // turns in the same channel.
+        let stream_pump_state = self.stream_consumer_for(&msg.channel).map(|consumer| {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+            let turn_id = format!("turn-{}", Uuid::new_v4());
+            let dispatcher =
+                StreamDispatcher::new(tx, turn_id, msg.channel.clone(), msg.chat_id.clone());
+            overrides.stream_dispatcher = Some(dispatcher);
+            let was_active = Arc::new(AtomicBool::new(false));
+            let pump_flag = Arc::clone(&was_active);
+            let handle = tokio::spawn(run_stream_pump(consumer, rx, pump_flag));
+            (handle, was_active)
+        });
+
         let loop_result = self
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
+
+        // Close the stream by dropping the dispatcher. The pump's
+        // receiver returns None and the task exits.
+        overrides.stream_dispatcher = None;
+        let streamed = if let Some((handle, flag)) = stream_pump_state {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+            flag.load(Ordering::Acquire)
+        } else {
+            false
+        };
+
+        // When streaming actually fired, the pump already delivered
+        // the visible text via progressive edits. The agent run can
+        // still produce media (screenshots, generated files) and
+        // interactive button metadata; deliver those via a sidecar
+        // outbound message with empty content so streamed turns are
+        // full-featured. Channels handle empty-text + media-or-buttons
+        // payloads as a normal attachment-only message.
+        if streamed {
+            metrics::counter!("oxicrab_streaming_turns_total", "outcome" => "delivered")
+                .increment(1);
+            let has_media = !loop_result.media.is_empty();
+            let has_buttons = loop_result
+                .response_metadata
+                .contains_key(crate::bus::meta::BUTTONS);
+            if has_media || has_buttons {
+                let mut sidecar = OutboundMessage::from_inbound(msg.clone(), "")
+                    .media(loop_result.media.clone())
+                    .build();
+                if has_buttons
+                    && let Some(buttons) =
+                        loop_result.response_metadata.get(crate::bus::meta::BUTTONS)
+                {
+                    sidecar
+                        .metadata
+                        .insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
+                }
+                return Ok(Some(sidecar));
+            }
+            return Ok(None);
+        }
 
         if let Some(policy) = overrides.routing_policy.as_ref() {
             let allowed: std::collections::HashSet<&str> =
@@ -384,14 +550,13 @@ impl AgentLoop {
         // second+ compaction runs within the same session lifetime are detected.
         let (checkpoint_after, _) = self.session_checkpoint_snapshot(&session_key).await;
         let compaction_ran = checkpoint_after.is_some() && checkpoint_after != checkpoint_before;
-        // F#6 fix: when compaction reload fails (DB hiccup, file
-        // permissions, …), DON'T propagate the error and lose the
-        // router context updates. Fall back to the pre-reload session
-        // and apply context onto that. The compaction summary stays in
-        // place from the side-effect write the compactor already did;
-        // the only loss is one cycle's worth of fresh router-context
-        // changes from THIS turn — far better than dropping the whole
-        // turn's worth of state.
+        // When compaction reload fails (DB hiccup, file permissions, …),
+        // don't propagate the error and lose the router context updates.
+        // Fall back to the pre-reload session and apply context onto
+        // that. The compaction summary stays in place from the
+        // side-effect write the compactor already did; the only loss is
+        // one cycle's worth of fresh router-context changes from THIS
+        // turn — far better than dropping the whole turn's worth of state.
         let mut session = if compaction_ran {
             debug!("compaction updated session, reloading");
             match self.sessions.get_or_create(&session_key).await {
@@ -661,7 +826,7 @@ impl AgentLoop {
         self.leak_detector.redact(&content)
     }
 
-    fn encode_non_audio_media(
+    pub(super) fn encode_non_audio_media(
         media: &[String],
     ) -> (Vec<crate::providers::base::ImageData>, Vec<String>) {
         let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
@@ -728,16 +893,15 @@ impl AgentLoop {
         // Lock the target session to prevent concurrent modification.
         // process_message() locks on msg.session_key() which is "system:{chat_id}",
         // but we modify the origin session "{origin_channel}:{origin_chat_id}".
-        // Use try_lock first to avoid potential ABBA deadlock when two system
-        // messages with crossed targets arrive simultaneously.
+        //
+        // process_message() already holds the outer mutex on
+        // msg.session_key() ("system:{chat_id}"), which serializes
+        // system-message dispatch by chat_id. A single acquisition
+        // here is sufficient — a try_lock + sleep + lock().await
+        // dance does not actually prevent ABBA, since both contenders
+        // would sleep then block on the same await in the same order.
         let target_state = self.session_state(&session_key);
-        let _target_guard = if let Ok(guard) = target_state.processing.try_lock() {
-            guard
-        } else {
-            warn!("could not acquire origin session lock for system message, retrying");
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            target_state.processing.lock().await
-        };
+        let _target_guard = target_state.processing.lock().await;
         let session = self.sessions.get_or_create(&session_key).await?;
         let request_id = format!("req-{}", Uuid::new_v4());
 
@@ -1046,9 +1210,9 @@ impl AgentLoop {
         if query.is_empty() {
             return None;
         }
-        // F#13 fix: hold the cache lock BEFORE reading tool definitions
-        // so a concurrent activate_deferred can't slip in between the
-        // defs snapshot and the signature check, leaving us with a
+        // Hold the cache lock BEFORE reading tool definitions so a
+        // concurrent activate_deferred can't slip in between the defs
+        // snapshot and the signature check, leaving us with a
         // stale-yet-cached index. Defs + signature compute are now
         // both under the lock.
         let mut cache = self.semantic_index_cache.lock().await;
@@ -1786,7 +1950,10 @@ impl AgentLoop {
             // or the provider cut us off. Surface a useful message
             // so cron operators can see what happened (and the
             // tools_used list confirms the work actually ran).
-            if !loop_result.tools_used.is_empty() {
+            if loop_result.tools_used.is_empty() {
+                "The model returned an empty response with no tool calls. Try again or rephrase."
+                    .to_string()
+            } else {
                 format!(
                     "I ran {} tool call(s) ({}) but the model didn't produce a final response \
                      — most likely an extended-thinking budget exhaustion or context overflow. \
@@ -1794,9 +1961,6 @@ impl AgentLoop {
                     loop_result.tools_used.len(),
                     loop_result.tools_used.join(", ")
                 )
-            } else {
-                "The model returned an empty response with no tool calls. Try again or rephrase."
-                    .to_string()
             }
         });
 
@@ -1911,7 +2075,6 @@ pub(super) fn is_reset_command(content: &str) -> bool {
 /// Detect `/stop`, `/cancel`, `stop`, `cancel`, `abort` as cancel
 /// commands. Matched before the session-lock check so they bypass
 /// the queue and fire `cancel_session` even when a turn is in flight.
-/// T2.2.
 pub(super) fn is_cancel_command(content: &str) -> bool {
     let trimmed = content
         .trim()

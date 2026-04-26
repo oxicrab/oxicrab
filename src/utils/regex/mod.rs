@@ -13,13 +13,6 @@ impl RegexPatterns {
         &RE
     }
 
-    // NOTE: Channel-specific markdown patterns (bold, strike, link, italic,
-    // code, code_block, table_separator) and compile_slack_mention() have been
-    // moved to `oxicrab-channels::regex_utils`.
-    // NOTE: HTML-specific patterns (html_script, html_style, html_tags,
-    // whitespace, newlines) have been moved to `oxicrab-tools-web::utils::regex`.
-    // NOTE: html_tags() moved to `oxicrab-tools-rss` (inline) and `oxicrab-tools-web`.
-
     /// Regex for matching data URIs (`data:mime/type;base64,...`)
     pub fn data_uri() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {

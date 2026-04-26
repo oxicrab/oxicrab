@@ -86,6 +86,12 @@ pub struct TelegramConfig {
     /// When true, only respond in groups when the bot is @mentioned or replied to.
     #[serde(default, rename = "mentionOnly")]
     pub mention_only: bool,
+    /// Stream the agent's final-text response with progressive
+    /// `editMessageText` calls instead of one finished `sendMessage`.
+    /// Off by default. Media attachments and interactive buttons are
+    /// delivered as a sidecar message after the stream completes.
+    #[serde(default)]
+    pub stream: bool,
 }
 
 impl Default for TelegramConfig {
@@ -97,6 +103,7 @@ impl Default for TelegramConfig {
             allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
             mention_only: false,
+            stream: false,
         }
     }
 }
@@ -109,6 +116,7 @@ redact_debug!(
     allow_groups,
     dm_policy,
     mention_only,
+    stream,
 );
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +165,10 @@ pub struct DiscordConfig {
     /// When true, only respond in guilds when the bot is @mentioned. DMs are unaffected.
     #[serde(default, rename = "mentionOnly")]
     pub mention_only: bool,
+    /// Stream the agent's final-text response with progressive
+    /// message edits. Off by default.
+    #[serde(default)]
+    pub stream: bool,
 }
 
 impl Default for DiscordConfig {
@@ -169,6 +181,7 @@ impl Default for DiscordConfig {
             commands: default_discord_commands(),
             dm_policy: default_dm_policy(),
             mention_only: false,
+            stream: false,
         }
     }
 }
@@ -182,6 +195,7 @@ redact_debug!(
     commands,
     dm_policy,
     mention_only,
+    stream,
 );
 
 fn default_thinking_emoji() -> String {
@@ -213,6 +227,10 @@ pub struct SlackConfig {
     /// Emoji added after response is sent (default: `white_check_mark`).
     #[serde(default = "default_done_emoji", rename = "doneEmoji")]
     pub done_emoji: String,
+    /// Stream the agent's final-text response with progressive
+    /// `chat.update` calls. Off by default — see streaming-v2 design.
+    #[serde(default)]
+    pub stream: bool,
 }
 
 impl Default for SlackConfig {
@@ -226,6 +244,7 @@ impl Default for SlackConfig {
             dm_policy: default_dm_policy(),
             thinking_emoji: default_thinking_emoji(),
             done_emoji: default_done_emoji(),
+            stream: false,
         }
     }
 }
@@ -240,6 +259,7 @@ redact_debug!(
     dm_policy,
     thinking_emoji,
     done_emoji,
+    stream,
 );
 
 fn default_webhook_port() -> u16 {

@@ -271,9 +271,8 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
 
     if user_version(conn)? < 11 {
         run_migration(conn, 11, || {
-            // Structured claims with confidence + status + evidence,
-            // adopted from openclaw's claims/wiki_lint pattern. Two
-            // tables — `claims` for the head record, `claim_evidence`
+            // Structured claims with confidence + status + evidence.
+            // Two tables — `claims` for the head record, `claim_evidence`
             // for the 1:N pointer list (different evidence kinds need
             // their own schemas; storing as JSON would block proper
             // querying).

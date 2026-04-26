@@ -28,6 +28,8 @@ tempfile = "3.25"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 async-trait = "0.1"
+async-stream = "0.3"
+tokio-util = { version = "0.7" }
 url = "2.5"
 uuid = { version = "1.23", features = ["v4", "serde"] }
 wiremock = "0.6.5"
@@ -119,7 +121,7 @@ serde_yaml_ng = "0.10"
 subtle = "2.6"
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-util = { version = "0.7" }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Note: Ensure >= 0.3.20 for RUSTSEC-2025-0055 (ANSI escape sequence injection) - current: 0.3.22

@@ -104,8 +104,7 @@ async fn stage_candidate(
 
 /// Ask a small LLM to write a focused skill body for the candidate
 /// workflow. Constrained: ≤500 words, must include "When to use"
-/// and "Tool sequence" sections, no preamble. Adopted from `OpenCrust`'s
-/// auto-skill flow.
+/// and "Tool sequence" sections, no preamble.
 async fn generate_llm_body(
     pick: &SkillCandidate,
     provider: &dyn LLMProvider,

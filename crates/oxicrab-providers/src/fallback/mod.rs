@@ -19,19 +19,6 @@ impl FallbackProvider {
         }
         Ok(Self { providers })
     }
-
-    /// Convenience constructor for the common two-provider case.
-    /// Always succeeds since the vec is non-empty by construction.
-    pub fn pair(
-        primary: Arc<dyn LLMProvider>,
-        fallback: Arc<dyn LLMProvider>,
-        primary_model: String,
-        fallback_model: String,
-    ) -> Self {
-        Self {
-            providers: vec![(primary, primary_model), (fallback, fallback_model)],
-        }
-    }
 }
 
 /// Validate that all tool calls in a response have well-formed names and arguments.

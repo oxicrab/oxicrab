@@ -40,6 +40,11 @@ pub mod meta {
     /// tool/action is otherwise covered by the global approval config.
     /// Used by privileged sources (e.g. webhook dispatch) to force approval.
     pub const APPROVAL_REQUIRED: &str = "approval_required";
+    /// Media paths extracted from tool output before truncation
+    /// (`string[]`). The truncation middleware records these so the
+    /// agent loop never loses screenshot/file paths that landed past
+    /// the truncation cap.
+    pub const MEDIA_PATHS: &str = "media_paths";
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

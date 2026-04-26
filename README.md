@@ -16,7 +16,7 @@ This is largely a personal toy with features I want or care about. For example, 
 
 ## Features
 
-- **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack (Block Kit buttons, reaction lifecycle), WhatsApp, Twilio SMS/MMS
+- **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack (Block Kit buttons, reaction lifecycle), WhatsApp, Twilio SMS/MMS — opt-in progressive streaming on Telegram/Discord/Slack via `stream = true`
 - **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 9 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, MiniMax, etc.), with OAuth and local model fallback
 - **Model routing**: Per-task provider/model assignment with N-way fallback chains and complexity-aware per-message routing
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction

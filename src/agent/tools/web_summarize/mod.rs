@@ -1,6 +1,5 @@
 //! `web_fetch_summary` — fetch a URL and return a small-model summary
-//! instead of the full extracted text. Adopted from
-//! [IronClaw PR #2959](https://github.com/nearai/ironclaw/pull/2959).
+//! instead of the full extracted text.
 //!
 //! The cheap-LLM step avoids dragging tens of KB of HTML into the
 //! main agent context just so the model can answer "what does this

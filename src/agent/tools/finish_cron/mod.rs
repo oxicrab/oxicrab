@@ -1,14 +1,11 @@
 //! `finish_cron` — explicit completion signal for cron-driven agent runs.
 //!
-//! Adopted from [IronClaw PR #2807](https://github.com/nearai/ironclaw/pull/2807).
-//!
 //! ## Why
 //!
 //! Without an explicit terminal action, cron job execution ends when
 //! the LLM stops calling tools — a *heuristic*. That fails the moment
 //! a hallucination class drives the model to produce text claiming
-//! success after a tool returned `is_error=true` (`IronClaw` #2944
-//! / oxicrab button-autodispatch project): the trace completes
+//! success after a tool returned `is_error=true`: the trace completes
 //! successfully and the operator never learns the work didn't happen.
 //!
 //! `finish_cron` flips the contract: the LLM signals completion by
