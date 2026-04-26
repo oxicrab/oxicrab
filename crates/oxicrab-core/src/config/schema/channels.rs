@@ -86,10 +86,11 @@ pub struct TelegramConfig {
     /// When true, only respond in groups when the bot is @mentioned or replied to.
     #[serde(default, rename = "mentionOnly")]
     pub mention_only: bool,
-    /// Stream the agent's final-text response with progressive
+    /// Stream the agent's response with progressive
     /// `editMessageText` calls instead of one finished `sendMessage`.
-    /// Off by default. Media attachments and interactive buttons are
-    /// delivered as a sidecar message after the stream completes.
+    /// Off by default. Buttons attach to the streamed message via the
+    /// final edit; media attachments follow as a sidecar message
+    /// because edit-message APIs cannot add files.
     #[serde(default)]
     pub stream: bool,
 }

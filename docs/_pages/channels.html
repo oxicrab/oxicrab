@@ -518,10 +518,13 @@ dmPolicy = "pairing"</code></pre>
     <h3>Streaming responses</h3>
     <p>Telegram, Discord, and Slack support progressive message edits so the user sees the agent's reply build up in real time instead of all at once. Set <code>stream = true</code> on the channel to opt in. Off by default.</p>
     <ul>
-      <li><strong>Per-turn isolation:</strong> each agent run gets its own UUID <code>turn_id</code>; the channel keeps a <code>DashMap&lt;turn_id, message_id&gt;</code> so late deltas can never edit a previous turn's message.</li>
+      <li><strong>Streams every turn that produces text</strong> &mdash; first-turn Q&amp;A streams from the very first delta; mixed turns ("Let me check..." + tool call) stream the prelude, run tools, then update the same message with the final answer.</li>
+      <li><strong>Per-turn isolation:</strong> each agent run gets its own UUID <code>turn_id</code>; the channel keeps a <code>DashMap&lt;turn_id, message_id&gt;</code> so late deltas can never edit a previous turn's message. The dispatcher's <code>begin_emitted</code> atomic guarantees at-most-one placeholder per run.</li>
       <li><strong>Edit throttle:</strong> ~1 edit/sec per message to stay well under Telegram's 1/sec, Discord's 5/sec, and Slack's 50/min ceilings.</li>
-      <li><strong>Tool-call iterations are NOT streamed</strong> &mdash; only the final-text turn after tools complete. Tool execution feedback continues to use the typing indicator.</li>
-      <li><strong>Sidecar message:</strong> media attachments and interactive buttons land in a follow-up <code>OutboundMessage</code> after the stream ends, so streamed turns are full-featured.</li>
+      <li><strong>Buttons land on the streamed message,</strong> attached via the final edit (Telegram <code>editMessageReplyMarkup</code>, Discord <code>EditMessage.components()</code>, Slack <code>chat.update</code> with <code>blocks</code>). No follow-up button-only message.</li>
+      <li><strong>Media sidecar:</strong> attachments (screenshots, generated files) follow as a separate <code>OutboundMessage</code> after the stream ends, since edit-message APIs cannot add attachments.</li>
+      <li><strong>Fail-safe to non-streaming:</strong> after 3 consecutive edit-API failures the pump abandons streaming for the rest of the turn and the agent loop delivers the final content via the normal <code>send()</code> path.</li>
+      <li><strong>Cancellation:</strong> the per-session cancel token aborts in-flight LLM streams; the consumer commits its accumulated content as the final message.</li>
       <li><strong>WhatsApp and Twilio</strong> have no live-edit API and are not streamable.</li>
     </ul>
     <p>Telemetry counters: <code>oxicrab_streaming_turns_total{outcome}</code>, <code>oxicrab_streaming_edit_failures_total{reason}</code>, <code>oxicrab_streaming_fallback_to_nonstream_total{reason}</code>.</p>
