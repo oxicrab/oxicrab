@@ -6,13 +6,21 @@ use std::path::PathBuf;
 const MAX_MEDIA_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 /// Return the `~/.oxicrab/media/` directory, creating it if needed.
+///
+/// Canonicalizes the result so a path-traversal in `OXICRAB_HOME`
+/// (e.g. `OXICRAB_HOME=/tmp/../../../etc`) collapses to its real
+/// destination before being used as the source of truth elsewhere.
+/// Downstream callers can `starts_with` against this without risk
+/// of being fooled by an unresolved `..` segment.
 pub fn media_dir() -> Result<PathBuf> {
     let dir = super::get_oxicrab_home()
         .context("failed to determine oxicrab home")?
         .join("media");
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create media directory: {}", dir.display()))?;
-    Ok(dir)
+    let canonical = std::fs::canonicalize(&dir)
+        .with_context(|| format!("failed to canonicalize media directory: {}", dir.display()))?;
+    Ok(canonical)
 }
 
 /// Save binary data to a file in `~/.oxicrab/media/`.

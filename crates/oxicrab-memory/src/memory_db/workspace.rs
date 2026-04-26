@@ -201,6 +201,13 @@ impl MemoryDB {
     }
 
     /// List workspace files that have exceeded their TTL.
+    ///
+    /// "Exceeded TTL" means the most recent of `accessed_at` and
+    /// `created_at` is older than the TTL. Frequently-read files
+    /// (touched via `touch_workspace_file`) get a TTL extension so
+    /// active workspace artifacts don't get deleted out from under
+    /// the user. Falls back to `created_at` for entries that were
+    /// never read.
     pub fn list_expired_workspace_files(
         &self,
         category: &str,
@@ -211,8 +218,9 @@ impl MemoryDB {
         let mut stmt = conn.prepare(
             "SELECT id, path, category, original_name, size_bytes, source_tool, tags, created_at, accessed_at, session_key
              FROM workspace_files
-             WHERE category = ?1 AND created_at < datetime('now', ?2)
-             ORDER BY created_at ASC",
+             WHERE category = ?1
+               AND COALESCE(accessed_at, created_at) < datetime('now', ?2)
+             ORDER BY COALESCE(accessed_at, created_at) ASC",
         )?;
         let rows = stmt
             .query_map(params![category, modifier], row_to_workspace_entry)?

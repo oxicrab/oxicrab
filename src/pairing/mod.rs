@@ -168,6 +168,11 @@ impl PairingStore {
     /// Approve a pairing request by code. Returns `(channel, sender_id)` on success.
     /// Uses a default client ID for lockout tracking.
     pub fn approve(&self, code: &str) -> Result<Option<(String, String)>> {
+        // Sweep expired pending entries first. The DB lookup
+        // already filters by TTL, so logic doesn't break without
+        // this — but the rows linger up to 24h, polluting
+        // `list_pending` and operator UIs.
+        self.cleanup_expired();
         self.approve_with_client(code, "default")
     }
 
@@ -180,6 +185,9 @@ impl PairingStore {
 
     /// List all pending pairing requests (non-expired).
     pub fn list_pending(&self) -> Vec<PendingRequest> {
+        // Same cleanup motivation as `approve` — strip expired
+        // rows before the operator-facing list query.
+        self.cleanup_expired();
         self.db
             .get_all_pending(CODE_TTL_SECS)
             .unwrap_or_default()

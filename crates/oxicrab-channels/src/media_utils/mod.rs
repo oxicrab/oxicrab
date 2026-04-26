@@ -2,13 +2,18 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 /// Return the `~/.oxicrab/media/` directory, creating it if needed.
+///
+/// Canonicalizes the result so an `OXICRAB_HOME` env override
+/// containing `..` segments collapses to its real destination.
 pub fn media_dir() -> Result<PathBuf> {
     let dir = get_oxicrab_home()
         .context("failed to determine oxicrab home")?
         .join("media");
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create media directory: {}", dir.display()))?;
-    Ok(dir)
+    let canonical = std::fs::canonicalize(&dir)
+        .with_context(|| format!("failed to canonicalize media directory: {}", dir.display()))?;
+    Ok(canonical)
 }
 
 pub fn get_oxicrab_home() -> Result<PathBuf> {
