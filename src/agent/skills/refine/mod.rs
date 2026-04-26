@@ -149,6 +149,20 @@ pub async fn maybe_refine_skill(
         config,
     )
     .await?;
+    // Skip no-op patches: round-2 occasionally returns the original
+    // body unchanged. Writing the same bytes pollutes the audit
+    // trail (changelog row + version bump for nothing).
+    if new_body.body == body_before {
+        info!("refine: round-2 returned unchanged body, skipping patch for '{skill_name}'");
+        return Ok(Some(RefineOutcome {
+            accepted: false,
+            confidence: assessment.confidence,
+            reason: format!("noop: {}", assessment.reason),
+            bytes_before,
+            bytes_after: bytes_before,
+            version_after: "n/a".to_string(),
+        }));
+    }
     let bytes_after = new_body.body.len();
     let n = db.count_skill_refinements(skill_name).unwrap_or(0);
     let version_after = format!("1.{}.0", n + 1);
@@ -205,12 +219,28 @@ async fn round_one_assessment(
         max_tokens: config.max_tokens.min(400),
         ..Default::default()
     };
-    let resp = provider
-        .chat(&req)
-        .await
-        .context("refine round 1 LLM call")?;
-    let text = resp.content.unwrap_or_default();
-    parse_json::<RoundOneResponse>(&text).context("refine round 1 parse")
+    // Round-1 occasionally emits malformed JSON (commentary, fenced
+    // block, trailing text). Retry once with the same prompt before
+    // giving up — the second attempt usually parses.
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..2 {
+        let resp = provider
+            .chat(&req)
+            .await
+            .context("refine round 1 LLM call")?;
+        let text = resp.content.unwrap_or_default();
+        match parse_json::<RoundOneResponse>(&text) {
+            Ok(parsed) => return Ok(parsed),
+            Err(e) => {
+                debug!(
+                    "refine round 1 parse failed on attempt {}: {e}",
+                    attempt + 1
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("refine round 1 parse failed twice")))
 }
 
 async fn round_two_patch(

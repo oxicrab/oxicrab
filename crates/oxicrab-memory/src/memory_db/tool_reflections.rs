@@ -16,11 +16,15 @@ pub struct ReflectionRecord {
 }
 
 impl MemoryDB {
-    /// Persist a single tool-reflection record.
+    /// Persist a single tool-reflection record. `INSERT OR IGNORE`
+    /// against the unique index on
+    /// (request_id, tool_name, action, attempt_number) so a retry
+    /// path logging the same reflection twice doesn't leave a
+    /// duplicate row.
     pub fn insert_tool_reflection(&self, rec: &ReflectionRecord) -> Result<()> {
         let conn = self.lock_conn()?;
         conn.execute(
-            "INSERT INTO tool_reflections (
+            "INSERT OR IGNORE INTO tool_reflections (
                 request_id, tool_name, action, attempt_number, error_excerpt,
                 hypothesis, retry_strategy, next_outcome, created_at_ms
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",

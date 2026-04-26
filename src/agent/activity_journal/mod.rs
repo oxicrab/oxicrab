@@ -100,6 +100,14 @@ impl ActivityJournal {
         f.flush()
             .await
             .with_context(|| format!("flushing {}", self.path.display()))?;
+        // sync_all() is the difference between "flushed to kernel
+        // page cache" (lost on power-fail) and "fsynced to disk"
+        // (durable). The journal is best-effort and append-only, so
+        // a sync per record is acceptable overhead; without it, an
+        // OS crash drops every record since the last writeback.
+        f.sync_all()
+            .await
+            .with_context(|| format!("syncing {}", self.path.display()))?;
         Ok(())
     }
 

@@ -337,6 +337,24 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 13 {
+        run_migration(conn, 13, || {
+            // Dedup tool_reflections on (request_id, tool_name,
+            // action, attempt_number). Two code paths logging the
+            // same reflection would otherwise leave duplicate rows,
+            // and the natural key is what lookups use.
+            conn.execute_batch(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_tool_reflections_natkey
+                    ON tool_reflections(
+                        request_id, tool_name,
+                        IFNULL(action, ''),
+                        attempt_number
+                    );",
+            )?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 

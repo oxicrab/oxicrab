@@ -234,6 +234,20 @@ impl MemoryDB {
     /// Persist a compressed trajectory summary and remove the raw events
     /// for the same session. Idempotent on `session_id` (REPLACE).
     pub fn save_trajectory_summary(&self, s: &TrajectorySummary) -> Result<()> {
+        // Cap the LLM-generated summary so a verbose model can't
+        // multiply 10 KB summaries across thousands of sessions and
+        // OOM the DB. 8 KB is well above the prompt template's
+        // expected output and below the BLOB performance cliff.
+        const MAX_SUMMARY_BYTES: usize = 8 * 1024;
+        let summary = if s.summary.len() > MAX_SUMMARY_BYTES {
+            let mut cut = MAX_SUMMARY_BYTES;
+            while cut > 0 && !s.summary.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            format!("{}…", &s.summary[..cut])
+        } else {
+            s.summary.clone()
+        };
         let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO trajectory_summaries (
@@ -242,7 +256,7 @@ impl MemoryDB {
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 s.session_id,
-                s.summary,
+                summary,
                 s.fingerprint,
                 s.occurrences as i64,
                 s.candidate_name,
