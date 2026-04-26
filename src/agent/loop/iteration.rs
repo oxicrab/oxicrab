@@ -1322,26 +1322,25 @@ impl AgentLoop {
         effective_provider: &dyn LLMProvider,
         request_id: Option<&str>,
     ) -> Result<Option<PostLoopSummary>> {
-        // The most common failure mode for this call is the model
-        // burning its entire output budget on extended-thinking and
-        // returning content=None. Two defenses:
-        // 1. Generous max_tokens — give thinking + final text room.
-        //    Most providers cap us at the model's per-request limit
-        //    anyway; we just don't want OUR knob to be the bottleneck.
-        // 2. A directive prompt that doesn't invite the model to
-        //    "think about whether to respond" — it must respond.
+        // Diagnostics from production showed the failure mode is NOT
+        // budget exhaustion (input_tokens ~10k, no reasoning content,
+        // finish_reason=stop) — the model just decided "I'm done"
+        // with empty content. Replaying the full history including
+        // the tool_use/tool_result protocol blocks lets the model
+        // think it has already "answered" by calling tools.
+        //
+        // Fix: build a CLEAN message list for the summary call. No
+        // tool_use blocks, no tool_result blocks — just a system
+        // prompt, the original user question, and the tool data
+        // stitched into a plain user-role message. The model cannot
+        // confuse this with an already-completed turn.
         const POST_LOOP_MAX_TOKENS_FLOOR: u32 = 16_384;
         let summary_max_tokens = self.max_tokens.max(POST_LOOP_MAX_TOKENS_FLOOR);
 
-        let primary_prompt = "The user's tool calls are complete and their results are above. \
-             Reply with a brief user-facing message that incorporates the tool data. \
-             Output text — do NOT call more tools. Be concise. \
-             If the data fully answered the question, say so and quote the key fields.";
-        messages.push(Message::user(primary_prompt.to_string()));
-
+        let summary_messages = build_clean_summary_messages(messages);
         let first = self
             .invoke_summary_call(
-                messages.clone(),
+                summary_messages.clone(),
                 effective_model,
                 effective_provider,
                 summary_max_tokens,
@@ -1352,21 +1351,19 @@ impl AgentLoop {
             return Ok(Some(s));
         }
 
-        // First attempt produced no usable content. Retry once with an
-        // even more directive prompt that explicitly forbids empty
-        // replies. Pop the prior nudge off so we don't accumulate.
+        // Even the clean structure came back empty — rare but possible
+        // with model flakiness. Retry once with a more directive final
+        // user message.
         warn!("post-loop summary returned empty on first attempt; retrying with directive prompt");
-        if matches!(messages.last(), Some(m) if m.role == "user") {
-            messages.pop();
-        }
-        let retry_prompt = "Output a single short user-facing message NOW. The tool results \
-             are already above; you have everything you need. \
-             An empty reply is unacceptable — write at least one sentence.";
-        messages.push(Message::user(retry_prompt.to_string()));
-
+        let mut retry_messages = summary_messages;
+        retry_messages.push(Message::user(
+            "You did not respond. Reply NOW with a brief user-facing message that includes \
+             the key fields from the tool data above. An empty reply is unacceptable."
+                .to_string(),
+        ));
         Ok(self
             .invoke_summary_call(
-                messages.clone(),
+                retry_messages,
                 effective_model,
                 effective_provider,
                 summary_max_tokens,
@@ -1434,6 +1431,77 @@ struct PostLoopSummary {
     content: String,
     reasoning_content: Option<String>,
     reasoning_signature: Option<String>,
+}
+
+/// Build a clean message list for the post-loop summary call. The
+/// inner agent loop's `messages` carries the full tool_use/tool_result
+/// protocol; replaying that list lets the model decide it has already
+/// "answered" by calling tools. We strip the protocol entirely and
+/// present:
+///
+/// - a focused system prompt
+/// - the most recent user-role message that triggered the turn
+/// - all tool-result content concatenated as a plain user message
+///
+/// This bypasses the model's internal "did I already answer?" check
+/// because the result blocks no longer carry tool_call_id linkage.
+const POST_LOOP_TOOL_DATA_CAP: usize = 8_000;
+
+fn build_clean_summary_messages(messages: &[Message]) -> Vec<Message> {
+    let system = Message::system(
+        "You are responding to the user. The user's question is below, followed by data \
+         from tools that were just executed on their behalf. Write a brief user-facing reply \
+         that incorporates the relevant fields from the tool data. Output text only — \
+         no tool calls, no preamble, no meta-commentary about what you did."
+            .to_string(),
+    );
+
+    // Find the original user query — the last user-role message in the
+    // input list whose content isn't itself synthesized (we filter out
+    // anything that looks like our own injected nudge).
+    let user_query = messages
+        .iter()
+        .rev()
+        .find(|m| {
+            m.role == "user"
+                && !m.content.starts_with("You did not respond.")
+                && !m.content.starts_with("The user's tool calls are complete")
+        })
+        .map_or_else(
+            || Message::user("(original question not recoverable)".to_string()),
+            |m| Message::user(m.content.clone()),
+        );
+
+    // Collect tool-result content in chronological order, with a
+    // total-size cap so a runaway tool can't blow the prompt.
+    use std::fmt::Write as _;
+    let mut tool_block = String::new();
+    let mut total = 0usize;
+    let _ = writeln!(tool_block, "Tool results:");
+    for msg in messages {
+        if msg.role != "tool" {
+            continue;
+        }
+        if msg.content.trim().is_empty() {
+            continue;
+        }
+        if total + msg.content.len() > POST_LOOP_TOOL_DATA_CAP {
+            tool_block.push_str("\n…(further tool results truncated)\n");
+            break;
+        }
+        tool_block.push('\n');
+        tool_block.push_str(&msg.content);
+        tool_block.push('\n');
+        total += msg.content.len();
+    }
+    if total == 0 {
+        // No tool results to surface — rare (the loop only enters
+        // post-loop summary after any_tools_called=true) but stay
+        // defensive.
+        tool_block.push_str("(no tool output captured)\n");
+    }
+
+    vec![system, user_query, Message::user(tool_block)]
 }
 
 #[cfg(test)]
