@@ -1716,9 +1716,26 @@ impl AgentLoop {
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &effective_overrides)
             .await?;
         let assistant_extra = loop_result.to_assistant_extra();
-        let response = loop_result
-            .content
-            .unwrap_or_else(|| "No response generated.".to_string());
+        let response = loop_result.content.unwrap_or_else(|| {
+            // Reached only when the iteration loop AND both post-loop
+            // summary attempts came back with no content. That means
+            // the LLM ran out of output budget on extended-thinking,
+            // or the provider cut us off. Surface a useful message
+            // so cron operators can see what happened (and the
+            // tools_used list confirms the work actually ran).
+            if !loop_result.tools_used.is_empty() {
+                format!(
+                    "I ran {} tool call(s) ({}) but the model didn't produce a final response \
+                     — most likely an extended-thinking budget exhaustion or context overflow. \
+                     The tool data is in the trace; try rephrasing or increasing maxTokens.",
+                    loop_result.tools_used.len(),
+                    loop_result.tools_used.join(", ")
+                )
+            } else {
+                "The model returned an empty response with no tool calls. Try again or rephrase."
+                    .to_string()
+            }
+        });
 
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();

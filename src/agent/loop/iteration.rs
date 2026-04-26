@@ -1322,18 +1322,73 @@ impl AgentLoop {
         effective_provider: &dyn LLMProvider,
         request_id: Option<&str>,
     ) -> Result<Option<PostLoopSummary>> {
-        messages.push(Message::user(
-            "Present the tool results to the user. Show the actual data \
-             from the tool responses — do not summarize or describe what \
-             you did, just present the information."
-                .to_string(),
-        ));
+        // The most common failure mode for this call is the model
+        // burning its entire output budget on extended-thinking and
+        // returning content=None. Two defenses:
+        // 1. Generous max_tokens — give thinking + final text room.
+        //    Most providers cap us at the model's per-request limit
+        //    anyway; we just don't want OUR knob to be the bottleneck.
+        // 2. A directive prompt that doesn't invite the model to
+        //    "think about whether to respond" — it must respond.
+        const POST_LOOP_MAX_TOKENS_FLOOR: u32 = 16_384;
+        let summary_max_tokens = self.max_tokens.max(POST_LOOP_MAX_TOKENS_FLOOR);
+
+        let primary_prompt = "The user's tool calls are complete and their results are above. \
+             Reply with a brief user-facing message that incorporates the tool data. \
+             Output text — do NOT call more tools. Be concise. \
+             If the data fully answered the question, say so and quote the key fields.";
+        messages.push(Message::user(primary_prompt.to_string()));
+
+        let first = self
+            .invoke_summary_call(
+                messages.clone(),
+                effective_model,
+                effective_provider,
+                summary_max_tokens,
+                request_id,
+            )
+            .await;
+        if let Some(s) = first {
+            return Ok(Some(s));
+        }
+
+        // First attempt produced no usable content. Retry once with an
+        // even more directive prompt that explicitly forbids empty
+        // replies. Pop the prior nudge off so we don't accumulate.
+        warn!("post-loop summary returned empty on first attempt; retrying with directive prompt");
+        if matches!(messages.last(), Some(m) if m.role == "user") {
+            messages.pop();
+        }
+        let retry_prompt = "Output a single short user-facing message NOW. The tool results \
+             are already above; you have everything you need. \
+             An empty reply is unacceptable — write at least one sentence.";
+        messages.push(Message::user(retry_prompt.to_string()));
+
+        Ok(self
+            .invoke_summary_call(
+                messages.clone(),
+                effective_model,
+                effective_provider,
+                summary_max_tokens,
+                request_id,
+            )
+            .await)
+    }
+
+    async fn invoke_summary_call(
+        &self,
+        messages: Vec<Message>,
+        effective_model: &str,
+        effective_provider: &dyn LLMProvider,
+        max_tokens: u32,
+        request_id: Option<&str>,
+    ) -> Option<PostLoopSummary> {
         match super::model_gateway::ModelGateway::invoke(
             effective_provider,
             super::model_gateway::ModelGateway::build_summary_request(
-                messages.clone(),
+                messages,
                 effective_model,
-                self.max_tokens,
+                max_tokens,
                 self.temperature,
             ),
         )
@@ -1342,15 +1397,31 @@ impl AgentLoop {
             Ok(response) => {
                 let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
                 self.record_tokens_background(&response, cost_model, request_id);
-                Ok(response.content.map(|content| PostLoopSummary {
+                if response.content.is_none() {
+                    // Diagnostics: when this fires, the model spent its
+                    // output budget on something other than user-facing
+                    // text. The two common causes — context-near-cap
+                    // (provider cut us off) and thinking-budget-exhausted
+                    // (extended thinking consumed all output tokens) —
+                    // both surface here.
+                    warn!(
+                        "post-loop summary returned content=None: \
+                         finish_reason={:?} input_tokens={:?} \
+                         had_reasoning_content={}",
+                        response.finish_reason,
+                        response.input_tokens,
+                        response.reasoning_content.is_some(),
+                    );
+                }
+                response.content.map(|content| PostLoopSummary {
                     content,
                     reasoning_content: response.reasoning_content,
                     reasoning_signature: response.reasoning_signature,
-                }))
+                })
             }
             Err(e) => {
-                warn!("post-loop summary LLM call failed: {}", e);
-                Ok(None)
+                warn!("post-loop summary LLM call failed: {e}");
+                None
             }
         }
     }
