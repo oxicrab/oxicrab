@@ -750,5 +750,7 @@ fn should_skip_own_message(
     !check_allowed_sender(recip_phone, allow_from, "whatsapp")
 }
 
+mod mention;
+
 #[cfg(test)]
 mod tests;

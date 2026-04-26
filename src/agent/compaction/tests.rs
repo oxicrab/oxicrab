@@ -663,6 +663,50 @@ fn split_at_turn_boundary_more_turns_requested_than_available() {
 }
 
 #[test]
+fn split_at_turn_boundary_assistant_first() {
+    // Edge case: history starts with an assistant message before
+    // the first user turn. No user anchor for that prefix, so the
+    // function returns 0 (caller falls back to "no compaction").
+    let msgs = vec![
+        role_msg("assistant"),
+        role_msg("user"),
+        role_msg("assistant"),
+    ];
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 1);
+    assert_eq!(split_at_turn_boundary(&msgs, 2), 1);
+}
+
+#[test]
+fn split_at_turn_boundary_only_assistant_and_tool() {
+    // Edge case: every message is non-user (e.g. left over after
+    // a strip pass that removed user messages). Returns 0.
+    let msgs = vec![
+        role_msg("assistant"),
+        role_msg("tool"),
+        role_msg("assistant"),
+        role_msg("tool"),
+    ];
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 0);
+    assert_eq!(split_at_turn_boundary(&msgs, 5), 0);
+}
+
+#[test]
+fn split_at_turn_boundary_trailing_assistant_after_last_user() {
+    // 2 turns: [user, asst] [user, tool, asst, asst, tool]
+    // Last user is at idx 2. keep_turns=1 splits at 2.
+    let msgs = vec![
+        role_msg("user"),      // 0
+        role_msg("assistant"), // 1
+        role_msg("user"),      // 2
+        role_msg("tool"),      // 3
+        role_msg("assistant"), // 4
+        role_msg("assistant"), // 5
+        role_msg("tool"),      // 6
+    ];
+    assert_eq!(split_at_turn_boundary(&msgs, 1), 2);
+}
+
+#[test]
 fn split_at_turn_boundary_three_turns() {
     // 3 turns: [user, asst] [user, tool, asst] [user, asst]
     let msgs = vec![

@@ -57,6 +57,12 @@ pub struct WhatsAppConfig {
     pub allow_groups: DenyByDefaultList,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
+    /// When true, only respond in groups when the bot's JID is mentioned
+    /// in `mentioned_jid` or the message is a reply to a bot message.
+    /// DMs are unaffected. Off by default for backwards compatibility,
+    /// but recommended for any bot in a multi-purpose group.
+    #[serde(default, rename = "mentionOnly")]
+    pub mention_only: bool,
 }
 
 impl Default for WhatsAppConfig {
@@ -66,6 +72,7 @@ impl Default for WhatsAppConfig {
             allow_from: DenyByDefaultList::default(),
             allow_groups: DenyByDefaultList::default(),
             dm_policy: default_dm_policy(),
+            mention_only: false,
         }
     }
 }

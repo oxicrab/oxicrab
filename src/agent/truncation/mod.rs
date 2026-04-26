@@ -47,6 +47,17 @@ pub fn strip_binary_blobs(text: &str) -> String {
     result.into_owned()
 }
 
+// Conservative bounds on the truncation suffix message length,
+// including up to ~10 digits of size. Actual suffix is ~85 chars +
+// digits.
+const PLAIN_SUFFIX_RESERVE: usize = 120;
+const JSON_SUFFIX_RESERVE: usize = 130;
+// Require at least 50 chars of content budget on top of the
+// suffix; below that the message is "[truncated…showed 0 of N]"
+// which is useless. Hard-clip instead.
+const PLAIN_MIN: usize = PLAIN_SUFFIX_RESERVE + 50;
+const JSON_MIN: usize = JSON_SUFFIX_RESERVE + 50;
+
 pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
     // Strip ANSI escape codes
     let clean = RegexPatterns::ansi_escape()
@@ -60,9 +71,9 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
         return clean;
     }
 
-    // For very small limits, just return a short indicator rather than
-    // a truncation message that would exceed max_chars itself
-    if max_chars < 120 {
+    // The soft-cap suffix dominates output for very small caps;
+    // skip the suffix path below the constants above and hard-clip.
+    if max_chars < PLAIN_MIN {
         let safe = clean.floor_char_boundary(max_chars);
         return clean[..safe].to_string();
     }
@@ -75,10 +86,14 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
         if pretty.len() <= max_chars {
             return pretty;
         }
-        // Reserve enough room for the suffix at any reasonable
-        // content length (digit-count of safe_budget + pretty.len()
-        // is bounded by ~20 each, plus the ~80-char fixed text).
-        let budget = max_chars.saturating_sub(160);
+        if max_chars < JSON_MIN {
+            // Pretty-print is bigger than max_chars and we don't
+            // have room for the JSON suffix. Hard-clip the original
+            // (compact) form rather than emitting only-suffix.
+            let safe = clean.floor_char_boundary(max_chars);
+            return clean[..safe].to_string();
+        }
+        let budget = max_chars - JSON_SUFFIX_RESERVE;
         let safe_budget = pretty.floor_char_boundary(budget);
         let truncated = format!(
             "{}\n\n... [JSON truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
@@ -86,17 +101,13 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
             safe_budget,
             pretty.len()
         );
-        // Final length-cap: even with the reservation above, very
-        // small max_chars values (< 200) plus large source lengths
-        // could push the suffix past the limit. Hard-clip so we
-        // never exceed max_chars.
         if truncated.len() > max_chars {
             return truncated[..truncated.floor_char_boundary(max_chars)].to_string();
         }
         return truncated;
     }
 
-    let budget = max_chars.saturating_sub(140);
+    let budget = max_chars.saturating_sub(PLAIN_SUFFIX_RESERVE);
     let safe_budget = clean.floor_char_boundary(budget);
     let truncated = format!(
         "{}\n\n... [truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",

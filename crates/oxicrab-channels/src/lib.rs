@@ -9,6 +9,9 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::module_name_repetitions)]
 
+#[cfg(test)]
+mod access_audit_tests;
+
 #[cfg(feature = "channel-discord")]
 pub mod discord;
 pub mod dispatch;
