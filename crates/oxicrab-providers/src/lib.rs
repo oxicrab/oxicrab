@@ -53,6 +53,20 @@ pub fn session_affinity_id() -> &'static str {
     &SESSION_AFFINITY_ID
 }
 
+/// Header names that callers must never be able to set via the
+/// `providers.<name>.headers` config — they're either auth headers
+/// added by the provider itself or protocol-version pins. Config
+/// validation rejects these at load time; we filter them again here
+/// so a caller bypassing config validation (e.g. dynamic config
+/// sources) still can't override Authorization.
+const PROTECTED_HEADER_NAMES: &[&str] = &[
+    "authorization",
+    "content-type",
+    "x-api-key",
+    "anthropic-version",
+    "x-session-affinity",
+];
+
 /// Apply session affinity and custom headers to a request builder.
 pub(crate) fn apply_custom_headers(
     mut req: reqwest::RequestBuilder,
@@ -60,6 +74,13 @@ pub(crate) fn apply_custom_headers(
 ) -> reqwest::RequestBuilder {
     req = req.header("x-session-affinity", session_affinity_id());
     for (k, v) in custom_headers {
+        if PROTECTED_HEADER_NAMES.contains(&k.to_lowercase().as_str()) {
+            tracing::warn!(
+                "ignoring protected header '{k}' from provider config — \
+                 set via dedicated config fields instead"
+            );
+            continue;
+        }
         req = req.header(k.as_str(), v.as_str());
     }
     req

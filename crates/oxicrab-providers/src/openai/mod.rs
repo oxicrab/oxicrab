@@ -123,8 +123,19 @@ impl OpenAIProvider {
                         warn!("skipping tool call with empty name");
                         continue;
                     }
+                    let id = tc["id"].as_str().unwrap_or_default().to_string();
+                    if id.is_empty() {
+                        // tool_call_id is the dedup key for reflection
+                        // outcome write-back, trajectory logging, and
+                        // tool_call_id linkage in `convert_messages`.
+                        // Multiple `""` ids would collide and
+                        // cross-credit reflection outcomes (same as
+                        // the Anthropic empty-id guard).
+                        warn!("skipping tool call with empty id (name={name})");
+                        continue;
+                    }
                     tool_calls.push(ToolCallRequest {
-                        id: tc["id"].as_str().unwrap_or_default().to_string(),
+                        id,
                         name,
                         arguments,
                     });
