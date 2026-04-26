@@ -342,7 +342,6 @@ fn apply_patch(skill_path: &Path, new_body: &str, reason: &str, version: &str) -
             .unwrap_or("skill")
     ));
     std::fs::write(&tmp, new_body)?;
-    std::fs::rename(&tmp, skill_path)?;
 
     let cl_path = changelog_path(skill_path);
     let entry = format!(
@@ -356,8 +355,31 @@ fn apply_patch(skill_path: &Path, new_body: &str, reason: &str, version: &str) -
     } else {
         format!("{existing}{entry}")
     };
-    if let Err(e) = std::fs::write(&cl_path, new_changelog) {
-        warn!("refine: failed to update {}: {e}", cl_path.display());
+    let cl_tmp = parent.join(format!(
+        ".{}-tmp",
+        cl_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("changelog")
+    ));
+    // Write the changelog tmp BEFORE renaming the skill body. If we
+    // crash here, neither the body nor the sidecar moves —
+    // consistent state. After the body rename succeeds we rename
+    // the changelog; a crash between them leaves an extra
+    // .skill-CHANGELOG.md-tmp the next refinement will overwrite.
+    if let Err(e) = std::fs::write(&cl_tmp, &new_changelog) {
+        warn!("refine: failed to write changelog tmp: {e}");
+        // Fall through and at least apply the body rename.
+        std::fs::rename(&tmp, skill_path)?;
+        return Ok(());
+    }
+    std::fs::rename(&tmp, skill_path)?;
+    if let Err(e) = std::fs::rename(&cl_tmp, &cl_path) {
+        warn!(
+            "refine: failed to commit changelog {}: {e}",
+            cl_path.display()
+        );
+        let _ = std::fs::remove_file(&cl_tmp);
     }
     Ok(())
 }

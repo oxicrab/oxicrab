@@ -126,7 +126,19 @@ pub fn propose_skill(workspace_skills: &Path, name: &str, body: &str) -> Result<
 /// umask-derived 0644 would let any local user read or replace them
 /// before promotion. Mirrors the 0600 restriction applied to the
 /// memory database file.
+///
+/// Uses tmp+rename so concurrent `propose_skill` calls with the same
+/// name don't see each other's partial writes. The rename itself is
+/// atomic; last writer wins cleanly.
 fn write_staged_file(path: &Path, body: &str) -> std::io::Result<()> {
+    let tmp_path = match path.file_name() {
+        Some(name) => path.with_file_name(format!(
+            ".{}.tmp.{}",
+            name.to_string_lossy(),
+            std::process::id()
+        )),
+        None => return Err(std::io::Error::other("staged path has no file name")),
+    };
     #[cfg(unix)]
     {
         use std::io::Write;
@@ -136,14 +148,19 @@ fn write_staged_file(path: &Path, body: &str) -> std::io::Result<()> {
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(path)?;
+            .open(&tmp_path)?;
         file.write_all(body.as_bytes())?;
-        Ok(())
+        file.sync_all()?;
     }
     #[cfg(not(unix))]
     {
-        std::fs::write(path, body)
+        std::fs::write(&tmp_path, body)?;
     }
+    let rename_result = std::fs::rename(&tmp_path, path);
+    if rename_result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    rename_result
 }
 
 /// Promote a staged skill to active by moving it into a per-skill
@@ -176,6 +193,21 @@ pub fn promote_staged_skill(workspace_skills: &Path, name: &str) -> Result<PathB
             "staged skill '{name}' is not a regular file (mode {:?})",
             meta.file_type()
         ));
+    }
+    // Hardlink check: a staged file that's also a hardlink to an
+    // unrelated file (e.g. `/etc/passwd`) reads through the same
+    // inode. `O_NOFOLLOW` only catches symlinks — nlink > 1 is the
+    // signal for a hardlink. propose_skill writes a fresh file, so
+    // a legitimate staged entry always has nlink == 1.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.nlink() != 1 {
+            return Err(anyhow!(
+                "staged skill '{name}' has nlink={} — refusing to promote (potential hardlink attack)",
+                meta.nlink()
+            ));
+        }
     }
     if meta.len() as usize > MAX_STAGED_READ_BYTES {
         return Err(anyhow!(

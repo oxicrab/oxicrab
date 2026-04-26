@@ -53,6 +53,12 @@ pub struct WhatsAppChannel {
     session_path: PathBuf,
     client: Arc<tokio::sync::Mutex<Option<Arc<whatsapp_rust::client::Client>>>>,
     message_queue: Arc<tokio::sync::Mutex<VecDeque<OutboundMessage>>>,
+    /// Bot's own normalized JID, populated lazily from the first event
+    /// after pairing. Used by the `mention_only` group gate to decide
+    /// whether an inbound message addresses the bot. Cached in a
+    /// `OnceCell` because the JID is stable for the lifetime of a
+    /// paired session and the lookup walks the persistence manager.
+    bot_jid: Arc<tokio::sync::OnceCell<String>>,
 }
 
 impl WhatsAppChannel {
@@ -71,6 +77,7 @@ impl WhatsAppChannel {
             session_path,
             client: Arc::new(tokio::sync::Mutex::new(None)),
             message_queue: Arc::new(tokio::sync::Mutex::new(VecDeque::new())),
+            bot_jid: Arc::new(tokio::sync::OnceCell::new()),
         }
     }
 }
@@ -114,7 +121,9 @@ impl BaseChannel for WhatsAppChannel {
         let config_allow = self.config.allow_from.clone();
         let config_allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
+        let mention_only = self.config.mention_only;
         let client_for_storage = self.client.clone();
+        let bot_jid_cache = self.bot_jid.clone();
 
         *self.running.lock().await = true;
 
@@ -152,6 +161,7 @@ impl BaseChannel for WhatsAppChannel {
                 let dm_policy_clone = dm_policy.clone();
                 let client_storage_clone = client_for_storage.clone();
 
+                let bot_jid_cache_clone = bot_jid_cache.clone();
                 let bot_builder = whatsapp_rust::bot::Bot::builder()
                     .with_backend(backend.clone())
                     .with_transport_factory(transport_factory)
@@ -164,6 +174,7 @@ impl BaseChannel for WhatsAppChannel {
                         let config_allow_groups = config_allow_groups_clone.clone();
                         let dm_policy = dm_policy_clone.clone();
                         let client_storage = client_storage_clone.clone();
+                        let bot_jid_cache = bot_jid_cache_clone.clone();
                         async move {
                             // Store client for sending messages
                             {
@@ -222,6 +233,40 @@ impl BaseChannel for WhatsAppChannel {
                                         let group_id = normalize_jid(&chat_jid);
                                         if !check_group_access(&group_id, &config_allow_groups) {
                                             debug!("whatsapp: ignoring message from non-allowed group {}", group_id);
+                                            return;
+                                        }
+                                    }
+
+                                    // mention_only group gate: even in an allowlisted group,
+                                    // only forward messages that explicitly address the bot
+                                    // (mentioned in mentioned_jid OR a quote-reply to a bot
+                                    // message). Mirrors Telegram/Discord/Slack semantics so
+                                    // a bot in a noisy WhatsApp group doesn't reply to
+                                    // every message. Fails closed if the bot's own JID
+                                    // isn't yet known (rare startup window) — better to
+                                    // silently drop than to broadcast.
+                                    if is_group && mention_only {
+                                        let bot_jid_opt: Option<&String> = bot_jid_cache
+                                            .get_or_try_init(|| async {
+                                                client
+                                                    .get_pn()
+                                                    .await
+                                                    .map(|j| mention::normalize_bot_jid(&j.to_string()))
+                                                    .ok_or(())
+                                            })
+                                            .await
+                                            .ok();
+                                        let Some(bot_jid) = bot_jid_opt else {
+                                            debug!(
+                                                "whatsapp: dropping group message — bot JID not yet known (still pairing?)"
+                                            );
+                                            return;
+                                        };
+                                        let base_for_mention = msg.get_base_message();
+                                        if !mention::message_mentions_bot(base_for_mention, bot_jid) {
+                                            debug!(
+                                                "whatsapp: ignoring group message (mention_only enabled, bot not mentioned)"
+                                            );
                                             return;
                                         }
                                     }
