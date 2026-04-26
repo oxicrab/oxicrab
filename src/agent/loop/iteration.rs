@@ -507,6 +507,16 @@ impl AgentLoop {
             // when the model returned nothing AND no tool calls. Reset
             // on any non-empty response so transient flakiness doesn't
             // accumulate.
+            //
+            // Dual-state invariant: `consecutive_empty_responses`
+            // resets on a tool-only response (since `has_tool_calls()`
+            // is true → else branch → reset). That is intentional:
+            // tool-only responses are NOT empty for force-text
+            // purposes, and the SEPARATE `last_was_tool_only` flag
+            // (computed below from the same response) drives the
+            // tools-stripped retry on the next iteration. Both gates
+            // must agree on this classification — keep them updated
+            // together if you change one.
             if !response.has_tool_calls() && response.content.is_none() {
                 consecutive_empty_responses = consecutive_empty_responses.saturating_add(1);
                 if any_tools_called && consecutive_empty_responses >= FORCE_TEXT_AFTER_EMPTIES {
@@ -1752,7 +1762,6 @@ struct PostLoopSummary {
     reasoning_signature: Option<String>,
 }
 
-/// Hash a tool call to a u64 for the duplicate-call detector.
 /// Append a mid-turn-queued [`InboundMessage`] to the in-flight
 /// `messages` vector, preserving the queued message's media
 /// (encoded as image content blocks), action-dispatch payload
@@ -1807,6 +1816,8 @@ fn inject_queued_message(messages: &mut Vec<Message>, queued: &crate::bus::Inbou
     }
 }
 
+/// Hash a tool call to a u64 for the duplicate-call detector.
+///
 /// Canonicalises the args by serialising through `serde_json::Value`
 /// (sorts object keys lexicographically) so semantically identical
 /// payloads with different key order collapse to the same fingerprint.
