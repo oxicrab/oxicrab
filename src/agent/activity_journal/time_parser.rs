@@ -290,15 +290,4 @@ mod parser_tests {
         let r = parse_time_expression("11pm today", test_now()).unwrap();
         assert_eq!(r.anchor.date_naive(), test_now().date_naive());
     }
-
-    /// Pure date helper anchor used by the time-window query tests
-    /// (lives here so we can keep the module self-contained).
-    #[allow(dead_code)]
-    pub(crate) fn ymd(y: i32, m: u32, d: u32) -> DateTime<Utc> {
-        Utc.from_utc_datetime(
-            &NaiveDate::from_ymd_opt(y, m, d)
-                .unwrap()
-                .and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap()),
-        )
-    }
 }

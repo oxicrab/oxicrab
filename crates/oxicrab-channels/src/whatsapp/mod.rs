@@ -357,6 +357,7 @@ impl BaseChannel for WhatsAppChannel {
                                         error!("Failed to send WhatsApp inbound message: {}", e);
                                     }
                                 }
+                                #[allow(clippy::print_stdout)] // operator-facing pairing UI, not log noise
                                 whatsapp_rust::types::events::Event::PairingQrCode { code, .. } => {
                                     // Display QR code (organized inline)
                                     println!("\n🤖 WhatsApp QR Code:");
@@ -391,10 +392,12 @@ impl BaseChannel for WhatsAppChannel {
                                     }
                                     info!("WhatsApp QR code displayed");
                                 }
+                                #[allow(clippy::print_stdout)] // operator-facing pairing UI
                                 whatsapp_rust::types::events::Event::PairingCode { code, .. } => {
                                     println!("\n🤖 WhatsApp Pairing Code: {code}\nEnter this code on your phone.\n");
                                     info!("WhatsApp pairing code: {}", code);
                                 }
+                                #[allow(clippy::print_stdout)] // operator-facing pairing UI
                                 whatsapp_rust::types::events::Event::PairSuccess(_pair_success) => {
                                     println!("\n✅ WhatsApp connected successfully!\n");
                                     info!("WhatsApp pairing successful");

@@ -393,6 +393,18 @@ impl Tool for CronTool {
                 user_request: "send me a standup reminder in 5 minutes".into(),
                 params: serde_json::json!({"action": "add", "message": "Standup time!", "delay_seconds": 300, "type": "echo"}),
             },
+            crate::agent::tools::base::ToolExample {
+                user_request: "rerun my briefing now".into(),
+                params: serde_json::json!({"action": "run", "job_id": "<job_id from cron list>"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "pause the briefing job".into(),
+                params: serde_json::json!({"action": "pause", "job_id": "<job_id from cron list>"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "delete the standup reminder".into(),
+                params: serde_json::json!({"action": "remove", "job_id": "<job_id from cron list>"}),
+            },
         ]
     }
 

@@ -1,3 +1,6 @@
+// Integration test prints diagnostic context on failure.
+#![allow(clippy::print_stderr)]
+
 mod common;
 
 use common::{

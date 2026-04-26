@@ -26,3 +26,6 @@ landlock = "0.4"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

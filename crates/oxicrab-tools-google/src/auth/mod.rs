@@ -335,7 +335,9 @@ async fn get_code_via_browser(
     Ok(code)
 }
 
-#[allow(clippy::too_many_arguments)]
+// Manual OAuth flow prints to stdout/reads from stdin — operator-facing
+// CLI wizard, not log noise. Allow the print macros explicitly.
+#[allow(clippy::too_many_arguments, clippy::print_stdout)]
 async fn run_manual_flow(
     client_id: &str,
     client_secret: &str,
@@ -376,8 +378,9 @@ async fn run_manual_flow(
         response_input.to_string()
     };
 
-    // Exchange code for token
-    let client = reqwest::Client::new();
+    // Exchange code for token. Use the standard timeouts; OAuth servers
+    // shouldn't take >30 s and a bare client risks hanging the wizard.
+    let client = oxicrab_core::utils::http::default_http_client();
     let mut params = HashMap::new();
     params.insert("code", code);
     params.insert("client_id", client_id.to_string());

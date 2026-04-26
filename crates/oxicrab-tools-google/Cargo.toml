@@ -29,3 +29,6 @@ oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
 tokio = { workspace = true, features = ["macros", "rt"] }
 wiremock = { workspace = true }
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

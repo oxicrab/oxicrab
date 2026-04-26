@@ -782,13 +782,33 @@ impl AgentLoop {
                     tool_metadata: collected_tool_metadata,
                 });
             } else {
-                // Empty response — if tools were already called, the LLM has
-                // the results but chose not to format them. Skip retries and
-                // go straight to the post-loop summary which will present the
-                // tool results to the user.
+                // Empty response — if tools were already called, give the
+                // model one nudge to continue (call another tool) or
+                // summarize. Falling straight to the no-tools post-loop
+                // summary lets the model fabricate text from tool data
+                // alone (observed in production: cron list -> empty ->
+                // post-loop summary invented "I'll fire the job" + "but I
+                // don't have a tool"). The nudge keeps tools available for
+                // one more iteration; if it stays empty, fall to summary.
                 if any_tools_called {
+                    if consecutive_empty_responses <= 1 {
+                        warn!(
+                            "LLM returned empty after tool calls on iteration {}, \
+                             nudging to continue or summarize",
+                            iteration
+                        );
+                        messages.push(Message::system(
+                            "Your previous tool call(s) returned results. \
+                             Decide your next move: either call another tool to \
+                             continue the work, or write a final user-facing \
+                             text response that summarizes what you found. \
+                             Empty responses are not allowed."
+                                .to_string(),
+                        ));
+                        continue;
+                    }
                     warn!(
-                        "LLM returned empty after tool calls on iteration {}, \
+                        "LLM returned empty after tool calls on iteration {} (post-nudge), \
                          falling through to post-loop summary",
                         iteration
                     );

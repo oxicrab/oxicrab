@@ -2,6 +2,23 @@
 members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-router", "crates/oxicrab-safety", "crates/oxicrab-tools-rss", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "crates/oxicrab-tools-google", "crates/oxicrab-tools-browser", "crates/oxicrab-tools-obsidian", "crates/oxicrab-transcription", "."]
 resolver = "2"
 
+# Workspace-wide lints. Each crate inherits these by adding `[lints]\nworkspace = true`.
+# CI runs `cargo clippy --all-targets --all-features -- -D warnings`, so any lint
+# at warn level is a hard error in CI.
+[workspace.lints.rust]
+dead_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+# Print macros land in operator-facing CLI flows (OAuth wizard, WhatsApp QR
+# display); warn but don't deny so those legitimate sites can `#[allow]`
+# locally. `panic!` is intentionally not denied — tests rely on it
+# (`match _ => panic!(...)` in negative branches is idiomatic).
+print_stdout = "warn"
+print_stderr = "warn"
+
 [workspace.dependencies]
 anyhow = "1"
 axum = "0.8"
@@ -213,3 +230,6 @@ source = "LICENSE"
 dest = "/usr/share/doc/oxicrab/LICENSE"
 mode = "0644"
 doc = true
+
+[lints]
+workspace = true

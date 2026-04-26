@@ -26,3 +26,6 @@ uuid = { workspace = true, features = ["v4"] }
 [dev-dependencies]
 oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
 wiremock = { workspace = true }
+
+[lints]
+workspace = true
