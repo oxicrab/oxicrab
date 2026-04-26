@@ -323,10 +323,18 @@ impl Tool for GoogleMailTool {
                     subject = format!("Re: {subject}");
                 }
 
-                let message_id = headers
+                // RFC 5322 doesn't bound Message-ID length, but the
+                // header is our In-Reply-To/References payload — a
+                // multi-KB id from a malicious sender would inflate
+                // every reply. 998 is the RFC 5322 line-length limit.
+                const MAX_MSG_ID_LEN: usize = 998;
+                let mut message_id = headers
                     .get("Message-ID")
                     .unwrap_or(&String::new())
                     .replace(['\r', '\n'], "");
+                if message_id.len() > MAX_MSG_ID_LEN {
+                    message_id.truncate(MAX_MSG_ID_LEN);
+                }
                 let email = format!(
                     "To: {reply_to}\r\nSubject: {subject}\r\nIn-Reply-To: {message_id}\r\nReferences: {message_id}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
                 );

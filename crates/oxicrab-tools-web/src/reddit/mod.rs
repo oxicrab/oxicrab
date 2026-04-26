@@ -32,13 +32,36 @@ impl Default for RedditTool {
 
 impl RedditTool {
     fn build(base_url: String) -> Self {
+        // Reddit responds with redirects on subreddit renames and NSFW
+        // gating, all to other reddit.com URLs. Restrict the redirect
+        // policy to reddit-owned hosts so a compromised Location
+        // header (or the test base_url) cannot chain into a private
+        // IP or third-party host.
+        let allowed_host = url::Url::parse(&base_url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned));
+        let policy = reqwest::redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() >= 5 {
+                return attempt.error("too many redirects");
+            }
+            let next_host = attempt.url().host_str().unwrap_or_default().to_string();
+            let on_reddit = next_host == "www.reddit.com"
+                || next_host == "reddit.com"
+                || next_host.ends_with(".reddit.com")
+                || allowed_host.as_deref() == Some(next_host.as_str());
+            if on_reddit {
+                attempt.follow()
+            } else {
+                attempt.error(format!("blocked redirect to non-reddit host: {next_host}"))
+            }
+        });
         Self {
             base_url,
             client: Client::builder()
                 .user_agent("oxicrab/1.0")
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(15))
-                .redirect(reqwest::redirect::Policy::limited(5))
+                .redirect(policy)
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }

@@ -81,6 +81,17 @@ impl GitHubTool {
     /// Sanitize an API error message to prevent token leakage if the API
     /// echoes back auth details. Accepts raw text (not necessarily JSON).
     fn sanitize_api_error_text(text: &str) -> String {
+        let trimmed = text.trim_start();
+        let lower_head: String = trimmed.chars().take(64).collect::<String>().to_lowercase();
+        // Edge / load-balancer error pages are HTML, not the JSON
+        // GitHub normally returns. Echoing the page back to the LLM
+        // wastes tokens and surfaces no useful diagnostics.
+        if trimmed.starts_with('<')
+            || lower_head.starts_with("<!doctype")
+            || lower_head.contains("<html")
+        {
+            return "GitHub returned an HTML error page (edge/CDN error)".to_string();
+        }
         let lower = text.to_lowercase();
         if lower.contains("bearer") || lower.contains("token") || lower.contains("credential") {
             return "authentication error (check token)".to_string();

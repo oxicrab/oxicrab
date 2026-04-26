@@ -16,6 +16,43 @@ use oxicrab_memory::memory_db::rss::RssArticle;
 
 use super::now_ms;
 
+/// Normalise an article URL so trivially-different forms collapse
+/// into a single dedup key: lowercase host/scheme, drop a single
+/// trailing `/`, drop a leading `www.` host segment. Preserves the
+/// path/query/fragment which are case-sensitive per RFC 3986.
+fn normalise_article_url(url: &str) -> String {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return url.to_string();
+    };
+    let mut out = String::with_capacity(url.len());
+    out.push_str(parsed.scheme());
+    out.push_str("://");
+    if let Some(host) = parsed.host_str() {
+        let host_lc = host.to_ascii_lowercase();
+        let host_trim = host_lc.strip_prefix("www.").unwrap_or(&host_lc);
+        out.push_str(host_trim);
+    }
+    if let Some(port) = parsed.port() {
+        out.push(':');
+        out.push_str(&port.to_string());
+    }
+    let path = parsed.path();
+    if path.len() > 1 && path.ends_with('/') {
+        out.push_str(&path[..path.len() - 1]);
+    } else {
+        out.push_str(path);
+    }
+    if let Some(q) = parsed.query() {
+        out.push('?');
+        out.push_str(q);
+    }
+    if let Some(f) = parsed.fragment() {
+        out.push('#');
+        out.push_str(f);
+    }
+    out
+}
+
 /// Result of fetching and parsing a single feed.
 struct FeedResult {
     feed_id: String,
@@ -134,10 +171,14 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
                     }
 
                     let article_id = uuid::Uuid::new_v4().to_string();
+                    // Normalise the URL so case-only differences in
+                    // host/scheme, trailing slash, and `www.` prefix
+                    // don't bypass the UNIQUE dedup constraint.
+                    let normalised_url = normalise_article_url(&entry.url);
                     let article = RssArticle {
                         id: article_id.clone(),
                         feed_id: feed_id.clone(),
-                        url: entry.url.clone(),
+                        url: normalised_url,
                         title: entry.title.clone(),
                         author: entry.author.clone(),
                         published_at_ms: entry.published_at_ms,

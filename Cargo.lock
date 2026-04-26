@@ -4005,6 +4005,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -4042,6 +4043,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "url",
  "wiremock",
 ]
 

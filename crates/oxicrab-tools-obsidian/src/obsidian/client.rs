@@ -118,12 +118,24 @@ impl ObsidianApiClient {
         Ok(all_files)
     }
 
-    /// Reject paths that attempt directory traversal (literal, URL-encoded,
-    /// or as a path component). Checks for `..` as a path component — not
-    /// as a substring, since filenames like `A....md` (ellipsis) are valid.
+    /// Reject paths that attempt directory traversal (literal,
+    /// URL-encoded, or double-encoded). Decode percent-encoded
+    /// sequences in a loop until stable, then check `..` as a path
+    /// component. A single decode pass would accept `%252e%252e`
+    /// (which decodes once to `%2e%2e`); the Obsidian REST API
+    /// decodes again server-side, turning that into `..`.
     fn validate_path(path: &str) -> Result<()> {
-        // Decode percent-encoded sequences before checking so %2e%2e is caught
-        let decoded = urlencoding::decode(path).unwrap_or(std::borrow::Cow::Borrowed(path));
+        let mut decoded = std::borrow::Cow::Borrowed(path);
+        for _ in 0..8 {
+            let next = urlencoding::decode(decoded.as_ref())
+                .unwrap_or(std::borrow::Cow::Borrowed(decoded.as_ref()))
+                .into_owned();
+            if next == decoded.as_ref() {
+                decoded = std::borrow::Cow::Owned(next);
+                break;
+            }
+            decoded = std::borrow::Cow::Owned(next);
+        }
         for component in std::path::Path::new(decoded.as_ref()).components() {
             if component == std::path::Component::ParentDir {
                 anyhow::bail!("path traversal not allowed");

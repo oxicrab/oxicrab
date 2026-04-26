@@ -70,17 +70,34 @@ impl GoogleCredentials {
                 .ok()
                 .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
                 .unwrap_or_else(|| format!("HTTP {status}"));
+            // `invalid_grant` means the refresh token is revoked,
+            // expired, or otherwise unusable — retrying it will
+            // never succeed. Drop it so subsequent calls fail fast
+            // with "No refresh token available" instead of burning
+            // a network roundtrip on every API call.
+            if error_code == "invalid_grant" {
+                self.refresh_token = None;
+                return Err(anyhow::anyhow!(
+                    "token refresh failed: refresh token revoked or expired (re-authenticate)"
+                ));
+            }
             return Err(anyhow::anyhow!("token refresh failed: {error_code}"));
         }
 
         let token_data: serde_json::Value = response.json().await?;
 
-        if let Some(_error) = token_data.get("error") {
+        if let Some(error_code) = token_data.get("error").and_then(|e| e.as_str()) {
             let error_desc = token_data
                 .get("error_description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error");
-            return Err(anyhow::anyhow!("Token refresh failed: {error_desc}"));
+            if error_code == "invalid_grant" {
+                self.refresh_token = None;
+                return Err(anyhow::anyhow!(
+                    "token refresh failed: refresh token revoked or expired (re-authenticate)"
+                ));
+            }
+            return Err(anyhow::anyhow!("token refresh failed: {error_desc}"));
         }
 
         self.token = token_data["access_token"]
