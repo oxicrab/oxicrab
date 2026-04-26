@@ -117,7 +117,11 @@ impl Tool for ToolSearchTool {
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let query = params["query"].as_str().unwrap_or("").to_lowercase();
-        let index = self.index.lock().unwrap().clone();
+        let index = self
+            .index
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
 
         if query.is_empty() {
             // List all tools (names only)

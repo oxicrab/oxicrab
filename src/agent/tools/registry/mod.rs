@@ -308,7 +308,10 @@ impl ToolRegistry {
         });
         self.routing_rules.extend(rules);
         self.tools.insert(name, tool);
-        self.cached_definitions.lock().unwrap().take();
+        self.cached_definitions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
     }
 
     /// All routing rules collected from registered tools.
@@ -351,36 +354,66 @@ impl ToolRegistry {
         // Single critical section: tool, deferred-flag, and definition are
         // either all visible to the next reader or none of them are.
         {
-            let mut rt = self.runtime.lock().unwrap();
+            let mut rt = self
+                .runtime
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             rt.definitions.insert(name.clone(), definition);
             rt.deferred.insert(name.clone());
             rt.tools.insert(name.clone(), tool);
         }
-        self.cached_definitions.lock().unwrap().take();
+        self.cached_definitions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
         info!("runtime-registered deferred tool '{name}'");
     }
 
     /// Check if a tool is deferred (schema hidden from LLM by default).
     pub fn is_deferred(&self, name: &str) -> bool {
-        self.deferred.contains(name) || self.runtime.lock().unwrap().deferred.contains(name)
+        self.deferred.contains(name)
+            || self
+                .runtime
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .deferred
+                .contains(name)
     }
 
     /// Number of deferred tools.
     pub fn deferred_count(&self) -> usize {
-        self.deferred.len() + self.runtime.lock().unwrap().deferred.len()
+        self.deferred.len()
+            + self
+                .runtime
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .deferred
+                .len()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         if let Some(tool) = self.tools.get(name) {
             return Some(tool.clone());
         }
-        self.runtime.lock().unwrap().tools.get(name).cloned()
+        self.runtime
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .tools
+            .get(name)
+            .cloned()
     }
 
     /// Returns a sorted list of all registered tool names.
     pub fn tool_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.tools.keys().cloned().collect();
-        names.extend(self.runtime.lock().unwrap().tools.keys().cloned());
+        names.extend(
+            self.runtime
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .tools
+                .keys()
+                .cloned(),
+        );
         names.sort();
         names
     }
@@ -420,7 +453,10 @@ impl ToolRegistry {
     ) -> Vec<crate::providers::base::ToolDefinition> {
         // Use cache only when no deferred tools activated (common case)
         if activated.is_empty() {
-            let mut cache = self.cached_definitions.lock().unwrap();
+            let mut cache = self
+                .cached_definitions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(ref defs) = *cache {
                 return defs.clone();
             }
@@ -447,7 +483,10 @@ impl ToolRegistry {
         // Single lock keeps deferred-set and definitions in sync — no
         // chance of seeing a definition with a stale deferred flag.
         {
-            let rt = self.runtime.lock().unwrap();
+            let rt = self
+                .runtime
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             for (name, def) in &rt.definitions {
                 if !rt.deferred.contains(name) || activated.contains(name) {
                     defs.push(def.clone());
@@ -486,7 +525,10 @@ impl ToolRegistry {
 
         // Include runtime-registered tools in matching categories
         {
-            let rt = self.runtime.lock().unwrap();
+            let rt = self
+                .runtime
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             for (name, tool) in &rt.tools {
                 let in_category = categories.contains(&tool.capabilities().category);
                 let visible = !rt.deferred.contains(name) || activated.contains(name);
