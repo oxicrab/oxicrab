@@ -280,6 +280,17 @@ impl MessageCompactor {
             .map(|m| {
                 let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
+                // Strip SOH (\x01) from message content — it's the
+                // sentinel `strip_annotations` uses to distinguish
+                // genuine annotations from LLM/user text. A user
+                // pasting `\x01[Checkpoint]…` would otherwise have
+                // the next compaction cycle truncate the summary at
+                // their injected marker.
+                let content = if content.contains('\x01') {
+                    content.replace('\x01', "")
+                } else {
+                    content.into_owned()
+                };
                 format!("{role}: {content}")
             })
             .collect();
@@ -308,6 +319,21 @@ impl MessageCompactor {
                 ..Default::default()
             })
             .await?;
+
+        // Guard: a truncated summary (max_tokens hit) is partial.
+        // Persisting it overwrites the prior good summary with an
+        // incomplete one. Reuse the previous summary instead.
+        if let Some(ref reason) = response.finish_reason
+            && matches!(reason.as_str(), "length" | "max_tokens" | "MAX_TOKENS")
+        {
+            warn!("compaction: discarding truncated summary (finish_reason={reason})");
+            if !previous_summary.is_empty() {
+                return Ok(previous_summary.to_string());
+            }
+            return Err(anyhow::anyhow!(
+                "compaction summary truncated and no previous summary available"
+            ));
+        }
 
         let summary = response.content.unwrap_or_default();
         if summary.trim().is_empty() {
@@ -412,6 +438,15 @@ impl MessageCompactor {
                 ..Default::default()
             })
             .await?;
+
+        // Guard: truncated extractions write half a fact to memory.
+        // Drop the output rather than persist a partial entry.
+        if let Some(ref reason) = response.finish_reason
+            && matches!(reason.as_str(), "length" | "max_tokens" | "MAX_TOKENS")
+        {
+            warn!("fact extraction: discarding truncated output (finish_reason={reason})");
+            return Ok(String::new());
+        }
 
         let content = response.content.unwrap_or_default();
         // The LLM sometimes returns "NOTHING" with an explanation in parens.

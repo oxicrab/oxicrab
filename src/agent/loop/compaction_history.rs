@@ -189,7 +189,14 @@ impl AgentLoop {
                         );
                     }
 
-                    // Cap enriched summary to prevent unbounded growth across compaction cycles
+                    // Redact secrets BEFORE capping. Redaction can
+                    // expand the string (a 30-char token replaced
+                    // with `[REDACTED:anthropic_api_key]`) — a cap
+                    // applied first leaves the post-redaction
+                    // length unbounded. A cap applied after also
+                    // avoids the related risk of cutting mid-token
+                    // and re-exposing the secret prefix.
+                    let mut recovery_summary = self.leak_detector.redact(&recovery_summary);
                     if recovery_summary.len() > 2000 {
                         let mut pos = 2000;
                         while pos > 0 && !recovery_summary.is_char_boundary(pos) {
@@ -197,8 +204,6 @@ impl AgentLoop {
                         }
                         recovery_summary.truncate(pos);
                     }
-                    // Redact any leaked secrets from the compaction summary
-                    let recovery_summary = self.leak_detector.redact(&recovery_summary);
 
                     // Cache summary locally so it survives save failures
                     self.set_session_checkpoint(&session.key, recovery_summary.clone())
