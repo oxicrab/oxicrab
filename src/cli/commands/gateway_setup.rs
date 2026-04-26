@@ -568,15 +568,28 @@ async fn setup_cron_callbacks(
                 }
             }
 
-            // Persist trace (awaited to ensure it's saved before returning)
+            // Persist trace (awaited to ensure it's saved before
+            // returning). Bound the write with a timeout — a stalled
+            // SQLite acquire (DB locked, disk slow) would otherwise
+            // pin a tokio blocking-pool thread per cron firing and
+            // starve subsequent callbacks. 10 s is well above the
+            // healthy single-row insert latency.
             let db_trace = db.clone();
             let trace_clone = trace.clone();
-            if let Err(e) =
-                tokio::task::spawn_blocking(move || db_trace.insert_cron_trace(&trace_clone))
-                    .await
-                    .unwrap_or_else(|e| Err(anyhow::anyhow!("trace write task panicked: {e}")))
-            {
-                warn!("failed to save cron trace {}: {}", trace.id, e);
+            let trace_id = trace.id.clone();
+            let write_fut =
+                tokio::task::spawn_blocking(move || db_trace.insert_cron_trace(&trace_clone));
+            match tokio::time::timeout(std::time::Duration::from_secs(10), write_fut).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(e))) => {
+                    warn!("failed to save cron trace {trace_id}: {e}");
+                }
+                Ok(Err(e)) => {
+                    warn!("cron trace write task panicked for {trace_id}: {e}");
+                }
+                Err(_) => {
+                    warn!("cron trace write timed out after 10s for {trace_id}");
+                }
             }
 
             result

@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::error;
+use tracing::{error, warn};
 
 const MAX_CRON_MESSAGE_LEN: usize = 10_000;
 
@@ -511,8 +511,13 @@ impl Tool for CronTool {
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = require_param!(params, "action");
 
-        // Prevent infinite feedback loops: cron jobs cannot schedule or trigger other jobs
-        if matches!(action, "add" | "run" | "dlq_replay")
+        // Prevent infinite feedback loops and cross-job tampering:
+        // cron jobs cannot schedule, trigger, or mutate jobs from
+        // inside their own run. `update` is the same class of escape
+        // as `add`/`run`/`dlq_replay` — a running job rewriting
+        // another job's schedule defeats the loop-prevention
+        // contract.
+        if matches!(action, "add" | "run" | "dlq_replay" | "update")
             && ctx
                 .metadata
                 .get(crate::bus::meta::IS_CRON_JOB)
@@ -520,7 +525,8 @@ impl Tool for CronTool {
                 .unwrap_or(false)
         {
             return Ok(ToolResult::error(
-                "cannot schedule or trigger jobs from within a cron job execution".to_string(),
+                "cannot schedule, trigger, or modify jobs from within a cron job execution"
+                    .to_string(),
             ));
         }
 
@@ -950,12 +956,26 @@ impl Tool for CronTool {
                 // reason as the "run" action — session lock re-entrancy).
                 let job_id = entry.job_id.clone();
                 db.increment_dlq_retry(dlq_id)?;
-                db.update_dlq_status(dlq_id, "replayed")?;
+                // Mark in-flight so a concurrent dlq_list shows the
+                // entry isn't idle. The spawned task settles to
+                // `success` or `failed` based on the run outcome so
+                // operators don't see "replayed" forever after the
+                // run actually completes.
+                db.update_dlq_status(dlq_id, "replaying")?;
                 let cron = self.cron_service.clone();
                 let job_id_clone = job_id.clone();
+                let dlq_db = db.clone();
+                let dlq_id_clone = dlq_id;
                 tokio::spawn(async move {
-                    if let Err(e) = cron.run_job(&job_id_clone, true).await {
-                        error!("cron dlq_replay job {} failed: {}", job_id_clone, e);
+                    let final_status = match cron.run_job(&job_id_clone, true).await {
+                        Ok(_) => "success",
+                        Err(e) => {
+                            error!("cron dlq_replay job {} failed: {}", job_id_clone, e);
+                            "failed"
+                        }
+                    };
+                    if let Err(e) = dlq_db.update_dlq_status(dlq_id_clone, final_status) {
+                        warn!("failed to settle DLQ status for {dlq_id_clone}: {e}");
                     }
                 });
 
