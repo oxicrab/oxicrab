@@ -27,6 +27,25 @@ pub(super) fn format_for_slack(text: &str) -> String {
     result
 }
 
+/// Escape Slack mrkdwn meta-characters in user text. Slack uses
+/// `<...>` for links/mentions and `&` introduces HTML entities, so
+/// raw user input containing those characters is mis-rendered (e.g.
+/// `<https://x|y>` interpreted as a link). Run before the markdown
+/// link/bold conversions which intentionally produce literal `<` and
+/// `>`.
+fn escape_slack_mrkdwn(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// Apply markdown-to-Slack conversions only to parts outside inline code spans.
 fn format_non_code_segments(text: &str) -> String {
     let inline_parts: Vec<&str> = text.split('`').collect();
@@ -39,8 +58,12 @@ fn format_non_code_segments(text: &str) -> String {
             // Inside inline code — preserve as-is
             result.push_str(part);
         } else {
-            // Outside all code — apply conversions
-            let converted = RegexPatterns::markdown_bold().replace_all(part, r"*$1*");
+            // Outside all code — escape mrkdwn meta-characters first
+            // so the markdown conversions below can produce literal
+            // `<...>` syntax markers without colliding with raw user
+            // angle brackets.
+            let escaped = escape_slack_mrkdwn(part);
+            let converted = RegexPatterns::markdown_bold().replace_all(&escaped, r"*$1*");
             let converted = RegexPatterns::markdown_strike().replace_all(&converted, r"~$1~");
             let converted = RegexPatterns::markdown_link().replace_all(&converted, r"<$2|$1>");
             result.push_str(&converted);

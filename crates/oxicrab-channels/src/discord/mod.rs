@@ -29,8 +29,10 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
+mod interaction_timing;
 mod payloads;
 pub mod streaming;
+pub use interaction_timing::InteractionTimingStore;
 pub use streaming::DiscordStreamConsumer;
 
 struct Handler {
@@ -41,6 +43,7 @@ struct Handler {
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
     dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
+    interaction_timings: Arc<InteractionTimingStore>,
     mention_only: bool,
     bot_user_id: Arc<tokio::sync::OnceCell<serenity::model::id::UserId>>,
 }
@@ -113,6 +116,10 @@ impl Handler {
             content
         };
 
+        // Record receipt time on a monotonic clock so the followup expiry
+        // check in `send()` is immune to wall-clock jumps.
+        self.interaction_timings.record(&cmd.token);
+
         let mut metadata = HashMap::new();
         metadata.insert(
             "discord_interaction_token".to_string(),
@@ -121,14 +128,6 @@ impl Handler {
         metadata.insert(
             "discord_application_id".to_string(),
             serde_json::Value::String(cmd.application_id.to_string()),
-        );
-        metadata.insert(
-            "discord_interaction_ts".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs() as i64),
-            )),
         );
         metadata.insert(
             oxicrab_core::bus::events::meta::IS_GROUP.to_string(),
@@ -218,6 +217,10 @@ impl Handler {
             "This button has expired. Please run the command again.".to_string()
         };
 
+        // Record receipt time on a monotonic clock so the followup expiry
+        // check in `send()` is immune to wall-clock jumps.
+        self.interaction_timings.record(&comp.token);
+
         let mut metadata = HashMap::new();
         metadata.insert(
             "discord_interaction_token".to_string(),
@@ -226,14 +229,6 @@ impl Handler {
         metadata.insert(
             "discord_application_id".to_string(),
             serde_json::Value::String(comp.application_id.to_string()),
-        );
-        metadata.insert(
-            "discord_interaction_ts".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs() as i64),
-            )),
         );
         metadata.insert(
             "discord_component_id".to_string(),
@@ -460,6 +455,7 @@ pub struct DiscordChannel {
     _client_handle: Option<tokio::task::JoinHandle<()>>,
     dm_channel_cache: Arc<tokio::sync::Mutex<HashMap<u64, serenity::model::id::ChannelId>>>,
     dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
+    interaction_timings: Arc<InteractionTimingStore>,
 }
 
 impl DiscordChannel {
@@ -479,6 +475,7 @@ impl DiscordChannel {
             _client_handle: None,
             dm_channel_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             dispatch_store: Arc::new(crate::dispatch::DispatchContextStore::new(1000)),
+            interaction_timings: Arc::new(InteractionTimingStore::new()),
         }
     }
 }
@@ -632,6 +629,7 @@ impl BaseChannel for DiscordChannel {
         let inbound_tx = self.inbound_tx.clone();
         let running = self.running.clone();
         let dispatch_store = self.dispatch_store.clone();
+        let interaction_timings = self.interaction_timings.clone();
         let bot_user_id: Arc<tokio::sync::OnceCell<serenity::model::id::UserId>> =
             Arc::new(tokio::sync::OnceCell::new());
 
@@ -656,6 +654,7 @@ impl BaseChannel for DiscordChannel {
                     http_client: handler_http_client.clone(),
                     commands: commands.clone(),
                     dispatch_store: dispatch_store.clone(),
+                    interaction_timings: interaction_timings.clone(),
                     mention_only,
                     bot_user_id: bot_user_id.clone(),
                 };
@@ -755,24 +754,16 @@ impl BaseChannel for DiscordChannel {
             .get("discord_application_id")
             .and_then(|v| v.as_str());
 
-        // Discord interaction tokens expire after 15 minutes; use 14-min safety margin
-        let token_expired = msg
-            .metadata
-            .get("discord_interaction_ts")
-            .and_then(serde_json::Value::as_i64)
-            .is_some_and(|ts| {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs() as i64);
-                now - ts >= 14 * 60
-            });
-
         if let (Some(token), Some(app_id)) = (interaction_token, application_id) {
-            if token_expired {
-                warn!("discord: interaction token expired, falling back to channel message");
-            } else {
+            // Discord interaction tokens expire 15 minutes after the gateway
+            // delivered the interaction. The timing store uses a monotonic
+            // `Instant` recorded at receipt, so this check is unaffected by
+            // NTP corrections or VM suspend/resume that would skew a wall
+            // clock.
+            if self.interaction_timings.is_valid(token) {
                 return self.send_interaction_followup(msg, app_id, token).await;
             }
+            warn!("discord: interaction token expired, falling back to channel message");
         }
 
         self.send_channel_message(msg).await?;

@@ -107,10 +107,12 @@ impl Tool for ToolSearchTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            actions: actions![search: ro],
+            // `search` mutates the request-scoped `ActivatedTools` map,
+            // so it is not read-only despite returning a search result.
+            actions: actions![search],
             category: ToolCategory::System,
             subagent_access: SubagentAccess::Denied,
-            concurrency: ToolConcurrency::ReadOnly,
+            concurrency: ToolConcurrency::SideEffect,
             ..Default::default()
         }
     }

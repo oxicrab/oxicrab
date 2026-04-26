@@ -110,10 +110,16 @@ pub(crate) fn parse_unified_buttons_value(
         })
         .collect();
 
+    // Discord caps each ActionRow at 5 buttons; messages may carry
+    // up to 25 buttons (5 rows × 5 buttons). Split into rows of 5
+    // rather than handing Discord a single oversized row that the
+    // API would reject.
     if btns.is_empty() {
         Vec::new()
     } else {
-        vec![CreateActionRow::Buttons(btns)]
+        btns.chunks(5)
+            .map(|chunk| CreateActionRow::Buttons(chunk.to_vec()))
+            .collect()
     }
 }
 
@@ -150,8 +156,16 @@ pub(super) fn components_to_api_json(
     if btns.is_empty() {
         return None;
     }
-    Some(serde_json::json!([{
-        "type": 1,
-        "components": btns
-    }]))
+    // Same 5-per-row split as parse_unified_buttons_value: Discord
+    // rejects ActionRows with more than 5 buttons.
+    let rows: Vec<serde_json::Value> = btns
+        .chunks(5)
+        .map(|chunk| {
+            serde_json::json!({
+                "type": 1,
+                "components": chunk
+            })
+        })
+        .collect();
+    Some(serde_json::Value::Array(rows))
 }

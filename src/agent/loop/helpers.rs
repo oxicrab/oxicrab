@@ -737,6 +737,10 @@ pub(super) fn start_typing(
         Some(TypingGuard(tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(Duration::from_secs(TYPING_INDICATOR_INTERVAL_SECS));
+            // Skip missed ticks instead of bursting them — after a GC pause
+            // we don't want to spam the channel with backlog "typing"
+            // notifications.
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
                 if tx.send(ctx.clone()).await.is_err() {

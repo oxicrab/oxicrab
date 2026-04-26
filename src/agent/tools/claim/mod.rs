@@ -190,7 +190,7 @@ impl Tool for ClaimTool {
             actions: actions![
                 add,
                 list: ro,
-                get: ro,
+                get,
                 lint: ro,
                 update_status
             ],

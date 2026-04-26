@@ -119,6 +119,18 @@ impl ChannelManager {
 
         info!("channel manager: {} channel(s) enabled", enabled.len());
 
+        // Catch duplicate channel names. ChannelManager.send returns
+        // on the first match, so a second registration with the same
+        // name would be unreachable. Each built-in channel registers
+        // exactly once today, but a custom build or test that
+        // doubled up would otherwise see silently-dropped traffic.
+        let mut seen = std::collections::HashSet::new();
+        for name in &enabled {
+            if !seen.insert(name.clone()) {
+                warn!("duplicate channel name '{name}' — second registration is unreachable");
+            }
+        }
+
         Self {
             channels,
             enabled_channels: enabled,

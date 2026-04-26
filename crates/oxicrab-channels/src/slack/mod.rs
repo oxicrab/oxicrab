@@ -115,6 +115,20 @@ fn is_retryable(err: &SlackApiError) -> bool {
     ) || matches!(err, SlackApiError::RateLimited { .. })
 }
 
+/// Network-layer errors (DNS, TCP reset, TLS, connect timeout) are
+/// not classified as `SlackApiError` because no HTTP response ever
+/// landed. Walk the anyhow error chain looking for a `reqwest::Error`
+/// whose category is connect/timeout/request — those should retry.
+fn is_retryable_network_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        if let Some(re) = cause.downcast_ref::<reqwest::Error>() {
+            re.is_connect() || re.is_timeout() || re.is_request()
+        } else {
+            false
+        }
+    })
+}
+
 /// Issue a Slack `reactions.remove` / `reactions.add` call and surface any
 /// failure — HTTP-layer (5xx, network) *and* application-layer (HTTP 200
 /// with `ok:false`, the common case for missing scopes or deleted
@@ -415,7 +429,8 @@ impl SlackChannel {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let classified = e.downcast_ref::<SlackApiError>();
-                    let retryable = classified.is_some_and(is_retryable);
+                    let retryable =
+                        classified.is_some_and(is_retryable) || is_retryable_network_error(&e);
                     if !retryable {
                         if let Some(api_err) = classified {
                             match api_err {
@@ -1587,9 +1602,21 @@ async fn handle_slack_event(
     if !is_dm && !bot_mentioned {
         let thread_ts = event.get("thread_ts").and_then(Value::as_str);
         let in_tracked_thread = if let Some(ts) = thread_ts {
+            // Touch the entry so an active thread doesn't age out
+            // mid-conversation. Without this, the TTL counts from the
+            // bot's last reply, not from the most recent inbound
+            // message — a chatty thread can fall off right as the
+            // user pings the bot back.
             participated_threads
                 .lock()
-                .map(|threads| threads.contains_key(ts))
+                .map(|mut threads| {
+                    if let Some(entry) = threads.get_mut(ts) {
+                        *entry = std::time::Instant::now();
+                        true
+                    } else {
+                        false
+                    }
+                })
                 .unwrap_or(false)
         } else {
             false
