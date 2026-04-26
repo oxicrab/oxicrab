@@ -3,6 +3,7 @@ use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use oxicrab_core::utils::url_params::validate_url_segment;
+use tracing::warn;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -131,7 +132,7 @@ impl TodoistTool {
         }
 
         if cursor.is_some() {
-            tracing::warn!(
+            warn!(
                 "todoist pagination limit reached ({} pages), additional results may exist",
                 MAX_PAGES
             );

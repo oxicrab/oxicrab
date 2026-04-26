@@ -1,4 +1,5 @@
 use oxicrab_core::providers::base::ToolDefinition;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct SemanticSelection {
@@ -92,7 +93,7 @@ impl SemanticToolIndex {
             .take(self.top_k)
             .collect();
         if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
-            tracing::debug!(
+            debug!(
                 "semantic filter: low confidence margin {:.3} between '{}' ({:.3}) and '{}' ({:.3})",
                 selected[0].1 - selected[1].1,
                 selected[0].0,
@@ -171,7 +172,7 @@ impl SemanticToolIndex {
             .take(self.top_k)
             .collect();
         if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
-            tracing::debug!(
+            debug!(
                 "semantic filter: low confidence margin {:.3} between '{}' ({:.3}) and '{}' ({:.3})",
                 selected[0].1 - selected[1].1,
                 selected[0].0,

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::{debug, warn};
 
 pub use oxicrab_core::tools::base::routing_types::DirectiveTrigger;
 
@@ -37,7 +38,7 @@ impl DirectiveMatcher {
             match &d.trigger {
                 DirectiveTrigger::Exact(s) => {
                     if m.literal_to_index.contains_key(s) {
-                        tracing::debug!(
+                        debug!(
                             "router: directive literal conflict for '{}' (keeping first)",
                             s
                         );
@@ -48,7 +49,7 @@ impl DirectiveMatcher {
                 DirectiveTrigger::OneOf(options) => {
                     for opt in options {
                         if m.literal_to_index.contains_key(opt) {
-                            tracing::warn!(
+                            warn!(
                                 "router: directive literal conflict for '{}' (keeping first)",
                                 opt
                             );

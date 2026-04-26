@@ -250,7 +250,7 @@ impl ChannelManager {
         }
         for channel in &mut self.channels {
             if let Err(e) = channel.stop().await {
-                tracing::warn!("error stopping channel {}: {}", channel.name(), e);
+                warn!("error stopping channel {}: {}", channel.name(), e);
             }
         }
         Ok(())

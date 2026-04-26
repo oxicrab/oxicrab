@@ -1,6 +1,8 @@
 //! Utility functions for channel implementations
 
 /// Maximum size for downloaded image attachments (20 MB).
+use tracing::debug;
+
 pub const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024;
 /// Maximum size for downloaded audio attachments (50 MB).
 pub const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024;
@@ -160,9 +162,9 @@ pub fn check_dm_access(
             if let Some(code) = requester.request_pairing(channel, sender) {
                 return DmCheckResult::PairingRequired { code };
             }
-            tracing::debug!("pairing request rate-limited for {} on {}", sender, channel);
+            debug!("pairing request rate-limited for {} on {}", sender, channel);
         } else {
-            tracing::debug!("no pairing requester configured, denying {}", sender);
+            debug!("no pairing requester configured, denying {}", sender);
         }
     }
 

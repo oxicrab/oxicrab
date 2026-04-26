@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::error;
 
 const MAX_CRON_MESSAGE_LEN: usize = 10_000;
 
@@ -848,7 +849,7 @@ impl Tool for CronTool {
                 let job_id_clone = job_id.clone();
                 tokio::spawn(async move {
                     if let Err(e) = cron.run_job(&job_id_clone, true).await {
-                        tracing::error!("cron run job {} failed: {}", job_id_clone, e);
+                        error!("cron run job {} failed: {}", job_id_clone, e);
                     }
                 });
 
@@ -942,7 +943,7 @@ impl Tool for CronTool {
                 let job_id_clone = job_id.clone();
                 tokio::spawn(async move {
                     if let Err(e) = cron.run_job(&job_id_clone, true).await {
-                        tracing::error!("cron dlq_replay job {} failed: {}", job_id_clone, e);
+                        error!("cron dlq_replay job {} failed: {}", job_id_clone, e);
                     }
                 });
 

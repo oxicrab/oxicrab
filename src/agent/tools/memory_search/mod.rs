@@ -7,6 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
+use tracing::warn;
 
 pub struct MemorySearchTool {
     memory: Arc<MemoryStore>,
@@ -211,7 +212,7 @@ impl Tool for MemorySearchTool {
                 }
                 Ok(_) => {} // empty, fall through to keyword search
                 Err(e) => {
-                    tracing::warn!("hybrid search failed, falling back to keyword: {}", e);
+                    warn!("hybrid search failed, falling back to keyword: {}", e);
                 }
             }
         }

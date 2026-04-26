@@ -1,5 +1,6 @@
 use crate::config::CognitiveConfig;
 use std::collections::VecDeque;
+use tracing::warn;
 
 /// Tracks tool call volume during an agent loop run and emits escalating
 /// pressure messages that nudge the LLM to self-checkpoint its progress.
@@ -28,11 +29,9 @@ impl CheckpointTracker {
             || sorted[1] != config.firm_threshold
             || sorted[2] != config.urgent_threshold
         {
-            tracing::warn!(
+            warn!(
                 "cognitive thresholds reordered: gentle={}, firm={}, urgent={}",
-                sorted[0],
-                sorted[1],
-                sorted[2]
+                sorted[0], sorted[1], sorted[2]
             );
             config.gentle_threshold = sorted[0];
             config.firm_threshold = sorted[1];

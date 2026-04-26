@@ -181,7 +181,7 @@ fn merge_toml_inner(base: &mut toml::Value, overlay: toml::Value, path: &mut Str
                 path.push_str(&key);
 
                 if SECURITY_SENSITIVE_KEYS.contains(&key.as_str()) {
-                    tracing::warn!("config overlay overrides security-sensitive key '{path}'");
+                    warn!("config overlay overrides security-sensitive key '{path}'");
                 }
 
                 match base_table.get_mut(&key) {

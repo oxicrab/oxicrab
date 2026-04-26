@@ -5,7 +5,7 @@ pub mod semantic;
 
 use std::collections::HashMap;
 
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 
 use context::RouterContext;
 use oxicrab_core::dispatch::{ActionDispatch, ActionSource};
@@ -100,7 +100,7 @@ impl MessageRouter {
         remember_checker: Option<RememberChecker>,
     ) -> Self {
         if prefix.is_empty() {
-            tracing::warn!(
+            warn!(
                 "router: empty prefix configured — all messages will match as prefix commands, \
                  falling back to '!'"
             );
@@ -123,7 +123,7 @@ impl MessageRouter {
             match &rule.trigger {
                 context::DirectiveTrigger::Exact(s) => {
                     if static_literal_to_index.contains_key(s) {
-                        tracing::warn!(
+                        warn!(
                             "router: static rule literal conflict for '{}' (keeping first)",
                             s
                         );
@@ -134,7 +134,7 @@ impl MessageRouter {
                 context::DirectiveTrigger::OneOf(options) => {
                     for opt in options {
                         if static_literal_to_index.contains_key(opt) {
-                            tracing::warn!(
+                            warn!(
                                 "router: static rule literal conflict for '{}' (keeping first)",
                                 opt
                             );
@@ -152,7 +152,7 @@ impl MessageRouter {
         for rule in config_rules {
             let key = rule.trigger.to_lowercase();
             if config_rules_map.contains_key(&key) {
-                tracing::warn!(
+                warn!(
                     "router: config rule conflict for trigger '{}' (keeping first)",
                     key
                 );

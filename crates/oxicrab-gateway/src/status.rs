@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::error;
 
 use axum::Json;
 use axum::extract::State;
@@ -245,7 +246,7 @@ pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl Into
     let (tokens, cron_jobs, dlq_count, search_stats) = match db_result {
         Ok(v) => v,
         Err(e) => {
-            tracing::error!("status handler: spawn_blocking failed: {e}");
+            error!("status handler: spawn_blocking failed: {e}");
             return Json(serde_json::json!({
                 "status": "error",
                 "error": "db query failed",
