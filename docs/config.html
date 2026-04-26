@@ -1411,6 +1411,28 @@ RUST_LOG=info,whatsapp_rust=warn,oxicrab::channels=debug ./target/release/oxicra
         </table>
     </div>
 
+    <!-- RESOURCE LIMITS -->
+    <div id="resource-limits" class="cfg-section">
+        <h2>Resource Limits</h2>
+        <p>Hard caps applied at the boundaries where attacker- or LLM-controlled input enters the process. None are tunable today — they exist to prevent OOM and runaway-payload conditions, not to be policy knobs.</p>
+
+        <table class="cfg-table">
+            <tr><th>Boundary</th><th>Cap</th></tr>
+            <tr><td>Inbound message (<code>MessageBus::publish_inbound</code>)</td><td>1 MB &mdash; longer messages are truncated</td></tr>
+            <tr><td>Gateway request body (chat, webhook, A2A)</td><td>1 MB via <code>DefaultBodyLimit</code></td></tr>
+            <tr><td>Webhook payload</td><td>1 MB</td></tr>
+            <tr><td>HTTP response bodies (HTTP / web tools)</td><td>10 MB via <code>limited_body()</code></td></tr>
+            <tr><td>HTML extracted by browser tool</td><td>500 KB</td></tr>
+            <tr><td>Browser screenshot height</td><td>10080 px clamp</td></tr>
+            <tr><td>Audio uploads (cloud transcription)</td><td>25 MB</td></tr>
+            <tr><td>Image generation base64 payload</td><td>30 MB pre-decode check</td></tr>
+            <tr><td>Context files (<code>USER.md</code>, <code>TOOLS.md</code>, <code>AGENTS.md</code>)</td><td>500 KB each</td></tr>
+            <tr><td>Skill file (<code>{name}.md</code>)</td><td>1 MB each</td></tr>
+            <tr><td>Context provider output</td><td>100 KB per call</td></tr>
+            <tr><td>Compaction summary</td><td>2000 chars (prevents unbounded growth across cycles)</td></tr>
+        </table>
+    </div>
+
 </div>
 
 <footer>

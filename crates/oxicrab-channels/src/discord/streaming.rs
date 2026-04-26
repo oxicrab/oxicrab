@@ -13,6 +13,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
+use crate::discord::payloads::parse_unified_buttons_value;
+use crate::dispatch::DispatchContextStore;
+
 /// Discord allows roughly 5 edits per second per webhook. We use a
 /// 1-second throttle window matching the other channels for parity.
 const EDIT_THROTTLE: Duration = Duration::from_millis(1_000);
@@ -33,13 +36,15 @@ struct TurnState {
 pub struct DiscordStreamConsumer {
     http: Arc<serenity::http::Http>,
     state: Arc<DashMap<String, TurnState>>,
+    dispatch_store: Arc<DispatchContextStore>,
 }
 
 impl DiscordStreamConsumer {
-    pub fn new(http: Arc<serenity::http::Http>) -> Self {
+    pub fn new(http: Arc<serenity::http::Http>, dispatch_store: Arc<DispatchContextStore>) -> Self {
         Self {
             http,
             state: Arc::new(DashMap::new()),
+            dispatch_store,
         }
     }
 
@@ -114,16 +119,31 @@ impl StreamConsumer for DiscordStreamConsumer {
         Ok(())
     }
 
-    async fn end(&self, turn_id: &str, outcome: StreamOutcome, final_content: &str) -> Result<()> {
+    async fn end(
+        &self,
+        turn_id: &str,
+        outcome: StreamOutcome,
+        final_content: &str,
+        buttons: Option<&serde_json::Value>,
+    ) -> Result<()> {
         let Some((_k, state)) = self.state.remove(turn_id) else {
             debug!("discord stream end: unknown turn_id={turn_id}");
             return Ok(());
         };
         let body = Self::truncate(final_content);
-        if body.is_empty() {
+        if body.is_empty() && buttons.is_none() {
             return Ok(());
         }
-        let builder = serenity::builder::EditMessage::new().content(body);
+        // Discord lets editMessage carry both content and components
+        // in one call, so the streamed message ends up with buttons
+        // attached without a sidecar.
+        let mut builder = serenity::builder::EditMessage::new().content(body);
+        if let Some(buttons_val) = buttons {
+            let rows = parse_unified_buttons_value(buttons_val, Some(&self.dispatch_store));
+            if !rows.is_empty() {
+                builder = builder.components(rows);
+            }
+        }
         if let Err(e) = state
             .channel_id
             .edit_message(self.http.as_ref(), state.message_id, builder)

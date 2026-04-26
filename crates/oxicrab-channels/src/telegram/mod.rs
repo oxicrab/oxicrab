@@ -38,17 +38,6 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
-    /// Build a `TelegramStreamConsumer` that edits messages in this
-    /// channel as deltas arrive. Returns `None` when streaming is
-    /// disabled in config so the caller can skip registration.
-    pub fn stream_consumer(&self) -> Option<TelegramStreamConsumer> {
-        if self.config.stream {
-            Some(TelegramStreamConsumer::new(self.bot.clone()))
-        } else {
-            None
-        }
-    }
-
     pub fn new(config: TelegramConfig, inbound_tx: mpsc::Sender<InboundMessage>) -> Self {
         let bot = Bot::new(&config.token);
         Self {
@@ -71,6 +60,17 @@ fn build_inline_keyboard(
     dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
 ) -> Option<InlineKeyboardMarkup> {
     let buttons_val = msg.metadata.get(meta::BUTTONS)?;
+    build_inline_keyboard_from_value(buttons_val, dispatch_store)
+}
+
+/// Variant that takes a raw `meta::BUTTONS` JSON value directly.
+/// Used by the streaming consumer where there is no enclosing
+/// `OutboundMessage` — the dispatcher hands the buttons array to
+/// `end()` so the keyboard rides on the final edit.
+pub(crate) fn build_inline_keyboard_from_value(
+    buttons_val: &serde_json::Value,
+    dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
+) -> Option<InlineKeyboardMarkup> {
     let buttons = buttons_val.as_array()?;
     let rows: Vec<Vec<InlineKeyboardButton>> = buttons
         .iter()
@@ -210,6 +210,7 @@ impl BaseChannel for TelegramChannel {
         }
         Some(std::sync::Arc::new(TelegramStreamConsumer::new(
             self.bot.clone(),
+            self.dispatch_store.clone(),
         )))
     }
 

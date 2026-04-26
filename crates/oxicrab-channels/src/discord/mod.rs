@@ -611,6 +611,7 @@ impl BaseChannel for DiscordChannel {
         }
         Some(std::sync::Arc::new(DiscordStreamConsumer::new(
             self.serenity_http.clone(),
+            self.dispatch_store.clone(),
         )))
     }
 

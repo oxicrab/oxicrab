@@ -19,6 +19,10 @@ struct RunningMcpServer {
 }
 
 /// Manages connections to MCP servers and discovers their tools.
+///
+/// Timeouts: 30s on the initial JSON-RPC handshake, 10s on per-server
+/// tool discovery. Both bound startup so a single dead MCP server can't
+/// stall the agent boot.
 pub struct McpManager {
     servers: Vec<RunningMcpServer>,
     workspace: PathBuf,

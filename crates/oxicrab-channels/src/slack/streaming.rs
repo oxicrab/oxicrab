@@ -136,24 +136,91 @@ impl StreamConsumer for SlackStreamConsumer {
         Ok(())
     }
 
-    async fn end(&self, turn_id: &str, outcome: StreamOutcome, final_content: &str) -> Result<()> {
+    async fn end(
+        &self,
+        turn_id: &str,
+        outcome: StreamOutcome,
+        final_content: &str,
+        buttons: Option<&Value>,
+    ) -> Result<()> {
         let Some((_k, state)) = self.state.remove(turn_id) else {
             debug!("slack stream end: unknown turn_id={turn_id}");
             return Ok(());
         };
         let body = Self::truncate(final_content);
-        if body.is_empty() {
+        if body.is_empty() && buttons.is_none() {
             return Ok(());
         }
-        let mut params: HashMap<&str, Value> = HashMap::new();
-        params.insert("channel", Value::String(state.channel));
-        params.insert("ts", Value::String(state.ts));
-        params.insert("text", Value::String(body.to_string()));
-        if let Err(e) = self.slack_post("chat.update", &params).await {
-            warn!(
-                "slack stream final edit failed (outcome={:?}) for turn={turn_id}: {e}",
-                outcome
-            );
+
+        // Slack chat.update accepts both `text` and `blocks` in one
+        // call, so the buttons land on the same message that was
+        // streamed — no sidecar.
+        let button_blocks = buttons
+            .map(crate::slack::convert_buttons_value_to_blocks)
+            .unwrap_or_default();
+
+        if button_blocks.is_empty() {
+            let mut params: HashMap<&str, Value> = HashMap::new();
+            params.insert("channel", Value::String(state.channel));
+            params.insert("ts", Value::String(state.ts));
+            params.insert("text", Value::String(body.to_string()));
+            if let Err(e) = self.slack_post("chat.update", &params).await {
+                warn!(
+                    "slack stream final edit failed (outcome={:?}) for turn={turn_id}: {e}",
+                    outcome
+                );
+            }
+            return Ok(());
+        }
+
+        // With buttons: use chat.update with JSON body so blocks
+        // serialize correctly. Block Kit section.text caps at 3000
+        // chars, so we have to clip the body further than the
+        // streaming throttle's 8k cap.
+        let block_text: String = if body.chars().count() > 3000 {
+            let byte_idx = body.char_indices().nth(2997).map_or(body.len(), |(i, _)| i);
+            format!("{}...", &body[..byte_idx])
+        } else {
+            body.to_string()
+        };
+        let mut blocks = vec![serde_json::json!({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": block_text},
+        })];
+        blocks.extend(button_blocks);
+
+        let body_json = serde_json::json!({
+            "channel": state.channel,
+            "ts": state.ts,
+            "text": body,
+            "blocks": blocks,
+        });
+        let url = "https://slack.com/api/chat.update";
+        let resp = self
+            .client
+            .post(url)
+            .bearer_auth(&self.bot_token)
+            .json(&body_json)
+            .send()
+            .await;
+        match resp {
+            Ok(r) => {
+                let status = r.status();
+                let body: Value = r.json().await.unwrap_or(Value::Null);
+                if !status.is_success() || body.get("ok") != Some(&Value::Bool(true)) {
+                    warn!(
+                        "slack stream final edit failed (outcome={:?}) turn={turn_id} \
+                         status={status} body={body}",
+                        outcome
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "slack stream final edit transport error (outcome={:?}) turn={turn_id}: {e}",
+                    outcome
+                );
+            }
         }
         Ok(())
     }

@@ -1049,11 +1049,25 @@ async fn deliver_to_targets(
     }
 }
 
-/// Start the HTTP API server. Returns a join handle and the shared state
-/// (needed by the outbound router to deliver responses).
+/// Start the HTTP API server.
 ///
-/// `leak_detector` is shared across the message bus, agent loop, and gateway.
-/// It has known secrets pre-registered before being wrapped in `Arc`.
+/// Returns a `(JoinHandle, HttpApiState)`. The state is needed by the outbound
+/// router to deliver responses back to chat / A2A callers.
+///
+/// **Routes:** `POST /api/chat`, `GET /api/health`, `POST /api/webhook/{name}`,
+/// and the A2A trio (`GET /.well-known/agent.json`, `POST /a2a/tasks`,
+/// `GET /a2a/tasks/{id}`). Webhook auth is HMAC; chat + A2A are bearer-token.
+///
+/// **Request flow for `/api/chat` and `/a2a/tasks`:** the handler creates a
+/// oneshot, stores the sender in `HttpApiState.pending` keyed by
+/// `http-{uuid}` (or `a2a-{uuid}`), publishes an `InboundMessage` with
+/// `channel="http"`, and awaits the oneshot for up to 120 s. When the
+/// agent's outbound message arrives, [`route_response`] looks up the entry
+/// in `pending` and resolves the oneshot — which is why the outbound router
+/// must call it before falling through to channel dispatch.
+///
+/// `config.leak_detector` is shared with the message bus and agent loop. It
+/// has known secrets pre-registered before being wrapped in `Arc`.
 pub async fn start<S: BuildHasher>(
     config: GatewayStartConfig<S>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {

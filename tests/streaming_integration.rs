@@ -119,17 +119,17 @@ async fn per_turn_isolation_two_consecutive_turns() {
         "telegram".into(),
         "chat-1".into(),
     );
-    dispatcher_a.begin();
+    let _ = dispatcher_a.begin();
     dispatcher_a.delta("partial");
     dispatcher_a.delta("partial answer");
-    dispatcher_a.end(StreamOutcome::Complete, "partial answer.");
+    dispatcher_a.end(StreamOutcome::Complete, "partial answer.", None);
 
     // Turn B starts AFTER turn A's End — distinct turn_id.
     let dispatcher_b =
         StreamDispatcher::new(tx, "turn-B".into(), "telegram".into(), "chat-1".into());
-    dispatcher_b.begin();
+    let _ = dispatcher_b.begin();
     dispatcher_b.delta("new turn");
-    dispatcher_b.end(StreamOutcome::Complete, "new turn done.");
+    dispatcher_b.end(StreamOutcome::Complete, "new turn done.", None);
 
     // Drain and bucket events by turn_id.
     let mut events_a: Vec<StreamEvent> = vec![];
@@ -201,6 +201,7 @@ impl oxicrab_core::streaming::StreamConsumer for FailingConsumer {
         _turn_id: &str,
         _outcome: oxicrab_core::streaming::StreamOutcome,
         _final_content: &str,
+        _buttons: Option<&serde_json::Value>,
     ) -> anyhow::Result<()> {
         self.end_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -249,6 +250,7 @@ async fn pump_abandons_after_repeated_edit_failures() {
         turn_id: "t".into(),
         outcome: StreamOutcome::Complete,
         final_content: "final".into(),
+        buttons: None,
     })
     .unwrap();
     drop(tx);
@@ -285,8 +287,11 @@ async fn pump_abandons_after_repeated_edit_failures() {
                 turn_id,
                 outcome,
                 final_content,
+                buttons,
             } => {
-                let _ = consumer_dyn.end(&turn_id, outcome, &final_content).await;
+                let _ = consumer_dyn
+                    .end(&turn_id, outcome, &final_content, buttons.as_ref())
+                    .await;
             }
         }
     }
@@ -310,13 +315,13 @@ async fn per_turn_isolation_under_interleaving() {
     let a = StreamDispatcher::new(tx.clone(), "turn-A".into(), "c".into(), "x".into());
     let b = StreamDispatcher::new(tx, "turn-B".into(), "c".into(), "x".into());
 
-    a.begin();
+    let _ = a.begin();
     a.delta("a1");
-    b.begin();
+    let _ = b.begin();
     a.delta("a2"); // late delta from A arriving after B's Begin
     b.delta("b1");
-    a.end(StreamOutcome::Complete, "a-final");
-    b.end(StreamOutcome::Complete, "b-final");
+    a.end(StreamOutcome::Complete, "a-final", None);
+    b.end(StreamOutcome::Complete, "b-final", None);
 
     let mut a_count = 0;
     let mut b_count = 0;

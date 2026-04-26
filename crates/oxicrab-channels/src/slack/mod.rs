@@ -45,6 +45,11 @@ const IGNORED_SUBTYPES: &[&str] = &[
 const DEFAULT_RATE_LIMIT_BACKOFF_SECS: u32 = 30;
 
 /// Classified Slack API errors for structured handling.
+///
+/// `is_retryable()` is true for `RateLimited` and `ServerError(5xx)` —
+/// `send_slack_api_with_retry` / `send_slack_api_json_with_retry` use that
+/// to drive up-to-3 retries with the server-supplied Retry-After delay.
+/// Auth + scope + channel-not-found errors fail fast (no retry would help).
 #[derive(Debug)]
 enum SlackApiError {
     RateLimited { retry_after_secs: u32 },
@@ -116,6 +121,12 @@ fn is_retryable(err: &SlackApiError) -> bool {
 /// messages). Mirrors the inspection logic in `parse_slack_response` but
 /// does not require a `SlackChannel` handle, so it can run inside the
 /// fire-and-forget spawn used by the thinking/done reaction swap.
+///
+/// **Reaction lifecycle:** the inbound side adds `SlackConfig.thinking_emoji`
+/// (default `"eyes"`) when a message arrives; after a successful outbound
+/// send we remove the thinking emoji and add `SlackConfig.done_emoji`
+/// (default `"white_check_mark"`). Both swaps are fire-and-forget spawns
+/// and require the inbound message's `ts` to be carried through metadata.
 async fn run_reaction_call(
     client: &reqwest::Client,
     method: &str,
@@ -171,7 +182,11 @@ pub struct SlackChannel {
     seen_messages: Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
     user_cache: Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     client: reqwest::Client,
-    /// Threads the bot has participated in.
+    /// Threads the bot has participated in. Messages in tracked threads
+    /// are processed without requiring an `@mention` (both bot replies and
+    /// initial messages that received a reply qualify). Entries expire
+    /// after `THREAD_TRACK_TTL` (24h) and the map is hard-capped by
+    /// `THREAD_TRACK_MAX` to prevent unbounded growth in busy workspaces.
     /// Key: `thread_ts`, Value: last activity timestamp.
     participated_threads: Arc<std::sync::Mutex<HashMap<String, std::time::Instant>>>,
 }
@@ -1262,12 +1277,25 @@ use crate::media_utils::is_image_magic_bytes;
 
 /// Convert unified `metadata["buttons"]` to Slack Block Kit action blocks.
 ///
-/// Input format: `[{"id": "yes", "label": "Yes", "style": "primary"}, ...]`
-/// Output: Vec of Block Kit action block JSON values.
+/// Input format: `[{"id": "yes", "label": "Yes", "style": "primary", "context": "..."}, ...]`.
+/// Output: Vec of Block Kit JSON (typically a `section` block with text plus
+/// an `actions` block of buttons). The `context` field is set as the Slack
+/// button `value` (returned to us on click). Style mapping: `"primary"` →
+/// `"primary"`, `"danger"` → `"danger"`; everything else is omitted because
+/// Slack only supports those two styles. When any block exists, the caller
+/// must use `send_slack_api_json_with_retry` (form encoding can't carry
+/// nested `blocks` objects). Buttons attach to the last message chunk.
 fn convert_buttons_to_blocks(metadata: &HashMap<String, Value>) -> Vec<Value> {
     let Some(buttons_val) = metadata.get(oxicrab_core::bus::events::meta::BUTTONS) else {
         return Vec::new();
     };
+    convert_buttons_value_to_blocks(buttons_val)
+}
+
+/// Variant that takes the raw button JSON value directly. Used by
+/// the Slack stream consumer where there is no enclosing
+/// `OutboundMessage`.
+pub(crate) fn convert_buttons_value_to_blocks(buttons_val: &Value) -> Vec<Value> {
     let Some(buttons_arr) = buttons_val.as_array() else {
         return Vec::new();
     };
@@ -1315,8 +1343,20 @@ fn convert_buttons_to_blocks(metadata: &HashMap<String, Value>) -> Vec<Value> {
 
 /// Handle a Slack interactive payload (button clicks via Socket Mode).
 ///
-/// Parses `block_actions` payloads and creates an `InboundMessage` with
-/// `[button:{action_id}]` content, matching Discord's button click format.
+/// Socket Mode sends `type: "interactive"` envelopes alongside `events_api`.
+/// We parse `block_actions` payloads, pull `action_id` and `value` from
+/// `actions[0]`, then take one of two paths depending on the button's
+/// `value`:
+///
+/// 1. Parses as `ActionDispatchPayload` → set `InboundMessage.action` so
+///    the router runs the tool directly (no LLM round-trip).
+/// 2. Anything else → fall back to a free-text inbound with content
+///    `[button:{action_id}]` (plus `\nButton context: {value}` when
+///    present) — matches the Discord button-click contract.
+///
+/// Inbound metadata: `is_group`, `ts`, `user_id`, `button_context`. The same
+/// `check_dm_access` / `check_group_access` checks run as for normal
+/// messages.
 #[allow(clippy::too_many_arguments)]
 async fn handle_interactive_payload(
     payload: &Value,

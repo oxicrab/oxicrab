@@ -114,6 +114,17 @@ pub(super) fn parse_unified_buttons(
     let Some(buttons_val) = metadata.get(oxicrab_core::bus::events::meta::BUTTONS) else {
         return Vec::new();
     };
+    parse_unified_buttons_value(buttons_val, dispatch_store)
+}
+
+/// Variant that takes the raw button value directly (as the agent
+/// loop passes it via `StreamEvent::End.buttons`). Used by the
+/// Discord stream consumer where there is no enclosing
+/// `OutboundMessage`.
+pub(crate) fn parse_unified_buttons_value(
+    buttons_val: &serde_json::Value,
+    dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
+) -> Vec<CreateActionRow> {
     let Some(buttons_arr) = buttons_val.as_array() else {
         return Vec::new();
     };

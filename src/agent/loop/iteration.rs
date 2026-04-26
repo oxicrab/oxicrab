@@ -7,7 +7,7 @@ use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
 use crate::agent::trajectory::TrajectoryLogger;
 use crate::providers::base::{LLMProvider, LLMResponse, Message, StreamChunk, ToolCallRequest};
-use crate::providers::streaming::StreamOutcome;
+use crate::providers::streaming::BeginOutcome as StreamBeginOutcome;
 
 use super::helpers::{
     ApprovalContext, execute_tool_call, extract_media_paths, start_typing, strip_think_tags,
@@ -410,13 +410,15 @@ impl AgentLoop {
             // Cancellation takes priority over both timeout and
             // completion via tokio::select!'s biased polling.
             let llm_timeout_secs = self.llm_request_timeout_secs;
-            // Stream only when a dispatcher is attached AND the
-            // request is known to be final-text — `last_was_tool_only`
-            // strips tools for this call, so the model can't return
-            // a tool_calls payload. Tool-calling iterations stay on
-            // the non-streaming path because partial tool_call deltas
-            // would force speculative parsing.
-            let stream_now = last_was_tool_only && overrides.stream_dispatcher.is_some();
+            // Stream every iteration that has a dispatcher attached.
+            // The dispatcher's `begin_emitted` atomic ensures at-most
+            // one Begin across the whole run, so mixed text+tool
+            // iterations don't open a new placeholder for each text
+            // chunk. Tool-call-only iterations never emit a Delta,
+            // so Begin never fires and no live message exists. This
+            // also covers first-turn text-only Q&A — a Delta arrives,
+            // Begin fires, the user sees progressive edits.
+            let stream_now = overrides.stream_dispatcher.is_some();
             let response = if stream_now {
                 let dispatcher = overrides.stream_dispatcher.clone().expect("checked above");
                 run_streaming_call(
@@ -1890,14 +1892,18 @@ fn build_clean_summary_messages(messages: &[Message]) -> Vec<Message> {
 }
 
 /// Drive a streaming LLM call and pump deltas into `dispatcher`.
+/// Emits Begin (at most once across the whole agent run, guarded by
+/// the dispatcher's `begin_emitted` flag) plus Delta chunks. Does
+/// NOT emit End — the iteration loop's outer caller
+/// (`processing.rs`) emits End after the loop completes so it can
+/// carry final content plus button metadata in a single
+/// `chat.update` / `editMessage`. Buttons therefore land on the
+/// streamed message rather than on a sidecar.
 ///
 /// Returns the same `LLMResponse` shape as the non-streaming path so
-/// downstream loop logic is unchanged. The dispatcher's lifecycle is
-/// strictly bounded by this function: at most one `Begin`, zero or
-/// more `Delta`s, and at most one `End`. `Begin` is only sent on the
-/// first non-empty `Delta` chunk — providers that never emit text
-/// (pure tool-call response, or empty completion) get no events at
-/// all, so the channel layer never shows a stale "thinking" message.
+/// downstream loop logic is unchanged. Tool-call-only iterations
+/// never emit a Delta, so Begin never fires for them — the channel
+/// layer doesn't see anything for those iterations.
 async fn run_streaming_call(
     provider: &dyn LLMProvider,
     request: &crate::providers::base::ChatRequest,
@@ -1941,7 +1947,6 @@ async fn run_streaming_call(
     };
 
     let mut accumulated = String::new();
-    let mut begin_sent = false;
     let mut response: Option<LLMResponse> = None;
     let mut error: Option<String> = None;
 
@@ -1960,18 +1965,18 @@ async fn run_streaming_call(
                     continue;
                 }
                 accumulated.push_str(&text);
-                if !begin_sent {
-                    if dispatcher.begin() {
-                        begin_sent = true;
-                    } else {
-                        // Receiver gone — keep collecting the response
-                        // for the non-streaming fallback path, but
-                        // stop emitting events.
+                // Try to start the live message. The dispatcher's
+                // begin_emitted atomic guarantees at-most-one Begin
+                // across the whole agent run, so subsequent
+                // streamed iterations skip Begin and just send
+                // Deltas against the existing message.
+                match dispatcher.begin() {
+                    StreamBeginOutcome::Sent | StreamBeginOutcome::AlreadySent => {
+                        let _ = dispatcher.delta(&accumulated);
+                    }
+                    StreamBeginOutcome::ReceiverGone => {
                         debug!("stream consumer receiver dropped; ceasing dispatch");
                     }
-                }
-                if begin_sent {
-                    let _ = dispatcher.delta(&accumulated);
                 }
             }
             StreamChunk::Finish { response: r } => {
@@ -1985,34 +1990,17 @@ async fn run_streaming_call(
             StreamChunk::ReasoningDelta { .. }
             | StreamChunk::ToolCallStart { .. }
             | StreamChunk::ToolCallArgs { .. } => {
-                // Not displayed live in v1 (see streaming-v2.md
-                // "Out of scope"). Reasoning is recovered from the
-                // final response; tool calls are handled by the
+                // Not displayed live. Reasoning is recovered from
+                // the final response; tool calls are handled by the
                 // post-stream loop.
             }
         }
     }
 
+    let _ = accumulated; // ownership only, content lives on the dispatcher's message
     if let Some(resp) = response {
-        let final_content = resp.content.clone().unwrap_or_default();
-        if begin_sent {
-            let _ = dispatcher.end(StreamOutcome::Complete, &final_content);
-        }
-        metrics::counter!(
-            "oxicrab_streaming_turns_total",
-            "outcome" => "complete",
-        )
-        .increment(1);
         Ok(resp)
     } else if let Some(err) = error {
-        if begin_sent {
-            let _ = dispatcher.end(StreamOutcome::Failed, &accumulated);
-        }
-        metrics::counter!(
-            "oxicrab_streaming_turns_total",
-            "outcome" => "failed",
-        )
-        .increment(1);
         metrics::counter!(
             "oxicrab_streaming_fallback_to_nonstream_total",
             "reason" => "stream_error",
@@ -2020,15 +2008,6 @@ async fn run_streaming_call(
         .increment(1);
         Err(anyhow::anyhow!("stream error: {err}"))
     } else {
-        // Cancelled or stream ended without Finish/Error.
-        if begin_sent {
-            let _ = dispatcher.end(StreamOutcome::Cancelled, &accumulated);
-        }
-        metrics::counter!(
-            "oxicrab_streaming_turns_total",
-            "outcome" => "cancelled",
-        )
-        .increment(1);
         Err(anyhow::anyhow!("turn cancelled"))
     }
 }

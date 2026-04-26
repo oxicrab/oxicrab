@@ -93,8 +93,12 @@ async fn run_stream_pump(
                 turn_id,
                 outcome,
                 final_content,
+                buttons,
             } => {
-                if let Err(e) = consumer.end(&turn_id, outcome, &final_content).await {
+                if let Err(e) = consumer
+                    .end(&turn_id, outcome, &final_content, buttons.as_ref())
+                    .await
+                {
                     warn!("stream consumer end failed: {e}");
                     metrics::counter!(
                         "oxicrab_streaming_edit_failures_total",
@@ -475,8 +479,29 @@ impl AgentLoop {
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
 
+        // Emit the final End event, attaching button metadata so the
+        // pump can render the keyboard on the same message that was
+        // streamed. The pump checks the dispatcher to know whether
+        // Begin actually fired — if no Delta arrived (tool-call-only
+        // run, or short-circuited turn), End is a no-op against
+        // missing turn state.
+        let final_buttons = loop_result
+            .response_metadata
+            .get(crate::bus::meta::BUTTONS)
+            .cloned();
+        if let Some(dispatcher) = overrides.stream_dispatcher.as_ref()
+            && dispatcher.has_begun()
+        {
+            let final_text = loop_result.content.clone().unwrap_or_default();
+            let _ = dispatcher.end(
+                crate::providers::streaming::StreamOutcome::Complete,
+                &final_text,
+                final_buttons.clone(),
+            );
+        }
+
         // Close the stream by dropping the dispatcher. The pump's
-        // receiver returns None and the task exits.
+        // receiver returns None and the task exits cleanly.
         overrides.stream_dispatcher = None;
         let streamed = if let Some((handle, flag)) = stream_pump_state {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
@@ -486,31 +511,16 @@ impl AgentLoop {
         };
 
         // When streaming actually fired, the pump already delivered
-        // the visible text via progressive edits. The agent run can
-        // still produce media (screenshots, generated files) and
-        // interactive button metadata; deliver those via a sidecar
-        // outbound message with empty content so streamed turns are
-        // full-featured. Channels handle empty-text + media-or-buttons
-        // payloads as a normal attachment-only message.
+        // text + buttons on a single edit. Media (screenshots,
+        // generated files) still rides via a follow-up sidecar
+        // because edits cannot add attachments.
         if streamed {
             metrics::counter!("oxicrab_streaming_turns_total", "outcome" => "delivered")
                 .increment(1);
-            let has_media = !loop_result.media.is_empty();
-            let has_buttons = loop_result
-                .response_metadata
-                .contains_key(crate::bus::meta::BUTTONS);
-            if has_media || has_buttons {
-                let mut sidecar = OutboundMessage::from_inbound(msg.clone(), "")
+            if !loop_result.media.is_empty() {
+                let sidecar = OutboundMessage::from_inbound(msg.clone(), "")
                     .media(loop_result.media.clone())
                     .build();
-                if has_buttons
-                    && let Some(buttons) =
-                        loop_result.response_metadata.get(crate::bus::meta::BUTTONS)
-                {
-                    sidecar
-                        .metadata
-                        .insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
-                }
                 return Ok(Some(sidecar));
             }
             return Ok(None);

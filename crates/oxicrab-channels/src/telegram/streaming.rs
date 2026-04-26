@@ -19,6 +19,9 @@ use teloxide::prelude::*;
 use teloxide::types::{ChatId, MessageId};
 use tracing::{debug, warn};
 
+use crate::dispatch::DispatchContextStore;
+use crate::telegram::build_inline_keyboard_from_value;
+
 /// Minimum wall time between successive `editMessageText` calls for
 /// the same message. Telegram allows roughly 1 edit/sec per message
 /// before it starts rejecting with `429 Too Many Requests`.
@@ -52,13 +55,18 @@ pub struct TelegramStreamConsumer {
     /// Per-turn message bookkeeping. Keyed by `turn_id` so two
     /// concurrent turns in the same chat never share state.
     state: Arc<DashMap<String, TurnState>>,
+    /// Shared dispatch store so a button click on a streamed message
+    /// can recover full action-dispatch context that doesn't fit in
+    /// Telegram's 64-byte `callback_data`.
+    dispatch_store: Arc<DispatchContextStore>,
 }
 
 impl TelegramStreamConsumer {
-    pub fn new(bot: Bot) -> Self {
+    pub fn new(bot: Bot, dispatch_store: Arc<DispatchContextStore>) -> Self {
         Self {
             bot,
             state: Arc::new(DashMap::new()),
+            dispatch_store,
         }
     }
 
@@ -138,7 +146,13 @@ impl StreamConsumer for TelegramStreamConsumer {
         Ok(())
     }
 
-    async fn end(&self, turn_id: &str, outcome: StreamOutcome, final_content: &str) -> Result<()> {
+    async fn end(
+        &self,
+        turn_id: &str,
+        outcome: StreamOutcome,
+        final_content: &str,
+        buttons: Option<&serde_json::Value>,
+    ) -> Result<()> {
         let Some((_k, state)) = self.state.remove(turn_id) else {
             debug!("telegram stream end: unknown turn_id={turn_id}");
             return Ok(());
@@ -146,9 +160,17 @@ impl StreamConsumer for TelegramStreamConsumer {
         // Always perform the closing edit, even if the throttle
         // window has not elapsed — the user sees the final answer.
         let body = Self::truncate_for_telegram(final_content);
-        if body.is_empty() {
+        if body.is_empty() && buttons.is_none() {
             return Ok(());
         }
+
+        // Two-step commit when buttons are present: first set the
+        // text via editMessageText, then attach the keyboard via
+        // editMessageReplyMarkup. Telegram's editMessageText doesn't
+        // accept reply_markup in the same call when the markup type
+        // changes (or when starting from no-markup), so the split
+        // is the safest path across teloxide versions.
+        let body = if body.is_empty() { "\u{200B}" } else { body };
         if let Err(e) = self
             .bot
             .edit_message_text(state.chat_id, state.message_id, body)
@@ -158,6 +180,18 @@ impl StreamConsumer for TelegramStreamConsumer {
                 "telegram stream final edit failed (outcome={:?}) for turn={turn_id}: {e}",
                 outcome
             );
+        }
+
+        if let Some(buttons_val) = buttons
+            && let Some(keyboard) =
+                build_inline_keyboard_from_value(buttons_val, Some(&self.dispatch_store))
+            && let Err(e) = self
+                .bot
+                .edit_message_reply_markup(state.chat_id, state.message_id)
+                .reply_markup(keyboard)
+                .await
+        {
+            warn!("telegram stream keyboard edit failed for turn={turn_id}: {e}");
         }
         Ok(())
     }
