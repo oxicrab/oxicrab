@@ -25,8 +25,22 @@ pub struct ButtonSpec {
 /// agent loop reads and clears them after the matching run completes.
 #[derive(Clone, Default)]
 pub struct PendingButtons {
-    inner: Arc<Mutex<HashMap<String, Vec<ButtonSpec>>>>,
+    inner: Arc<Mutex<PendingButtonsState>>,
 }
+
+#[derive(Default)]
+struct PendingButtonsState {
+    map: HashMap<String, Vec<ButtonSpec>>,
+    /// Insertion order for FIFO eviction when `map` exceeds the cap.
+    /// Aborted runs (panic, cancel) skip `clear()`, so without a cap
+    /// the map grows without bound.
+    order: std::collections::VecDeque<String>,
+}
+
+/// Cap on retained pending-button request scopes. 256 is well past
+/// any realistic in-flight count and bounds memory growth from
+/// aborted runs that never reached `clear()`.
+const PENDING_BUTTONS_CAP: usize = 256;
 
 impl PendingButtons {
     pub fn new() -> Self {
@@ -34,24 +48,42 @@ impl PendingButtons {
     }
 
     pub fn store(&self, request_id: &str, buttons: Vec<ButtonSpec>) {
-        self.inner
+        let mut s = self
+            .inner
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(request_id.to_string(), buttons);
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if s.map.insert(request_id.to_string(), buttons).is_none() {
+            s.order.push_back(request_id.to_string());
+        }
+        while s.map.len() > PENDING_BUTTONS_CAP {
+            if let Some(oldest) = s.order.pop_front() {
+                s.map.remove(&oldest);
+            } else {
+                break;
+            }
+        }
     }
 
     pub fn take(&self, request_id: &str) -> Option<Vec<ButtonSpec>> {
-        self.inner
+        let mut s = self
+            .inner
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(request_id)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let v = s.map.remove(request_id);
+        if v.is_some() {
+            s.order.retain(|k| k != request_id);
+        }
+        v
     }
 
     pub fn clear(&self, request_id: &str) {
-        self.inner
+        let mut s = self
+            .inner
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(request_id);
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if s.map.remove(request_id).is_some() {
+            s.order.retain(|k| k != request_id);
+        }
     }
 }
 

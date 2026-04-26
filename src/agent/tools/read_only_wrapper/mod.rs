@@ -29,6 +29,21 @@ impl ReadOnlyToolWrapper {
         }
 
         let filtered_schema = filter_action_enum(&tool.parameters(), &read_only_actions);
+        // Drift guard: if `caps.actions` declares read-only actions
+        // but the JSON-schema enum has no overlap, filter_action_enum
+        // returns an empty enum with `required: ["action"]` —
+        // every LLM call would validation-fail. Skip wrapping in
+        // that case so the unwrapped tool stays out of the
+        // subagent surface.
+        let enum_empty = filtered_schema
+            .get("properties")
+            .and_then(|p| p.get("action"))
+            .and_then(|a| a.get("enum"))
+            .and_then(|e| e.as_array())
+            .is_some_and(Vec::is_empty);
+        if enum_empty {
+            return None;
+        }
         let base_desc = tool
             .description()
             .split(". Actions:")

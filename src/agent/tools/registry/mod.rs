@@ -83,11 +83,16 @@ fn coerce_value_to_schema(value: &mut Value, schema: &Value) {
             }
         }
         "boolean" if value.is_string() => {
-            // "true" → true, "false" → false
-            match value.as_str() {
-                Some("true") => *value = Value::Bool(true),
-                Some("false") => *value = Value::Bool(false),
-                _ => {}
+            // "true" → true, "false" → false. Match case-insensitively
+            // so Python-serialized models (`"True"` / `"False"`) and
+            // mixed-case proxy gateways are also coerced.
+            if let Some(s) = value.as_str() {
+                let lower = s.trim().to_ascii_lowercase();
+                if lower == "true" {
+                    *value = Value::Bool(true);
+                } else if lower == "false" {
+                    *value = Value::Bool(false);
+                }
             }
         }
         "array" | "object" if value.is_string() => {
@@ -560,19 +565,30 @@ impl ToolRegistry {
         }
     }
 
-    /// Marker that signals a schema hint has already been appended.
+    /// Marker prepended when a schema hint has been appended.
     /// Re-injecting on every retry would accumulate KB of identical
     /// schema dumps and accelerate context exhaustion.
     const SCHEMA_HINT_MARKER: &'static str = "\n\nTool description: ";
+    /// Metadata key tracking whether `inject_schema_hint` already
+    /// ran for this result. Using a metadata flag (instead of a
+    /// content substring scan) means a tool that legitimately echoes
+    /// the marker text in its output doesn't suppress hint
+    /// injection on retry.
+    const SCHEMA_HINT_FLAG: &'static str = "__schema_hint_injected__";
 
     /// When a tool returns an error, append its description and parameter schema
     /// as a hint so the LLM can self-correct without needing the full schema in
     /// every request. Caps: 500 char description, 3000 char schema.
-    /// Idempotent — won't double-append if the marker is already present.
+    /// Idempotent — won't double-append if the metadata flag is set.
     fn inject_schema_hint(tool: &dyn Tool, result: &mut ToolResult) {
         use std::fmt::Write as _;
 
-        if result.content.contains(Self::SCHEMA_HINT_MARKER) {
+        if result
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(Self::SCHEMA_HINT_FLAG))
+            .is_some_and(|v| v.as_bool() == Some(true))
+        {
             return;
         }
 
@@ -594,6 +610,10 @@ impl ToolRegistry {
             "{}{desc_capped}\nExpected parameters:\n{schema_capped}",
             Self::SCHEMA_HINT_MARKER
         );
+        result
+            .metadata
+            .get_or_insert_with(HashMap::new)
+            .insert(Self::SCHEMA_HINT_FLAG.to_string(), Value::Bool(true));
     }
 
     /// Execute a tool through the full middleware pipeline:
@@ -880,6 +900,21 @@ impl ToolMiddleware for TruncationMiddleware {
             let _ = write!(
                 result.content,
                 "\n\n[Full output ({raw_len} chars) stashed as '{key}'. Use stash_retrieve tool to access.]"
+            );
+            return;
+        }
+
+        // Truncate without stash (no stash configured, or stash()
+        // returned None on a rare LRU race). Append an explicit
+        // truncation note so the LLM knows the output is incomplete
+        // — without it, a result with media paths in metadata and
+        // silently-clipped text reads like a complete output.
+        if raw_len > self.max_chars {
+            result.content = truncate_tool_result(&result.content, self.max_chars);
+            let _ = write!(
+                result.content,
+                "\n\n[Output truncated: {raw_len} chars exceeded {}-char cap. Full output not retained.]",
+                self.max_chars
             );
             return;
         }
