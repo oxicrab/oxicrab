@@ -9,6 +9,33 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
+/// Recursively strip `null` values from a JSON tree. Some MCP
+/// servers reject any null in the argument structure, not just at
+/// the top level. Bounded by `MAX_DEPTH` so a pathological nesting
+/// can't blow the stack.
+fn strip_nulls(value: Value, depth: usize) -> Value {
+    const MAX_DEPTH: usize = 32;
+    if depth >= MAX_DEPTH {
+        return value;
+    }
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(k, v)| (k, strip_nulls(v, depth + 1)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .filter(|v| !v.is_null())
+                .map(|v| strip_nulls(v, depth + 1))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 /// Maximum size for MCP tool response content (10 MB).
 const MCP_RESULT_MAX_BYTES: usize = 10 * 1024 * 1024;
 
@@ -63,15 +90,18 @@ impl Tool for McpProxyTool {
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
         debug!("MCP tool call: {}", self.tool_name);
-        // Convert params Value to a Map for the MCP call
-        let arguments = match params {
+        // Convert params Value to a Map for the MCP call. Recursively
+        // strip nulls — some MCP servers reject any null in the
+        // request tree, not just at the top level. Bound the
+        // recursion at depth 32 to avoid blowing the stack on
+        // pathologically nested input.
+        let cleaned = strip_nulls(params, 0);
+        let arguments = match cleaned {
             Value::Object(map) => {
-                let filtered: serde_json::Map<String, Value> =
-                    map.into_iter().filter(|(_, v)| !v.is_null()).collect();
-                if filtered.is_empty() {
+                if map.is_empty() {
                     None
                 } else {
-                    Some(filtered)
+                    Some(map)
                 }
             }
             Value::Null => None,

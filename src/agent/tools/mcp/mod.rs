@@ -16,6 +16,12 @@ struct RunningMcpServer {
     client: rmcp::service::RunningService<rmcp::RoleClient, ()>,
     server_name: String,
     trust_level: McpTrust,
+    /// PID of the MCP server child process. Captured before
+    /// `serve(transport)` consumed the transport so shutdown can
+    /// send SIGTERM first and only fall back to SIGKILL after a
+    /// grace period — rmcp's drop path SIGKILLs immediately.
+    #[cfg(unix)]
+    child_pid: Option<u32>,
 }
 
 /// Manages connections to MCP servers and discovers their tools.
@@ -123,6 +129,10 @@ impl McpManager {
         cmd.stderr(std::process::Stdio::inherit());
 
         let transport = TokioChildProcess::new(cmd)?;
+        // Capture the PID before `serve` consumes the transport so
+        // shutdown can SIGTERM the child first.
+        #[cfg(unix)]
+        let child_pid = transport.id();
         let client = tokio::time::timeout(std::time::Duration::from_secs(30), ().serve(transport))
             .await
             .map_err(|_| anyhow::anyhow!("MCP handshake timed out for server '{name}' (30s)"))?
@@ -132,6 +142,8 @@ impl McpManager {
             client,
             server_name: name.to_string(),
             trust_level: trust.clone(),
+            #[cfg(unix)]
+            child_pid,
         })
     }
 
@@ -194,13 +206,33 @@ impl McpManager {
     }
 
     /// Gracefully shut down all MCP server connections.
+    ///
+    /// On Unix, send SIGTERM to each child first and give it a 3s
+    /// grace period to flush logs and write final state before the
+    /// rmcp Drop path SIGKILLs. Without this, every shutdown is a
+    /// hard kill — fine for stateless servers but rude to ones that
+    /// flush a journal.
     pub async fn shutdown(self) {
         for server in self.servers {
+            #[cfg(unix)]
+            if let Some(pid) = server.child_pid {
+                // SAFETY: kill(2) is async-signal-safe. SIGTERM
+                // to a process group is the standard graceful-stop
+                // signal; the child is free to ignore it.
+                unsafe {
+                    libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                }
+            }
             if let Err(e) = server.client.cancel().await {
                 warn!(
                     "error shutting down MCP server '{}': {}",
                     server.server_name, e
                 );
+            }
+            #[cfg(unix)]
+            if server.child_pid.is_some() {
+                // Brief grace period before rmcp's Drop SIGKILLs.
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             }
         }
     }

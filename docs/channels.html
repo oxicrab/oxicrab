@@ -291,6 +291,8 @@ mentionOnly = false
 stream = false</code></pre>
     </div>
 
+    <div class="note"><strong>Group ID format.</strong> Telegram group chat IDs are negative integers. Supergroups (the modern default for groups larger than ~200 members, and any group converted from "basic group") have IDs that start with <code>-100</code>, e.g. <code>-1001234567890</code>. <code>allowGroups</code> entries must match the runtime ID exactly &mdash; listing <code>"-1234567890"</code> when the supergroup is actually <code>"-1001234567890"</code> will silently deny. Use <a href="https://t.me/getidsbot">@getidsbot</a> in the group to read the canonical ID.</div>
+
     <h3>Supported features</h3>
     <div class="features-list">
       <span>Text messages</span>
