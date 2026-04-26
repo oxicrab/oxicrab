@@ -34,7 +34,10 @@ impl AgentLoop {
         let cfg = self.trajectory_config.auto_suggest.clone();
         let provider = self.provider.clone();
         let model = self.model.clone();
-        tokio::spawn(async move { run_scan(&db, &workspace, &cfg, provider, &model).await });
+        let leak_detector = self.leak_detector.clone();
+        tokio::spawn(async move {
+            run_scan(&db, &workspace, &cfg, provider, &model, &leak_detector).await;
+        });
     }
 }
 
@@ -44,6 +47,7 @@ async fn run_scan(
     cfg: &crate::config::TrajectoryAutoSuggestConfig,
     provider: Arc<dyn LLMProvider>,
     model: &str,
+    leak_detector: &Arc<crate::safety::LeakDetector>,
 ) {
     let candidates = match find_candidates(
         db,
@@ -64,7 +68,16 @@ async fn run_scan(
         );
         return;
     };
-    if let Err(e) = stage_candidate(workspace, &pick, cfg, provider.as_ref(), model).await {
+    if let Err(e) = stage_candidate(
+        workspace,
+        &pick,
+        cfg,
+        provider.as_ref(),
+        model,
+        leak_detector,
+    )
+    .await
+    {
         warn!("auto_suggest: failed to stage candidate: {e}");
     }
 }
@@ -75,6 +88,7 @@ async fn stage_candidate(
     cfg: &crate::config::TrajectoryAutoSuggestConfig,
     provider: &dyn LLMProvider,
     model: &str,
+    leak_detector: &crate::safety::LeakDetector,
 ) -> anyhow::Result<()> {
     let name = name_from_fingerprint(&pick.fingerprint);
     let body = if cfg.use_llm_body {
@@ -93,6 +107,7 @@ async fn stage_candidate(
         default_skill_body(pick)
     };
     let workspace_skills = workspace.join("skills");
+    let body = leak_detector.redact(&body);
     let path = crate::agent::skills::propose::propose_skill(&workspace_skills, &name, &body)?;
     info!(
         "auto_suggest: staged skill '{name}' at {} ({} occurrences)",

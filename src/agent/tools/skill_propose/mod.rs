@@ -35,6 +35,10 @@ pub struct SkillProposeTool {
     skill_index: Option<Arc<SkillIndex>>,
     /// Memory store for embedding access in incremental indexing.
     memory: Option<Arc<MemoryStore>>,
+    /// Redacts secrets from proposed skill bodies before they hit
+    /// disk. A skill markdown file written from LLM output may echo
+    /// a key the model saw earlier in the turn.
+    leak_detector: Option<Arc<crate::safety::LeakDetector>>,
 }
 
 impl SkillProposeTool {
@@ -43,7 +47,14 @@ impl SkillProposeTool {
             workspace_skills,
             skill_index: None,
             memory: None,
+            leak_detector: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_leak_detector(mut self, detector: Arc<crate::safety::LeakDetector>) -> Self {
+        self.leak_detector = Some(detector);
+        self
     }
 
     #[must_use]
@@ -146,7 +157,11 @@ impl Tool for SkillProposeTool {
                     Ok(b) => b,
                     Err(r) => return Ok(r),
                 };
-                match propose::propose_skill(&self.workspace_skills, name, body) {
+                let body_redacted = self
+                    .leak_detector
+                    .as_deref()
+                    .map_or_else(|| body.to_string(), |d| d.redact(body));
+                match propose::propose_skill(&self.workspace_skills, name, &body_redacted) {
                     Ok(path) => {
                         let buttons = vec![promote_button(name, "primary"), reject_button(name)];
                         Ok(ToolResult::new(format!(

@@ -662,7 +662,12 @@ impl AgentLoop {
             );
         }
         if let Some(ref rc) = loop_result.reasoning_content {
-            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
+            // Extended-thinking output can echo a system prompt or
+            // user secret verbatim. Redact before persisting to
+            // session — otherwise a future load would surface raw
+            // credentials inside the model's chain of thought.
+            let rc_redacted = self.leak_detector.redact(rc);
+            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc_redacted));
         }
         if let Some(ref rs) = loop_result.reasoning_signature {
             assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));

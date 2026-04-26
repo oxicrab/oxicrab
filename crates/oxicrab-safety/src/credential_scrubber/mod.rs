@@ -57,12 +57,25 @@ const SENSITIVE_KEYS: &[&str] = &[
 
 const REDACTION: &str = "[REDACTED]";
 
+/// Maximum recursion depth for JSON traversal. Beyond this depth the
+/// remainder of the subtree is returned verbatim — preventing stack
+/// overflow from pathologically nested input. 64 is well past
+/// anything legitimate code emits.
+const MAX_JSON_DEPTH: usize = 64;
+
 /// Recursively walk a `serde_json::Value` and replace any value whose
 /// key matches `SENSITIVE_KEYS` with `[REDACTED]`. Strings whose value
 /// itself is a URL get their query params scrubbed too. Arrays and
-/// nested objects are walked.
+/// nested objects are walked up to `MAX_JSON_DEPTH`.
 #[must_use]
 pub fn scrub_credentials_in_json(value: &Value) -> Value {
+    scrub_json_inner(value, 0)
+}
+
+fn scrub_json_inner(value: &Value, depth: usize) -> Value {
+    if depth >= MAX_JSON_DEPTH {
+        return value.clone();
+    }
     match value {
         Value::Object(map) => {
             let mut out = serde_json::Map::with_capacity(map.len());
@@ -70,12 +83,17 @@ pub fn scrub_credentials_in_json(value: &Value) -> Value {
                 if is_sensitive_key(key) {
                     out.insert(key.clone(), Value::String(REDACTION.to_string()));
                 } else {
-                    out.insert(key.clone(), scrub_credentials_in_json(child));
+                    out.insert(key.clone(), scrub_json_inner(child, depth + 1));
                 }
             }
             Value::Object(out)
         }
-        Value::Array(items) => Value::Array(items.iter().map(scrub_credentials_in_json).collect()),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|v| scrub_json_inner(v, depth + 1))
+                .collect(),
+        ),
         Value::String(s) => Value::String(scrub_credentials_in_text(s)),
         other => other.clone(),
     }
@@ -112,7 +130,13 @@ fn scrub_query_string(input: &str) -> String {
         }
         if let Some(eq) = part.find('=') {
             let key = &part[..eq];
-            if is_sensitive_key(key) {
+            // Percent-decode the key so encoded forms like
+            // `api%5Fkey` (api_key) are still detected. The decoded
+            // form is only used for the lookup; the on-the-wire key
+            // is preserved in the redacted output.
+            let decoded_key: std::borrow::Cow<'_, str> =
+                urlencoding::decode(key).unwrap_or(std::borrow::Cow::Borrowed(key));
+            if is_sensitive_key(&decoded_key) {
                 redacted.push_str(key);
                 redacted.push('=');
                 redacted.push_str(REDACTION);

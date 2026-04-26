@@ -456,7 +456,9 @@ fn register_skill_propose(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         None,
         &ctx.skills_embedding_model_id,
     ));
-    let tool = SkillProposeTool::new(workspace_skills).with_index(index, memory);
+    let tool = SkillProposeTool::new(workspace_skills)
+        .with_index(index, memory)
+        .with_leak_detector(ctx.leak_detector.clone());
     // Deferred so the tool is invisible by default. The LLM finds it
     // via `tool_search` when an operator or skill mentions skill
     // proposals. Promote/reject are mutating and routed through the
