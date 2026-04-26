@@ -1,51 +1,6 @@
 use super::*;
 
 #[test]
-fn test_migrate_config_moves_restrict_to_workspace() {
-    let input = serde_json::json!({
-        "tools": {
-            "exec": {
-                "timeout": 60,
-                "restrictToWorkspace": true
-            }
-        }
-    });
-    let result = migrate_config(input);
-    let tools = result.get("tools").unwrap();
-    assert_eq!(
-        tools.get("restrictToWorkspace"),
-        Some(&serde_json::json!(true))
-    );
-    let exec = tools.get("exec").unwrap();
-    assert!(exec.get("restrictToWorkspace").is_none());
-}
-
-#[test]
-fn test_migrate_config_no_overwrite_existing() {
-    let input = serde_json::json!({
-        "tools": {
-            "restrictToWorkspace": false,
-            "exec": {
-                "restrictToWorkspace": true
-            }
-        }
-    });
-    let result = migrate_config(input);
-    let tools = result.get("tools").unwrap();
-    assert_eq!(
-        tools.get("restrictToWorkspace"),
-        Some(&serde_json::json!(false))
-    );
-}
-
-#[test]
-fn test_migrate_config_no_tools_key() {
-    let input = serde_json::json!({"agents": {}});
-    let result = migrate_config(input.clone());
-    assert_eq!(result, input);
-}
-
-#[test]
 fn test_load_config_missing_explicit_file_errors() {
     let path = std::path::Path::new("/tmp/nonexistent_oxicrab_config_test.toml");
     let err = load_config(Some(path)).unwrap_err();

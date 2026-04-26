@@ -43,8 +43,7 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
         return Ok(default_config);
     }
 
-    let migrated = migrate_config(toml_to_json(&merged)?);
-    let mut config = deserialize_config_strict(migrated)?;
+    let mut config = deserialize_config_strict(toml_to_json(&merged)?)?;
 
     apply_runtime_overrides(&mut config);
 
@@ -200,23 +199,6 @@ fn merge_toml_inner(base: &mut toml::Value, overlay: toml::Value, path: &mut Str
 
 fn toml_to_json(value: &toml::Value) -> Result<JsonValue> {
     serde_json::to_value(value).with_context(|| "Failed to convert TOML config to JSON value")
-}
-
-/// Migrate legacy config keys before deserializing into the canonical schema.
-fn migrate_config(data: JsonValue) -> JsonValue {
-    // Move tools.exec.restrictToWorkspace -> tools.restrictToWorkspace
-    if let JsonValue::Object(mut map) = data {
-        if let Some(JsonValue::Object(tools_map)) = map.get_mut("tools")
-            && let Some(JsonValue::Object(exec_map)) = tools_map.get_mut("exec")
-            && let Some(restrict) = exec_map.remove("restrictToWorkspace")
-            && !tools_map.contains_key("restrictToWorkspace")
-        {
-            tools_map.insert("restrictToWorkspace".to_string(), restrict);
-        }
-        JsonValue::Object(map)
-    } else {
-        data
-    }
 }
 
 fn deserialize_config_strict(data: JsonValue) -> Result<Config> {

@@ -107,26 +107,13 @@ const SYNTHESIZED_TOOL_RESULT: &str = "(tool result was dropped by compaction; t
 ///    are deleted — the assistant never made the call, so the result is
 ///    spurious.
 /// 2. Orphaned assistant **`tool_calls`** (no matching result) are
-///    REPAIRED, not stripped, when `repair_orphans = true`: a synthesized
-///    `tool` message with placeholder content is inserted right after
-///    the orphaning assistant turn. This preserves the "I tried X"
-///    structure of the conversation. With `repair_orphans = false` the
-///    function falls back to the old strip-and-purge behavior.
+///    repaired: a synthesized `tool` message with placeholder content is
+///    inserted right after the orphaning assistant turn so the "I tried X"
+///    structure of the conversation is preserved.
 ///
-/// Returns `(orphaned_results_removed, orphaned_calls_repaired_or_stripped)`.
+/// Returns `(orphaned_results_removed, orphaned_calls_repaired)`.
 #[allow(clippy::implicit_hasher)]
 pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) -> (usize, usize) {
-    repair_orphaned_tool_messages(messages, true)
-}
-
-/// Lower-level entry point exposing the repair toggle. The agent loop
-/// uses `strip_orphaned_tool_messages` (repair=true); tests covering
-/// the legacy strip-only behavior call this directly.
-#[allow(clippy::implicit_hasher)]
-pub fn repair_orphaned_tool_messages(
-    messages: &mut Vec<HashMap<String, Value>>,
-    repair_orphans: bool,
-) -> (usize, usize) {
     // Collect tool_call IDs from assistant messages (tool_use side)
     let mut assistant_tool_ids: HashSet<String> = HashSet::new();
     for msg in messages.iter() {
@@ -189,95 +176,57 @@ pub fn repair_orphaned_tool_messages(
     let orphaned_calls = orphaned_call_ids.len();
 
     if orphaned_calls > 0 {
-        if repair_orphans {
-            // Repair: walk forward, find each assistant message
-            // carrying an orphaned id, and queue placeholder tool
-            // messages to insert right after it. Insert in reverse
-            // order to keep earlier indices valid.
-            let mut inserts: Vec<(usize, String)> = Vec::new();
-            for (idx, msg) in messages.iter().enumerate() {
-                if msg.get("role").and_then(Value::as_str) != Some("assistant") {
-                    continue;
-                }
-                let mut ids_here: Vec<String> = Vec::new();
-                if let Some(tool_calls) = msg.get("tool_calls").and_then(Value::as_array) {
-                    for tc in tool_calls {
-                        if let Some(id) = tc.get("id").and_then(Value::as_str)
-                            && orphaned_call_ids.contains(id)
-                        {
-                            ids_here.push(id.to_string());
-                        }
+        // Walk forward, find each assistant message carrying an
+        // orphaned id, and queue placeholder tool messages to insert
+        // right after it. Insert in reverse order so earlier indices
+        // stay valid as later inserts grow the vector.
+        let mut inserts: Vec<(usize, String)> = Vec::new();
+        for (idx, msg) in messages.iter().enumerate() {
+            if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+                continue;
+            }
+            let mut ids_here: Vec<String> = Vec::new();
+            if let Some(tool_calls) = msg.get("tool_calls").and_then(Value::as_array) {
+                for tc in tool_calls {
+                    if let Some(id) = tc.get("id").and_then(Value::as_str)
+                        && orphaned_call_ids.contains(id)
+                    {
+                        ids_here.push(id.to_string());
                     }
                 }
-                if let Some(content) = msg.get("content").and_then(Value::as_array) {
-                    for block in content {
-                        if block.get("type").and_then(Value::as_str) == Some("tool_use")
-                            && let Some(id) = block.get("id").and_then(Value::as_str)
-                            && orphaned_call_ids.contains(id)
-                            && !ids_here.iter().any(|x| x == id)
-                        {
-                            ids_here.push(id.to_string());
-                        }
+            }
+            if let Some(content) = msg.get("content").and_then(Value::as_array) {
+                for block in content {
+                    if block.get("type").and_then(Value::as_str) == Some("tool_use")
+                        && let Some(id) = block.get("id").and_then(Value::as_str)
+                        && orphaned_call_ids.contains(id)
+                        && !ids_here.iter().any(|x| x == id)
+                    {
+                        ids_here.push(id.to_string());
                     }
                 }
-                for id in ids_here {
-                    inserts.push((idx + 1, id));
-                }
             }
-            // Insert in reverse so that earlier `idx + 1` positions
-            // stay valid as later inserts grow the vector.
-            for (pos, id) in inserts.into_iter().rev() {
-                let mut placeholder: HashMap<String, Value> = HashMap::new();
-                placeholder.insert("role".to_string(), Value::String("tool".to_string()));
-                placeholder.insert("tool_call_id".to_string(), Value::String(id));
-                placeholder.insert(
-                    "content".to_string(),
-                    Value::String(SYNTHESIZED_TOOL_RESULT.to_string()),
-                );
-                placeholder.insert("is_error".to_string(), Value::Bool(false));
-                messages.insert(pos, placeholder);
+            for id in ids_here {
+                inserts.push((idx + 1, id));
             }
-        } else {
-            // Strip: drop the orphaned tool_use blocks from the
-            // assistant message instead of repairing.
-            for msg in messages.iter_mut() {
-                if msg.get("role").and_then(Value::as_str) != Some("assistant") {
-                    continue;
-                }
-                if let Some(Value::Array(tool_calls)) = msg.get_mut("tool_calls") {
-                    tool_calls.retain(|tc| {
-                        tc.get("id")
-                            .and_then(Value::as_str)
-                            .is_none_or(|id| !orphaned_call_ids.contains(id))
-                    });
-                    if tool_calls.is_empty() {
-                        msg.remove("tool_calls");
-                    }
-                }
-                if let Some(Value::Array(content)) = msg.get_mut("content") {
-                    content.retain(|block| {
-                        if block.get("type").and_then(Value::as_str) != Some("tool_use") {
-                            return true;
-                        }
-                        block
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .is_none_or(|id| !orphaned_call_ids.contains(id))
-                    });
-                }
-            }
+        }
+        for (pos, id) in inserts.into_iter().rev() {
+            let mut placeholder: HashMap<String, Value> = HashMap::new();
+            placeholder.insert("role".to_string(), Value::String("tool".to_string()));
+            placeholder.insert("tool_call_id".to_string(), Value::String(id));
+            placeholder.insert(
+                "content".to_string(),
+                Value::String(SYNTHESIZED_TOOL_RESULT.to_string()),
+            );
+            placeholder.insert("is_error".to_string(), Value::Bool(false));
+            messages.insert(pos, placeholder);
         }
     }
 
     if orphaned_results > 0 || orphaned_calls > 0 {
-        let action = if repair_orphans {
-            "repaired"
-        } else {
-            "stripped"
-        };
         debug!(
-            "stripped {} orphaned tool_result(s) and {} {} orphaned tool_call(s)",
-            orphaned_results, action, orphaned_calls
+            "stripped {orphaned_results} orphaned tool_result(s) and repaired \
+             {orphaned_calls} orphaned tool_call(s)"
         );
     }
 

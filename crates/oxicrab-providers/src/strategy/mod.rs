@@ -1,10 +1,9 @@
 use crate::{API_URL_ANTHROPIC, API_URL_OPENAI, BASE_URL_GEMINI};
-use oxicrab_core::config::schema::{
-    AnthropicOAuthConfig, ProviderConfig, ProvidersConfig, normalize_provider,
-};
-// Re-export model resolution functions for backward compatibility.
 use anyhow::Result;
-pub use oxicrab_core::config::schema::{ModelRef, infer_provider_from_model, parse_model_ref};
+use oxicrab_core::config::schema::{
+    AnthropicOAuthConfig, ProviderConfig, ProvidersConfig, infer_provider_from_model,
+    normalize_provider, parse_model_ref,
+};
 use oxicrab_core::credential_store::OAuthTokenStore;
 use oxicrab_core::providers::base::LLMProvider;
 use std::sync::Arc;

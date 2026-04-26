@@ -30,7 +30,19 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
     if user_version(conn)? < 2 {
         run_migration(conn, 2, || {
             add_column_if_missing(conn, "llm_cost_log", "request_id", "TEXT")?;
-            add_column_if_missing(conn, "intent_metrics", "request_id", "TEXT")?;
+            // intent_metrics no longer exists on fresh DBs; on
+            // upgrades from v1, migration 12 drops the whole table.
+            // The add-column step is harmless on either path.
+            if conn
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='intent_metrics'",
+                    [],
+                    |_| Ok(()),
+                )
+                .is_ok()
+            {
+                add_column_if_missing(conn, "intent_metrics", "request_id", "TEXT")?;
+            }
             add_column_if_missing(conn, "memory_access_log", "request_id", "TEXT")?;
             Ok(())
         })?;
@@ -305,6 +317,26 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 12 {
+        run_migration(conn, 12, || {
+            // Drop the dead `cost_cents` column from llm_cost_log
+            // (token counts are the ground truth) and drop the
+            // never-written `intent_metrics` table. Both are
+            // conditional so the migration is idempotent on fresh
+            // databases that were created without those objects.
+            let has_cost_cents = conn
+                .prepare(
+                    "SELECT 1 FROM pragma_table_info('llm_cost_log') WHERE name = 'cost_cents'",
+                )?
+                .exists([])?;
+            if has_cost_cents {
+                conn.execute_batch("ALTER TABLE llm_cost_log DROP COLUMN cost_cents;")?;
+            }
+            conn.execute_batch("DROP TABLE IF EXISTS intent_metrics;")?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 
@@ -388,15 +420,13 @@ fn ensure_allowed_column_addition(
 ) -> Result<()> {
     if matches!(
         (table, column, definition),
-        (
-            "llm_cost_log" | "intent_metrics" | "memory_access_log",
-            "request_id",
-            "TEXT"
-        ) | (
-            "skills_index",
-            "embedding_model_id",
-            "TEXT NOT NULL DEFAULT ''"
-        )
+        ("llm_cost_log" | "memory_access_log", "request_id", "TEXT")
+            | ("intent_metrics", "request_id", "TEXT")
+            | (
+                "skills_index",
+                "embedding_model_id",
+                "TEXT NOT NULL DEFAULT ''"
+            )
     ) {
         return Ok(());
     }

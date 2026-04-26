@@ -28,10 +28,11 @@ pub(crate) struct ApprovalEntry {
 /// the agent loop sees a timeout.
 ///
 /// **Check order in `execute_tool_call`:**
-/// 1. MCP hard-block (untrusted servers)
-/// 2. Interactive approval (when `approval.enabled` covers the tool/action)
-/// 3. Legacy `requires_approval_for_action()` hard-block (only when
-///    interactive approval is disabled — provides a fallback gate)
+/// 1. MCP hard-block (untrusted servers).
+/// 2. Interactive approval (when `approval.enabled` covers the tool/action).
+/// 3. Per-tool `requires_approval_for_action()` hard-block — the
+///    always-on baseline gate, only reached when the interactive
+///    approval workflow is disabled or doesn't cover this action.
 /// 4. Normal execution.
 ///
 /// Interactive approval also runs on the direct-dispatch and action-dispatch

@@ -75,13 +75,6 @@ pub struct RouterContext {
     matcher: DirectiveMatcher,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct LegacyRouterContext {
-    active_tool: Option<String>,
-    action_directives: Vec<ActionDirective>,
-    updated_at_ms: i64,
-}
-
 impl RouterContext {
     /// Load from session metadata. Returns default if missing or malformed.
     pub fn from_session_metadata(
@@ -90,28 +83,13 @@ impl RouterContext {
         let Some(value) = metadata.get("router_context") else {
             return Self::default();
         };
-
-        if let Ok(mut ctx) = serde_json::from_value::<Self>(value.clone()) {
-            ctx.rebuild_matcher();
-            return ctx;
-        }
-
-        // Legacy fallback for old sessions using active_tool/action_directives.
-        if let Ok(legacy) = serde_json::from_value::<LegacyRouterContext>(value.clone()) {
-            let mut ctx = Self {
-                state: ContextState::Idle,
-                updated_at_ms: legacy.updated_at_ms,
-                matcher: DirectiveMatcher::default(),
-            };
-            if let Some(tool) = legacy.active_tool {
-                ctx.set_active_tool(Some(tool));
-                ctx.install_directives(legacy.action_directives);
+        match serde_json::from_value::<Self>(value.clone()) {
+            Ok(mut ctx) => {
+                ctx.rebuild_matcher();
+                ctx
             }
-            ctx.rebuild_matcher();
-            return ctx;
+            Err(_) => Self::default(),
         }
-
-        Self::default()
     }
 
     /// Save to session metadata.

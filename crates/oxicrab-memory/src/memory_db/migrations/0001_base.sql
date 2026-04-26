@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS llm_cost_log (
     output_tokens INTEGER NOT NULL DEFAULT 0,
     cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cost_cents REAL NOT NULL,
     caller TEXT NOT NULL DEFAULT 'main',
     request_id TEXT
 );
@@ -61,21 +60,6 @@ CREATE TABLE IF NOT EXISTS scheduled_task_dlq (
     retry_count INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending_retry'
 );
-
--- Vestigial: this table has no INSERT statements; only CREATE + purge remain.
--- Kept for backward compatibility with existing databases.
-CREATE TABLE IF NOT EXISTS intent_metrics (
-    id INTEGER PRIMARY KEY,
-    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-    event_type TEXT NOT NULL,
-    intent_method TEXT,
-    semantic_score REAL,
-    detection_layer TEXT,
-    message_preview TEXT,
-    request_id TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_intent_metrics_date ON intent_metrics(timestamp);
-CREATE INDEX IF NOT EXISTS idx_intent_metrics_type ON intent_metrics(event_type);
 
 CREATE TABLE IF NOT EXISTS workspace_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

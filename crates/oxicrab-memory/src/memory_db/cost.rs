@@ -29,8 +29,8 @@ impl MemoryDB {
         let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO llm_cost_log
-             (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller, request_id)
-             VALUES (?, ?, ?, ?, ?, 0.0, ?, ?)",
+             (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, caller, request_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
                 model,
                 input_tokens as i64,

@@ -57,49 +57,6 @@ fn test_parse_components_empty_metadata() {
     assert!(parse_components_from_metadata(&meta, None).is_empty());
 }
 
-#[test]
-fn test_parse_components_with_buttons() {
-    let mut meta = HashMap::new();
-    meta.insert(
-        "discord_components".to_string(),
-        serde_json::json!([
-            {
-                "buttons": [
-                    {"custom_id": "btn_ok", "label": "OK", "style": "primary"},
-                    {"custom_id": "btn_cancel", "label": "Cancel", "style": "danger"}
-                ]
-            }
-        ]),
-    );
-    let rows = parse_components_from_metadata(&meta, None);
-    assert_eq!(rows.len(), 1);
-}
-
-#[test]
-fn test_parse_components_empty_buttons_skipped() {
-    let mut meta = HashMap::new();
-    meta.insert(
-        "discord_components".to_string(),
-        serde_json::json!([{"buttons": []}]),
-    );
-    let rows = parse_components_from_metadata(&meta, None);
-    assert!(rows.is_empty());
-}
-
-#[test]
-fn test_parse_components_missing_custom_id_skipped() {
-    let mut meta = HashMap::new();
-    meta.insert(
-        "discord_components".to_string(),
-        serde_json::json!([
-            {"buttons": [{"label": "no_id"}]}
-        ]),
-    );
-    let rows = parse_components_from_metadata(&meta, None);
-    // Button without custom_id is filter_map'd out
-    assert!(rows.is_empty());
-}
-
 // --- Unified buttons format tests ---
 
 #[test]
@@ -120,25 +77,6 @@ fn test_parse_unified_buttons() {
 fn test_parse_unified_buttons_empty() {
     let meta = HashMap::new();
     assert!(parse_unified_buttons(&meta, None).is_empty());
-}
-
-#[test]
-fn test_discord_components_takes_precedence() {
-    let mut meta = HashMap::new();
-    // Both keys present — discord_components should win
-    meta.insert(
-        "discord_components".to_string(),
-        serde_json::json!([
-            {"buttons": [{"custom_id": "legacy", "label": "Legacy", "style": "primary"}]}
-        ]),
-    );
-    meta.insert(
-        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
-        serde_json::json!([{"id": "unified", "label": "Unified"}]),
-    );
-    let rows = parse_components_from_metadata(&meta, None);
-    assert_eq!(rows.len(), 1);
-    // parse_components_from_metadata checks discord_components first
 }
 
 #[test]

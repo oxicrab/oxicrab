@@ -881,7 +881,8 @@ async fn handle_callback_query(
         };
         (format!("[button:{action_id}]"), Some(dispatch))
     } else {
-        // Legacy fallback: send as text to LLM
+        // Free-text context (not an ActionDispatchPayload) — surface
+        // it to the LLM so the model can act on it.
         (
             format!("[button:{action_id}]\nButton context: {context_str}"),
             None,

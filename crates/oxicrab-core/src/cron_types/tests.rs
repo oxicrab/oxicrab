@@ -68,8 +68,9 @@ fn test_cron_job_full_roundtrip() {
 }
 
 #[test]
-fn test_backward_compat_missing_new_fields() {
-    // Jobs created before expires_at/max_runs existed should deserialize fine
+fn test_serde_defaults_for_missing_fields() {
+    // Verify `serde(default)` covers expires_at and max_runs so jobs
+    // serialized without those keys still deserialize successfully.
     let json = r#"{
         "id": "old-job",
         "name": "Old Job",

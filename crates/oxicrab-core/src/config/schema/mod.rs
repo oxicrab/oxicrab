@@ -220,11 +220,11 @@ pub struct WebhookConfig {
     /// When true, the receiver requires an `X-Webhook-Timestamp` header
     /// **and** that header must be included in the HMAC signature input
     /// (`HMAC(timestamp + "." + body)`). This is the only configuration
-    /// that gives hard replay protection: with the body-only fallback an
-    /// attacker who captured a valid request can strip the timestamp on
-    /// replay and the body-only signature still validates. Default
-    /// `false` for backwards compatibility with senders that don't sign
-    /// the timestamp.
+    /// that gives hard replay protection: with the lenient body-only
+    /// mode an attacker who captured a valid request can strip the
+    /// timestamp on replay and the body-only signature still validates.
+    /// Default `false` to support senders that don't sign the
+    /// timestamp; flip to `true` for hosts where replay risk matters.
     #[serde(default, rename = "requireTimestamp")]
     pub require_timestamp: bool,
 }

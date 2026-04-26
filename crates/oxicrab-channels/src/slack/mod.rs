@@ -1435,7 +1435,8 @@ async fn handle_interactive_payload(
         };
         (format!("[button:{action_id}]"), Some(dispatch))
     } else {
-        // Legacy fallback: send as text to LLM
+        // Free-text context (not an ActionDispatchPayload) — surface
+        // it to the LLM so the model can act on it.
         (
             format!("[button:{action_id}]\nButton context: {action_value}"),
             None,

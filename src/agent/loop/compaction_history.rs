@@ -161,8 +161,7 @@ impl AgentLoop {
         // previous summary before feeding it to the compaction LLM, so they don't
         // accumulate across cycles (annotations are re-appended below).
         // Annotations are prefixed with SOH (\x01) so they can't collide with
-        // LLM-generated text. For backward compatibility, also strip legacy
-        // annotations without the sentinel.
+        // LLM-generated text.
         let clean_summary = strip_annotations(&previous_summary);
         if let Some(ref compactor) = self.compactor {
             match compactor.compact(old_messages, clean_summary).await {
@@ -293,21 +292,14 @@ impl AgentLoop {
     }
 }
 
-/// Strip checkpoint/cognitive/recovery annotations from a compaction summary.
-///
-/// Current annotations use a SOH (`\x01`) sentinel prefix. For backward
-/// compatibility with summaries written before the sentinel was added, we
-/// also strip the legacy bare markers.
+/// Strip checkpoint / cognitive / recovery annotations from a
+/// compaction summary. Annotations are prefixed with the SOH (`\x01`)
+/// sentinel so they can't collide with LLM-generated text.
 fn strip_annotations(summary: &str) -> &str {
-    // Sentinel-prefixed markers (current format)
     let s = summary
         .split("\n\n\x01[Checkpoint]")
         .next()
         .unwrap_or(summary);
     let s = s.split("\n\n\x01[Cognitive").next().unwrap_or(s);
-    let s = s.split("\n\n\x01[Recovery").next().unwrap_or(s);
-    // Legacy markers (no sentinel)
-    let s = s.split("\n\n[Checkpoint]").next().unwrap_or(s);
-    let s = s.split("\n\n[Cognitive").next().unwrap_or(s);
-    s.split("\n\n[Recovery").next().unwrap_or(s)
+    s.split("\n\n\x01[Recovery").next().unwrap_or(s)
 }

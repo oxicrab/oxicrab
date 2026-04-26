@@ -11,7 +11,8 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 /// Context for the operator approval flow, passed into [`execute_tool_call`].
-/// When `None`, the approval gate is skipped (backward-compatible with tests).
+/// When `None`, the approval gate is skipped — used by tests that
+/// don't exercise the operator approval workflow.
 pub(super) struct ApprovalContext<'a> {
     pub store: &'a crate::agent::approval::ApprovalStore,
     pub config: &'a crate::config::ApprovalConfig,
@@ -191,8 +192,8 @@ pub(super) async fn execute_tool_call(
         }
     }
 
-    // Legacy hard-block: per-action approval (only reached when interactive
-    // approval is disabled or the action is not covered)
+    // Per-tool hard-block baseline: only reached when interactive
+    // approval is disabled or the action isn't covered by it.
     if tool.requires_approval_for_action(action) {
         warn!(
             "blocked tool requiring approval: {} (action={})",

@@ -7,7 +7,7 @@ fn applies_latest_user_version() {
     let v: u32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(v, 11);
+    assert_eq!(v, 12);
 }
 
 #[test]
@@ -25,15 +25,6 @@ fn adds_request_id_columns_when_missing() {
             cost_cents REAL NOT NULL,
             caller TEXT NOT NULL DEFAULT 'main'
         );
-         CREATE TABLE intent_metrics (
-            id INTEGER PRIMARY KEY,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            event_type TEXT NOT NULL,
-            intent_method TEXT,
-            semantic_score REAL,
-            detection_layer TEXT,
-            message_preview TEXT
-        );
          CREATE TABLE memory_access_log (
             id INTEGER PRIMARY KEY,
             query TEXT NOT NULL,
@@ -46,7 +37,7 @@ fn adds_request_id_columns_when_missing() {
     .unwrap();
     apply_migrations(&conn).unwrap();
 
-    for table in ["llm_cost_log", "intent_metrics", "memory_access_log"] {
+    for table in ["llm_cost_log", "memory_access_log"] {
         let mut stmt = conn
             .prepare(&format!("PRAGMA table_info({table})"))
             .unwrap();
@@ -57,6 +48,31 @@ fn adds_request_id_columns_when_missing() {
             .unwrap();
         assert!(cols.iter().any(|c| c == "request_id"));
     }
+}
+
+#[test]
+fn migration_12_drops_cost_cents_and_intent_metrics() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_migrations(&conn).unwrap();
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(llm_cost_log)")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(
+        !cols.iter().any(|c| c == "cost_cents"),
+        "cost_cents should be dropped, got: {cols:?}"
+    );
+    let intent_exists = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='intent_metrics'",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok();
+    assert!(!intent_exists, "intent_metrics table should be dropped");
 }
 
 #[test]

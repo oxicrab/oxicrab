@@ -784,8 +784,10 @@ async fn webhook_handler(
             return StatusCode::FORBIDDEN.into_response();
         }
     } else {
-        // Backwards-compatible mode: body-only HMAC is the primary
-        // check. Timestamped HMAC is opportunistic.
+        // Lenient mode: body-only HMAC is the primary check;
+        // timestamped HMAC is verified opportunistically when the
+        // sender includes a timestamp header. Set
+        // `requireTimestamp = true` for hard replay protection.
         if !validate_webhook_signature(&config.secret, signature, &body) {
             warn!("security: webhook {name}: invalid signature");
             return StatusCode::FORBIDDEN.into_response();

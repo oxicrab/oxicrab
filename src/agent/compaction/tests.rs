@@ -151,42 +151,45 @@ fn strip_orphans_removes_orphaned_tool_result() {
 }
 
 #[test]
-fn strip_orphans_detects_orphaned_tool_call() {
+fn strip_orphans_repairs_orphaned_tool_call() {
     let mut msgs = vec![
         user_msg("hello"),
         assistant_with_tool_calls("calling", &["tc_1"]),
         // No tool_result for tc_1
         assistant_msg("continuing without result"),
     ];
-    let (orphaned_results, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 1);
-    // All messages kept but tool_calls stripped from assistant
-    assert_eq!(msgs.len(), 3);
-    // The orphaned tool_calls key should be removed entirely
-    assert!(
-        !msgs[1].contains_key("tool_calls"),
-        "orphaned tool_calls should be stripped from assistant message"
-    );
+    // Repair mode inserts a placeholder tool message after the
+    // orphaning assistant turn instead of stripping the tool_call.
+    assert_eq!(msgs.len(), 4);
+    assert!(msgs[1].contains_key("tool_calls"), "tool_calls preserved");
+    assert_eq!(msgs[2]["role"], json!("tool"));
+    assert_eq!(msgs[2]["tool_call_id"], "tc_1");
 }
 
 #[test]
-fn strip_orphans_multiple_tool_calls_partial_orphan() {
+fn strip_orphans_repairs_partial_orphan_in_multi_call_turn() {
     let mut msgs = vec![
         user_msg("do two things"),
         assistant_with_tool_calls("calling tools", &["tc_1", "tc_2"]),
         tool_result_msg("tc_1", "result 1"),
-        // tc_2 result is missing (orphaned call)
+        // tc_2 result is missing — repaired with placeholder.
         assistant_msg("done"),
     ];
-    let (orphaned_results, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 1);
-    assert_eq!(msgs.len(), 4);
-    // tc_2 should be stripped but tc_1 should remain
+    // Both calls remain; placeholder for tc_2 inserted right after
+    // the assistant turn.
     let tool_calls = msgs[1]["tool_calls"].as_array().unwrap();
-    assert_eq!(tool_calls.len(), 1, "only matched tc_1 should remain");
-    assert_eq!(tool_calls[0]["id"], "tc_1");
+    assert_eq!(tool_calls.len(), 2);
+    let placeholder_idx = msgs
+        .iter()
+        .position(|m| m.get("tool_call_id") == Some(&json!("tc_2")))
+        .expect("placeholder for tc_2 inserted");
+    assert_eq!(msgs[placeholder_idx]["role"], json!("tool"));
 }
 
 #[test]
@@ -212,26 +215,25 @@ fn strip_orphans_empty_messages() {
 }
 
 #[test]
-fn strip_orphans_openai_all_calls_orphaned_removes_key() {
-    // When ALL tool_calls in an assistant message are orphaned, the key is removed entirely
+fn strip_orphans_repairs_all_orphaned_calls_in_one_turn() {
     let mut msgs = vec![
         user_msg("do things"),
         assistant_with_tool_calls("calling", &["tc_a", "tc_b"]),
-        // No results for either
+        // No results for either — repair mode inserts a placeholder
+        // for each one.
         assistant_msg("done"),
     ];
-    let (_, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (_, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_calls, 2);
-    // tool_calls key should be removed entirely (not left as empty array)
-    assert!(
-        !msgs[1].contains_key("tool_calls"),
-        "tool_calls key should be removed when all calls are orphaned"
-    );
+    let tool_calls = msgs[1]["tool_calls"].as_array().unwrap();
+    assert_eq!(tool_calls.len(), 2, "both tool_calls preserved");
+    // Two placeholder tool messages inserted after the assistant turn.
+    assert_eq!(msgs[2]["role"], json!("tool"));
+    assert_eq!(msgs[3]["role"], json!("tool"));
 }
 
 #[test]
-fn strip_orphans_anthropic_tool_use_blocks_stripped() {
-    // Anthropic-style: orphaned tool_use blocks in content array should be stripped
+fn strip_orphans_anthropic_tool_use_repaired_with_placeholder() {
     let mut msgs = vec![
         user_msg("test"),
         HashMap::from([
@@ -248,76 +250,17 @@ fn strip_orphans_anthropic_tool_use_blocks_stripped() {
         tool_result_msg("tc_matched", "write result"),
         assistant_msg("done"),
     ];
-    let (_, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (_, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_calls, 1);
-    // Content array should still have text block + matched tool_use, but orphaned one removed
+    // All original content blocks preserved; placeholder tool message
+    // inserted for the orphaned id.
     let content = msgs[1]["content"].as_array().unwrap();
-    assert_eq!(content.len(), 2, "text + matched tool_use should remain");
-    assert_eq!(content[0]["type"], "text");
-    assert_eq!(content[1]["type"], "tool_use");
-    assert_eq!(content[1]["id"], "tc_matched");
-}
-
-#[test]
-fn strip_orphans_anthropic_all_tool_use_blocks_orphaned() {
-    // When all tool_use blocks in content are orphaned, only text blocks remain
-    let mut msgs = vec![
-        user_msg("test"),
-        HashMap::from([
-            ("role".into(), json!("assistant")),
-            (
-                "content".into(),
-                json!([
-                    {"type": "text", "text": "Calling tools"},
-                    {"type": "tool_use", "id": "tc_1", "name": "read", "input": {}},
-                    {"type": "tool_use", "id": "tc_2", "name": "write", "input": {}}
-                ]),
-            ),
-        ]),
-        // No results for either tool_use
-        assistant_msg("continuing"),
-    ];
-    let (_, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
-    assert_eq!(orphaned_calls, 2);
-    let content = msgs[1]["content"].as_array().unwrap();
-    assert_eq!(content.len(), 1, "only text block should remain");
-    assert_eq!(content[0]["type"], "text");
-    assert_eq!(content[0]["text"], "Calling tools");
-}
-
-#[test]
-fn strip_orphans_anthropic_preserves_image_blocks_when_tool_use_stripped() {
-    // Anthropic content arrays may interleave text, tool_use, AND image
-    // blocks (vision). Stripping an orphaned tool_use must not touch
-    // either the text or image blocks — earlier retain logic only
-    // checked the `tool_use` type, so this is the regression guard.
-    let mut msgs = vec![
-        user_msg("look at this"),
-        HashMap::from([
-            ("role".into(), json!("assistant")),
-            (
-                "content".into(),
-                json!([
-                    {"type": "text", "text": "Let me describe and check"},
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR"}},
-                    {"type": "tool_use", "id": "tc_orphan", "name": "lookup", "input": {}}
-                ]),
-            ),
-        ]),
-        // No tool_result for tc_orphan
-        assistant_msg("done"),
-    ];
-    let (_, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
-    assert_eq!(orphaned_calls, 1);
-    let content = msgs[1]["content"].as_array().unwrap();
-    assert_eq!(
-        content.len(),
-        2,
-        "text + image must remain after tool_use strip; got {content:?}"
-    );
-    assert_eq!(content[0]["type"], "text");
-    assert_eq!(content[1]["type"], "image");
-    assert_eq!(content[1]["source"]["media_type"], "image/png");
+    assert_eq!(content.len(), 3);
+    let placeholder_idx = msgs
+        .iter()
+        .position(|m| m.get("tool_call_id") == Some(&json!("tc_orphan")))
+        .expect("placeholder for tc_orphan inserted");
+    assert_eq!(msgs[placeholder_idx]["role"], json!("tool"));
 }
 
 #[test]
@@ -793,16 +736,19 @@ fn strip_orphans_anthropic_mixed_tool_use_partial_results() {
         tool_result_msg("tu_1", "file contents here"),
     ];
 
-    let (orphaned_results, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0, "no orphaned results");
     assert_eq!(orphaned_calls, 1, "tu_2 has no result");
 
-    // Verify tu_2 was stripped from the content array
+    // Repair mode keeps both tool_use blocks and inserts a placeholder
+    // for tu_2 right after the assistant turn.
     let content = msgs[1]["content"].as_array().unwrap();
-    assert_eq!(content.len(), 2, "text + tu_1 should remain");
-    assert_eq!(content[0]["type"], "text");
-    assert_eq!(content[1]["type"], "tool_use");
-    assert_eq!(content[1]["id"], "tu_1");
+    assert_eq!(content.len(), 3);
+    let placeholder_idx = msgs
+        .iter()
+        .position(|m| m.get("tool_call_id") == Some(&json!("tu_2")))
+        .expect("placeholder for tu_2 inserted");
+    assert_eq!(msgs[placeholder_idx]["role"], json!("tool"));
 }
 
 #[test]
@@ -832,25 +778,26 @@ fn strip_orphans_mixed_openai_and_anthropic_styles() {
         tool_result_msg("oai_1", "write result"),
     ];
 
-    let (orphaned_results, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 0);
     assert_eq!(msgs.len(), 4);
 
     // Now remove one result to create an orphan
     msgs.remove(3); // remove oai_1 result
-    let (orphaned_results, orphaned_calls) = repair_orphaned_tool_messages(&mut msgs, false);
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 1, "oai_1 should be orphaned");
-    // oai_1 should be stripped from tool_calls
-    assert!(
-        !msgs[1].contains_key("tool_calls"),
-        "empty tool_calls key should be removed"
-    );
-    // Anthropic tool_use should still be present
+    // tool_calls preserved; placeholder for oai_1 inserted.
+    assert!(msgs[1].contains_key("tool_calls"));
     let content = msgs[1]["content"].as_array().unwrap();
     assert_eq!(content.len(), 2);
     assert_eq!(content[1]["id"], "ant_1");
+    let placeholder_idx = msgs
+        .iter()
+        .position(|m| m.get("tool_call_id") == Some(&json!("oai_1")))
+        .expect("placeholder for oai_1 inserted");
+    assert_eq!(msgs[placeholder_idx]["role"], json!("tool"));
 }
 
 #[test]

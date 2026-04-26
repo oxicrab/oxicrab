@@ -658,12 +658,15 @@ impl AgentLoop {
                     if !caps.built_in {
                         continue;
                     }
-                    // Skip tools that have requires_approval_for_action overrides
-                    let has_legacy_gate = caps
+                    // Skip tools whose mutating actions are already
+                    // gated by the per-tool requires_approval_for_action
+                    // baseline — they don't need an extra warning when
+                    // the interactive workflow is disabled.
+                    let has_baseline_gate = caps
                         .actions
                         .iter()
                         .any(|a| !a.read_only && tool.requires_approval_for_action(a.name));
-                    if has_legacy_gate {
+                    if has_baseline_gate {
                         continue;
                     }
                     // Warn about unprotected mutating actions

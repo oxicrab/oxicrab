@@ -389,21 +389,6 @@ impl MemoryDB {
         rows.map_err(|e| anyhow::anyhow!("recent complexity events query failed: {e}"))
     }
 
-    /// Purge intent metrics older than `days`. Returns number of rows deleted.
-    pub fn purge_old_intent_metrics(&self, days: u32) -> Result<usize> {
-        if days == 0 {
-            return Ok(0);
-        }
-        let conn = self.lock_conn()?;
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
-        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
-        let deleted = conn.execute(
-            "DELETE FROM intent_metrics WHERE timestamp < ?",
-            [&cutoff_str],
-        )?;
-        Ok(deleted)
-    }
-
     /// Purge complexity routing logs older than `days`. Returns number of rows deleted.
     pub fn purge_old_complexity_logs(&self, days: u32) -> Result<usize> {
         if days == 0 {
