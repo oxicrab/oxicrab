@@ -80,6 +80,23 @@ impl std::fmt::Display for SlackApiError {
 
 impl std::error::Error for SlackApiError {}
 
+/// True when an outbound Slack `chat_id` targets a channel/group that is
+/// NOT in `allow_groups`. DM channels (`D…` prefix) are always allowed by
+/// this gate; sender-level access for DMs is enforced inbound via
+/// `check_dm_access`. Public (`C…`), private (`G…`), and multi-party DM
+/// (`M…`) channels all require allowlist membership. Defense-in-depth so
+/// the rule "this bot only acts in channels on `allowGroups`" is enforced
+/// on the outbound path too.
+fn outbound_group_blocked(
+    chat_id: &str,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
+) -> bool {
+    if chat_id.starts_with('D') {
+        return false; // DM
+    }
+    !allow_groups.allows(chat_id)
+}
+
 /// Classify a Slack API error from HTTP status, error field, and optional
 /// Retry-After header value.
 fn classify_slack_error(
@@ -1070,6 +1087,15 @@ impl BaseChannel for SlackChannel {
         if msg.channel != "slack" {
             return Ok(());
         }
+
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "slack: dropping outbound to channel {} — not in allowGroups",
+                msg.chat_id
+            );
+            return Ok(());
+        }
+
         self.send_message_impl(msg).await?;
 
         // Swap thinking → done reaction (fire-and-forget)
@@ -1124,6 +1150,15 @@ impl BaseChannel for SlackChannel {
         if msg.channel != "slack" {
             return Ok(None);
         }
+
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "slack: dropping outbound to channel {} — not in allowGroups",
+                msg.chat_id
+            );
+            return Ok(None);
+        }
+
         self.send_message_impl(msg).await
     }
 

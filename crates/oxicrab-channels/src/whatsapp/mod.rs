@@ -814,7 +814,7 @@ fn should_skip_own_message(
 /// acts in groups on `allowGroups`" is enforced on the outbound path
 /// too — not just inbound. DM JIDs (`@s.whatsapp.net`) are unaffected;
 /// sender-level access for DMs is enforced inbound via `check_dm_access`.
-fn outbound_group_blocked(
+pub(crate) fn outbound_group_blocked(
     chat_id: &str,
     allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
 ) -> bool {

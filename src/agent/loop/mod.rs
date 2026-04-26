@@ -91,7 +91,10 @@ struct SessionState {
 
 struct CachedSemanticIndex {
     signature: u64,
-    index: crate::router::semantic::SemanticToolIndex,
+    /// Wrapped in `Arc` so callers can release the cache lock
+    /// before running embedding work. Holding the lock across
+    /// `embed_query`/`embed_texts` blocks every parallel session.
+    index: std::sync::Arc<crate::router::semantic::SemanticToolIndex>,
 }
 
 /// RAII guard returned by `AgentLoop::set_pending_queue`. Restores the

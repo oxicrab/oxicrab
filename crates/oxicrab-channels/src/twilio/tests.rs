@@ -101,3 +101,43 @@ fn test_send_constructs_correct_url() {
         "https://conversations.twilio.com/v1/Conversations/CH1234567890/Messages"
     );
 }
+
+// --- outbound_group_blocked tests ---
+
+use oxicrab_core::config::schema::DenyByDefaultList;
+
+fn group_list(ids: &[&str]) -> DenyByDefaultList {
+    DenyByDefaultList::new(ids.iter().map(ToString::to_string).collect())
+}
+
+#[test]
+fn test_outbound_blocks_disallowed_conversation() {
+    let groups = group_list(&["CH1234567890"]);
+    assert!(outbound_group_blocked("CH9999999999", &groups));
+}
+
+#[test]
+fn test_outbound_allows_listed_conversation() {
+    let groups = group_list(&["CH1234567890"]);
+    assert!(!outbound_group_blocked("CH1234567890", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_all_conversations_when_allowgroups_empty() {
+    let groups = DenyByDefaultList::default();
+    assert!(outbound_group_blocked("CH1234567890", &groups));
+}
+
+#[test]
+fn test_outbound_allows_sms_phone_regardless() {
+    // Phone numbers (E.164 with `+` prefix) are SMS DMs — gated inbound
+    // by allow_from / dmPolicy.
+    let groups = DenyByDefaultList::default();
+    assert!(!outbound_group_blocked("+15551234567", &groups));
+}
+
+#[test]
+fn test_outbound_allows_wildcard_groups() {
+    let groups = group_list(&["*"]);
+    assert!(!outbound_group_blocked("CH1234567890", &groups));
+}

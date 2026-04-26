@@ -408,6 +408,14 @@ impl BaseChannel for TelegramChannel {
             return Ok(());
         }
 
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "telegram: dropping outbound to group {} — not in allowGroups",
+                msg.chat_id
+            );
+            return Ok(());
+        }
+
         let chat_id_num = msg.chat_id.parse::<i64>()?;
         let tg_chat_id = ChatId(chat_id_num);
 
@@ -488,6 +496,15 @@ impl BaseChannel for TelegramChannel {
         if msg.channel != "telegram" {
             return Ok(None);
         }
+
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "telegram: dropping outbound to group {} — not in allowGroups",
+                msg.chat_id
+            );
+            return Ok(None);
+        }
+
         let chat_id_num = msg.chat_id.parse::<i64>()?;
         let tg_chat_id = ChatId(chat_id_num);
         let is_group = chat_id_num < 0;
@@ -564,6 +581,25 @@ impl BaseChannel for TelegramChannel {
 }
 
 /// Send media attachments (photos, documents) for an outbound message.
+/// True when an outbound `chat_id` targets a Telegram group/supergroup/channel
+/// (negative integer) that is NOT in `allow_groups`. DMs (positive integers)
+/// are always allowed by this gate; sender-level access is enforced inbound
+/// via `check_dm_access`. Defense-in-depth so the rule "this bot only acts
+/// in groups on `allowGroups`" is enforced on the outbound path too.
+fn outbound_group_blocked(
+    chat_id: &str,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
+) -> bool {
+    let Ok(id) = chat_id.parse::<i64>() else {
+        // Unparseable chat_id can't be classified — fail closed.
+        return true;
+    };
+    if id >= 0 {
+        return false; // DM
+    }
+    !allow_groups.allows(&id.to_string())
+}
+
 async fn send_media_attachments(bot: &Bot, chat_id: ChatId, media: &[String]) {
     for path in media {
         let file_path = std::path::Path::new(path);

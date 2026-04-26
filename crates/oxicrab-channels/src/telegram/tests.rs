@@ -292,3 +292,61 @@ fn test_markdown_to_html_mixed_code_block_and_formatting() {
         "code block present: {output}"
     );
 }
+
+// --- outbound_group_blocked tests ---
+
+use oxicrab_core::config::schema::DenyByDefaultList;
+
+fn group_list(ids: &[&str]) -> DenyByDefaultList {
+    DenyByDefaultList::new(ids.iter().map(ToString::to_string).collect())
+}
+
+#[test]
+fn test_outbound_blocks_disallowed_group() {
+    let groups = group_list(&["-1001234567890"]);
+    assert!(outbound_group_blocked("-1009999999999", &groups));
+}
+
+#[test]
+fn test_outbound_allows_listed_group() {
+    let groups = group_list(&["-1001234567890"]);
+    assert!(!outbound_group_blocked("-1001234567890", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_all_groups_when_allowgroups_empty() {
+    // DenyByDefaultList::default() = deny-all. Outbound must enforce
+    // the same invariant the inbound side does.
+    let groups = DenyByDefaultList::default();
+    assert!(outbound_group_blocked("-1001234567890", &groups));
+}
+
+#[test]
+fn test_outbound_allows_dms_regardless_of_allowgroups() {
+    // DMs have positive chat_ids and are gated inbound by allow_from /
+    // dmPolicy. The outbound group check must not block them.
+    let groups = DenyByDefaultList::default();
+    assert!(!outbound_group_blocked("123456789", &groups));
+}
+
+#[test]
+fn test_outbound_allows_wildcard_groups() {
+    let groups = group_list(&["*"]);
+    assert!(!outbound_group_blocked("-1001234567890", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_unparseable_chat_id() {
+    // An outbound with a non-numeric chat_id can't be classified —
+    // fail closed rather than passing through.
+    let groups = group_list(&["*"]);
+    assert!(outbound_group_blocked("not-a-number", &groups));
+}
+
+#[test]
+fn test_outbound_supergroup_id_format() {
+    // Supergroups use the -100 prefix; verify the check still works.
+    let groups = group_list(&["-1001234567890"]);
+    assert!(!outbound_group_blocked("-1001234567890", &groups));
+    assert!(outbound_group_blocked("-1009876543210", &groups));
+}

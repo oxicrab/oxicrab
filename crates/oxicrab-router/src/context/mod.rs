@@ -217,7 +217,11 @@ impl RouterContext {
                 .map(|d| d.created_at_ms + d.ttl_ms)
                 .max()
                 .unwrap_or(0);
-            if directives.is_empty() || *expires_at_ms <= now_ms {
+            // Strict `<` so a directive expiring at exactly `now_ms`
+            // (which `is_expired` retains since it uses `>`) doesn't
+            // trigger set_idle while non-empty directives remain. The
+            // next prune tick will cleanly drop it.
+            if directives.is_empty() || *expires_at_ms < now_ms {
                 self.set_idle();
             } else {
                 self.rebuild_matcher();

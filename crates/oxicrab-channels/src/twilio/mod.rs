@@ -60,6 +60,22 @@ struct WebhookState {
     account_sid: String,
 }
 
+/// True when an outbound Twilio `chat_id` targets a Conversation that is
+/// NOT in `allow_groups`. SMS recipients (E.164 phone numbers prefixed
+/// with `+`) are always allowed by this gate; sender-level access for SMS
+/// is enforced inbound via `check_dm_access`. Defense-in-depth so the
+/// rule "this bot only acts in Conversations on `allowGroups`" is enforced
+/// on the outbound path too.
+fn outbound_group_blocked(
+    chat_id: &str,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
+) -> bool {
+    if chat_id.starts_with('+') {
+        return false; // SMS DM
+    }
+    !allow_groups.allows(chat_id)
+}
+
 fn validate_twilio_signature(
     auth_token: &str,
     signature: &str,
@@ -516,6 +532,14 @@ impl BaseChannel for TwilioChannel {
     }
 
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "twilio: dropping outbound to conversation {} — not in allowGroups",
+                msg.chat_id
+            );
+            return Ok(());
+        }
+
         if !msg.media.is_empty() {
             warn!(
                 "twilio: outbound media not yet supported, {} file(s) skipped",

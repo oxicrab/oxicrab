@@ -271,7 +271,8 @@ impl AgentLoop {
             }
             crate::router::RoutingDecision::GuidedLLM { policy } => {
                 // GuidedLLM is a strict policy gate: enforce a narrow tool set.
-                let subset = self.build_guided_tool_subset(&policy.allowed_tools);
+                let subset =
+                    self.build_guided_tool_subset(&policy.allowed_tools, &policy.blocked_tools);
                 routing_policy = Some(self.policy_from_allowlist(
                     subset,
                     policy.context_hint.clone(),
@@ -281,7 +282,8 @@ impl AgentLoop {
             crate::router::RoutingDecision::SemanticFilter { policy } => {
                 // Keep semantic-filtered turns narrow: include only core
                 // interaction helpers on top of semantically selected tools.
-                let subset = self.build_semantic_tool_subset(&policy.allowed_tools);
+                let subset =
+                    self.build_semantic_tool_subset(&policy.allowed_tools, &policy.blocked_tools);
                 routing_policy = Some(self.policy_from_allowlist(
                     subset,
                     policy.context_hint.clone(),
@@ -562,11 +564,17 @@ impl AgentLoop {
         if let Some(policy) = overrides.routing_policy.as_ref() {
             let allowed: std::collections::HashSet<&str> =
                 policy.allowed_tools.iter().map(String::as_str).collect();
+            let blocked: std::collections::HashSet<&str> =
+                policy.blocked_tools.iter().map(String::as_str).collect();
+            // A tool is "out of policy" if it was used but isn't in
+            // the allowed set, OR if it appears in the explicit
+            // blocked list (covering the case where a tool is in
+            // both, which the subset builder now strips).
             let out_of_policy: Vec<&str> = loop_result
                 .tools_used
                 .iter()
                 .map(String::as_str)
-                .filter(|name| !allowed.contains(*name))
+                .filter(|name| !allowed.contains(*name) || blocked.contains(*name))
                 .collect();
             if !out_of_policy.is_empty() {
                 warn!(
@@ -1204,20 +1212,25 @@ impl AgentLoop {
 
     /// Build the effective `GuidedLLM` tool subset.
     ///
-    /// Keeps router-selected tools and adds core interaction helpers.
-    fn build_guided_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
+    /// Keeps router-selected tools and adds core interaction helpers, then
+    /// strips anything in `blocked_tools` so an explicit block beats a
+    /// default-include of a core helper.
+    fn build_guided_tool_subset(&self, base_subset: &[String], blocked: &[String]) -> Vec<String> {
+        let blocked_set: std::collections::HashSet<&str> =
+            blocked.iter().map(String::as_str).collect();
         let mut allow: std::collections::HashSet<String> = base_subset
             .iter()
             .filter(|name| self.tools.get(name).is_some())
+            .filter(|name| !blocked_set.contains(name.as_str()))
             .cloned()
             .collect();
 
         for core in ["memory", "add_buttons"] {
-            if self.tools.get(core).is_some() {
+            if self.tools.get(core).is_some() && !blocked_set.contains(core) {
                 allow.insert(core.to_string());
             }
         }
-        if self.tools.get("tool_search").is_some() {
+        if self.tools.get("tool_search").is_some() && !blocked_set.contains("tool_search") {
             allow.insert("tool_search".to_string());
         }
 
@@ -1228,18 +1241,24 @@ impl AgentLoop {
 
     /// Build the effective `SemanticFilter` tool subset.
     ///
-    /// Keeps semantically-selected tools and adds only core interaction helpers.
-    /// Unlike guided turns, this intentionally does not include deferred tools
-    /// activated by `tool_search`, preserving semantic narrowing.
-    fn build_semantic_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
+    /// Keeps semantically-selected tools and adds only core interaction
+    /// helpers. Same blocked-tools precedence as `build_guided_tool_subset`.
+    fn build_semantic_tool_subset(
+        &self,
+        base_subset: &[String],
+        blocked: &[String],
+    ) -> Vec<String> {
+        let blocked_set: std::collections::HashSet<&str> =
+            blocked.iter().map(String::as_str).collect();
         let mut allow: std::collections::HashSet<String> = base_subset
             .iter()
             .filter(|name| self.tools.get(name).is_some())
+            .filter(|name| !blocked_set.contains(name.as_str()))
             .cloned()
             .collect();
 
         for core in ["memory", "add_buttons", "tool_search"] {
-            if self.tools.get(core).is_some() {
+            if self.tools.get(core).is_some() && !blocked_set.contains(core) {
                 allow.insert(core.to_string());
             }
         }
@@ -1258,34 +1277,36 @@ impl AgentLoop {
         if query.is_empty() {
             return None;
         }
-        // Hold the cache lock BEFORE reading tool definitions so a
-        // concurrent activate_deferred can't slip in between the defs
-        // snapshot and the signature check, leaving us with a
-        // stale-yet-cached index. Defs + signature compute are now
-        // both under the lock.
-        let mut cache = self.semantic_index_cache.lock().await;
-        let defs = self
-            .tools
-            .get_tool_definitions_with_activated(&std::collections::HashSet::new());
-        if defs.len() < 2 {
-            return None;
-        }
-        let signature = Self::semantic_definitions_signature(&defs);
-        if cache
-            .as_ref()
-            .is_none_or(|cached| cached.signature != signature)
-        {
-            *cache = Some(super::CachedSemanticIndex {
-                signature,
-                index: crate::router::semantic::SemanticToolIndex::new(
-                    defs,
-                    self.semantic_top_k,
-                    self.semantic_prefilter_k,
-                    self.semantic_threshold,
-                ),
-            });
-        }
-        let index = &cache.as_ref()?.index;
+        // Lock the cache only for the snapshot+rebuild window. The
+        // `Arc<SemanticToolIndex>` lets us drop the lock and run the
+        // embedding work outside, so a slow embed_query/embed_texts
+        // call doesn't block every parallel session that wants the
+        // same cache.
+        let index = {
+            let mut cache = self.semantic_index_cache.lock().await;
+            let defs = self
+                .tools
+                .get_tool_definitions_with_activated(&std::collections::HashSet::new());
+            if defs.len() < 2 {
+                return None;
+            }
+            let signature = Self::semantic_definitions_signature(&defs);
+            if cache
+                .as_ref()
+                .is_none_or(|cached| cached.signature != signature)
+            {
+                *cache = Some(super::CachedSemanticIndex {
+                    signature,
+                    index: std::sync::Arc::new(crate::router::semantic::SemanticToolIndex::new(
+                        defs,
+                        self.semantic_top_k,
+                        self.semantic_prefilter_k,
+                        self.semantic_threshold,
+                    )),
+                });
+            }
+            cache.as_ref()?.index.clone()
+        };
         #[cfg(feature = "embeddings")]
         let selection = {
             if let Some(emb) = self.memory.embedding_service()

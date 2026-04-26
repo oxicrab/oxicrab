@@ -850,3 +850,59 @@ fn test_thread_track_ttl_is_24_hours() {
         "thread tracking TTL should be 24 hours"
     );
 }
+
+// --- outbound_group_blocked tests ---
+
+use oxicrab_core::config::schema::DenyByDefaultList;
+
+fn group_list(ids: &[&str]) -> DenyByDefaultList {
+    DenyByDefaultList::new(ids.iter().map(ToString::to_string).collect())
+}
+
+#[test]
+fn test_outbound_blocks_disallowed_channel() {
+    let groups = group_list(&["C1234567890"]);
+    assert!(outbound_group_blocked("C9999999999", &groups));
+}
+
+#[test]
+fn test_outbound_allows_listed_channel() {
+    let groups = group_list(&["C1234567890"]);
+    assert!(!outbound_group_blocked("C1234567890", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_all_channels_when_allowgroups_empty() {
+    let groups = DenyByDefaultList::default();
+    assert!(outbound_group_blocked("C1234567890", &groups));
+    assert!(outbound_group_blocked("G1234567890", &groups));
+    assert!(outbound_group_blocked("M1234567890", &groups));
+}
+
+#[test]
+fn test_outbound_allows_dms_regardless_of_allowgroups() {
+    // D-prefix channels are DMs — gated inbound by allow_from / dmPolicy.
+    let groups = DenyByDefaultList::default();
+    assert!(!outbound_group_blocked("D1234567890", &groups));
+}
+
+#[test]
+fn test_outbound_allows_wildcard_groups() {
+    let groups = group_list(&["*"]);
+    assert!(!outbound_group_blocked("C1234567890", &groups));
+    assert!(!outbound_group_blocked("G1234567890", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_private_channel_not_in_list() {
+    // G-prefix = private/legacy channel. Must be allowlisted explicitly.
+    let groups = group_list(&["C1234567890"]);
+    assert!(outbound_group_blocked("G9999999999", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_multiparty_dm_not_in_list() {
+    // M-prefix = multi-party DM. Treated as a group — requires allowlist.
+    let groups = group_list(&["C1234567890"]);
+    assert!(outbound_group_blocked("M9999999999", &groups));
+}
