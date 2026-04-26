@@ -29,7 +29,7 @@ impl ChannelManager {
     #[allow(unused_variables, unused_mut)]
     pub fn new(config: &Config, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
-        let mut enabled = Vec::new();
+        let mut enabled: Vec<String> = Vec::new();
 
         #[cfg(feature = "channel-telegram")]
         if config.channels.telegram.enabled && !config.channels.telegram.token.is_empty() {

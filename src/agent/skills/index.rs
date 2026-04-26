@@ -8,7 +8,9 @@
 //! nothing has changed. Usage counters are preserved across re-indexes.
 
 use crate::agent::memory::memory_db::MemoryDB;
-use anyhow::{Context, Result};
+#[cfg(feature = "embeddings")]
+use anyhow::Context;
+use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::warn;
