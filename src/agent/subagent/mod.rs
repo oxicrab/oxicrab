@@ -138,12 +138,32 @@ impl SubagentManager {
                 tasks.len()
             );
         }
+        let bus_for_perm = bus.clone();
+        let label_for_perm = display_label.clone();
+        let task_for_perm = task.clone();
+        let origin_for_perm = origin.clone();
         let bg_task = tokio::spawn(async move {
             // Acquire semaphore permit — blocks if all slots are busy.
             // The permit is held for the duration of the task and released
             // on drop (including abort/cancellation).
             let Ok(_permit) = semaphore.acquire().await else {
+                // Semaphore closed during shutdown or capacity reset.
+                // The user already saw "Subagent started" — surface a
+                // failure announcement so they know it isn't running
+                // rather than waiting for a result that won't arrive.
                 warn!("subagent [{}] semaphore closed", task_id_clone);
+                if !silent {
+                    announce_result(
+                        &bus_for_perm,
+                        &task_id_clone,
+                        &label_for_perm,
+                        &task_for_perm,
+                        "subagent could not start (semaphore closed during shutdown)",
+                        &origin_for_perm,
+                        "error",
+                    )
+                    .await;
+                }
                 return;
             };
 
