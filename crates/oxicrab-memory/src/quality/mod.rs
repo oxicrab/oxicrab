@@ -197,7 +197,41 @@ pub fn filter_lines(content: &str) -> String {
         output.pop();
     }
 
-    output.join("\n")
+    // Drop headers whose body was fully rejected. A header has
+    // "body" iff there's a non-empty non-header line between it and
+    // the next header (or end-of-output). A header with only empty
+    // lines or another header following ships as a structurally
+    // meaningless heading.
+    let mut keep = vec![true; output.len()];
+    for (i, line) in output.iter().enumerate() {
+        if !line.trim_start().starts_with('#') {
+            continue;
+        }
+        let mut has_body = false;
+        for follow in output.iter().skip(i + 1) {
+            if follow.trim_start().starts_with('#') {
+                break;
+            }
+            if !follow.trim().is_empty() {
+                has_body = true;
+                break;
+            }
+        }
+        if !has_body {
+            keep[i] = false;
+        }
+    }
+    let mut filtered: Vec<String> = output
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(line, k)| if k { Some(line) } else { None })
+        .collect();
+    // Re-strip trailing empties that may have been exposed by header drops.
+    while filtered.last().is_some_and(|l| l.trim().is_empty()) {
+        filtered.pop();
+    }
+
+    filtered.join("\n")
 }
 
 #[cfg(test)]

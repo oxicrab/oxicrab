@@ -122,12 +122,18 @@ impl MemoryDB {
 
         // Cache miss or stale — load from DB, deserialize, and cache
         let raw = self.get_all_embeddings(None)?;
-        let mut entries = Vec::with_capacity(raw.len());
+        let total = raw.len();
+        let mut entries = Vec::with_capacity(total);
+        let mut dim_mismatches = 0usize;
         for (entry_id, source_key, content, emb_bytes) in raw {
             match deserialize_embedding(&emb_bytes) {
                 Ok(embedding) => {
                     if embedding.len() != expected_dim {
-                        warn!(
+                        dim_mismatches += 1;
+                        // Log per-entry at debug only; the aggregate
+                        // summary below carries the signal an
+                        // operator needs.
+                        tracing::debug!(
                             "embedding dimension mismatch: expected {}, got {} for entry {} — skipping",
                             expected_dim,
                             embedding.len(),
@@ -145,6 +151,20 @@ impl MemoryDB {
                 Err(e) => {
                     warn!("skipping corrupted embedding for entry {entry_id}: {e}");
                 }
+            }
+        }
+        // High-signal alert when most or all embeddings are stale —
+        // typical after an embedding model swap. Without this an
+        // operator sees N debug lines and search degrades silently.
+        if dim_mismatches > 0 && total > 0 {
+            let pct = (dim_mismatches * 100) / total;
+            if pct >= 50 {
+                warn!(
+                    "embedding dim mismatch on {dim_mismatches}/{total} entries ({pct}%) — \
+                     embedding model likely changed; consider rebuilding the index"
+                );
+            } else {
+                tracing::info!("embedding dim mismatch on {dim_mismatches}/{total} entries");
             }
         }
 
