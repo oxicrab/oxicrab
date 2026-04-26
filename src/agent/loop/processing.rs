@@ -857,11 +857,32 @@ impl AgentLoop {
     }
 
     async fn prepare_inbound_content(&self, msg: &InboundMessage) -> String {
-        // Transcribe any audio files before other processing.
-        let content = if let Some(ref lazy) = self.transcriber
-            && let Some(svc) = lazy.get()
-        {
-            transcribe_audio_tags(&msg.content, svc).await
+        // Transcribe any audio files before other processing. The
+        // transcription service initialises in the background; if a
+        // request arrives before init completes, falling straight
+        // through to strip_audio_tags silently loses audio. Wait
+        // briefly (up to 2s, polling at 100ms) so a freshly-started
+        // process has a chance to catch up before dropping the audio.
+        let content = if let Some(ref lazy) = self.transcriber {
+            let mut svc_opt = lazy.get();
+            if svc_opt.is_none() {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+                while svc_opt.is_none() && std::time::Instant::now() < deadline {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    svc_opt = lazy.get();
+                }
+                if svc_opt.is_none() {
+                    warn!(
+                        "transcription configured but not ready after 2s — \
+                         dropping audio tags from this turn"
+                    );
+                }
+            }
+            if let Some(svc) = svc_opt {
+                transcribe_audio_tags(&msg.content, svc).await
+            } else {
+                strip_audio_tags(&msg.content)
+            }
         } else {
             strip_audio_tags(&msg.content)
         };

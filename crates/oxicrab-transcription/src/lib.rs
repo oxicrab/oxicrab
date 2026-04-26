@@ -249,8 +249,9 @@ impl TranscriptionService {
         let ext = audio_path
             .extension()
             .and_then(|e| e.to_str())
-            .unwrap_or("ogg");
-        let mime_type = match ext {
+            .unwrap_or("ogg")
+            .to_ascii_lowercase();
+        let mime_type = match ext.as_str() {
             "mp3" => "audio/mpeg",
             "mp4" | "m4a" => "audio/mp4",
             "wav" => "audio/wav",
@@ -281,29 +282,71 @@ impl TranscriptionService {
             data.len()
         );
 
-        let file_part = reqwest::multipart::Part::bytes(data)
-            .file_name(file_name)
-            .mime_str(mime_type)?;
-        let form = reqwest::multipart::Form::new()
-            .part("file", file_part)
-            .text("model", self.model.clone())
-            .text("response_format", "json")
-            .text("temperature", "0");
-
-        let response = self
-            .client
-            .post(&self.api_base)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await
-            .context("whisper API request failed")?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            bail!("whisper API returned {status}: {body}");
+        // Retry once on 429 (rate limit) and 5xx (transient server
+        // error). The multipart Form is consumed by send() so each
+        // attempt rebuilds the form from the already-loaded `data`.
+        // 429 honours the `Retry-After` header when present;
+        // otherwise falls back to a 2s wait.
+        let mut last_err: Option<anyhow::Error> = None;
+        let mut response_opt = None;
+        for attempt in 0..3 {
+            let file_part = reqwest::multipart::Part::bytes(data.clone())
+                .file_name(file_name.clone())
+                .mime_str(mime_type)?;
+            let form = reqwest::multipart::Form::new()
+                .part("file", file_part)
+                .text("model", self.model.clone())
+                .text("response_format", "json")
+                .text("temperature", "0");
+            let resp_result = self
+                .client
+                .post(&self.api_base)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .multipart(form)
+                .send()
+                .await;
+            let response = match resp_result {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!("whisper API request failed: {e}"));
+                    if attempt < 2 {
+                        tokio::time::sleep(std::time::Duration::from_secs(1 << attempt)).await;
+                        continue;
+                    }
+                    break;
+                }
+            };
+            let status = response.status();
+            if status.is_success() {
+                response_opt = Some(response);
+                break;
+            }
+            let retryable = status.as_u16() == 429 || status.is_server_error();
+            if !retryable || attempt == 2 {
+                let body = response.text().await.unwrap_or_default();
+                bail!("whisper API returned {status}: {body}");
+            }
+            // For 429, prefer the Retry-After header when present.
+            let retry_after = if status.as_u16() == 429 {
+                response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(2)
+                    .min(30)
+            } else {
+                1u64 << attempt
+            };
+            warn!(
+                "whisper API returned {status} (attempt {}/3), retrying in {retry_after}s",
+                attempt + 1
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(retry_after)).await;
         }
+        let response = response_opt.ok_or_else(|| {
+            last_err.unwrap_or_else(|| anyhow::anyhow!("whisper API retry exhausted"))
+        })?;
 
         let body: serde_json::Value = response
             .json()

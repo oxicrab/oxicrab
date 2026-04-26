@@ -583,16 +583,29 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>,
 
 /// Replace `[prefix /path/to/file]` tags in content with an optional replacement string.
 /// If `replacement` is `None`, the tags are removed entirely.
+///
+/// Closing-`]` lookup uses the LAST `]` before the next `[prefix` (or
+/// end-of-string) instead of the first one. A path containing `]`
+/// (e.g. `[audio: /path/with]bracket.ogg]`) would otherwise get
+/// truncated to `/path/with`.
 fn replace_bracketed_tags(content: &str, prefix: &str, replacement: Option<&str>) -> String {
     let mut result = String::with_capacity(content.len());
     let mut remaining = content;
     while let Some(start) = remaining.find(prefix) {
         result.push_str(&remaining[..start]);
-        if let Some(end) = remaining[start..].find(']') {
+        // Look for the next prefix occurrence after `start` so we
+        // know where this tag's payload must end. The last `]`
+        // BEFORE that boundary is our closing bracket.
+        let after_prefix = start + prefix.len();
+        let scan_until = remaining[after_prefix..]
+            .find(prefix)
+            .map_or(remaining.len(), |n| after_prefix + n);
+        let payload = &remaining[after_prefix..scan_until];
+        if let Some(rel_end) = payload.rfind(']') {
             if let Some(rep) = replacement {
                 result.push_str(rep);
             }
-            remaining = &remaining[start + end + 1..];
+            remaining = &remaining[after_prefix + rel_end + 1..];
         } else {
             // No closing bracket -- keep the rest as-is
             remaining = &remaining[start..];
