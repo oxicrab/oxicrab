@@ -131,6 +131,49 @@ fn coerce_value_to_schema(value: &mut Value, schema: &Value) {
 /// `Number::from_f64` rejects these, so the coerce pass silently leaves the
 /// string in place — any downstream code that calls `as_f64()` would see
 /// `None` and treat the value as missing. Surface it as a hard error instead.
+/// JSON-schema validate `params` against `schema`. Returns `None` when
+/// valid, or `Some(short_error)` when not. Errors are deduplicated
+/// (jsonschema reports the same kind multiple times in nested objects)
+/// and capped at the first 6 unique messages so the LLM gets a usable
+/// hint, not a wall of redundant text.
+fn validate_against_schema(schema: &Value, params: &Value) -> Option<String> {
+    let compiled = jsonschema::validator_for(schema).ok()?;
+    if compiled.is_valid(params) {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut errors: Vec<String> = Vec::new();
+    for err in compiled.iter_errors(params).take(20) {
+        let msg = match err.kind() {
+            jsonschema::error::ValidationErrorKind::Required { property } => {
+                format!("missing required parameter '{property}'")
+            }
+            jsonschema::error::ValidationErrorKind::AdditionalProperties { unexpected } => {
+                format!("unknown parameter(s) {}", unexpected.join(", "))
+            }
+            _ => {
+                let path = err.instance_path().to_string();
+                if path.is_empty() {
+                    err.to_string()
+                } else {
+                    format!("{path}: {err}")
+                }
+            }
+        };
+        if seen.insert(msg.clone()) {
+            errors.push(msg);
+            if errors.len() >= 6 {
+                break;
+            }
+        }
+    }
+    if errors.is_empty() {
+        Some("schema validation failed".to_string())
+    } else {
+        Some(errors.join("; "))
+    }
+}
+
 fn find_nonfinite_number_strings(value: &Value, schema: &Value, path: &str, out: &mut Vec<String>) {
     let expected_type = schema.get("type").and_then(|t| t.as_str()).unwrap_or("");
     if (expected_type == "number" || expected_type == "integer")
@@ -528,6 +571,19 @@ impl ToolRegistry {
             return Ok(ToolResult::error(format!(
                 "invalid parameter: non-finite number value(s) at {}",
                 nonfinite.join(", ")
+            )));
+        }
+
+        // Phase 0.6: JSON-schema validate AFTER coerce. Validating
+        // before coerce rejects calls like {"action":"foo","limit":"5"}
+        // even though coerce would fix the string→integer mismatch.
+        // Running validate post-coerce makes the schema authoritative
+        // on STRUCTURE while letting the coerce pass smooth over LLM
+        // type quirks. Adopted from moltis pre-dispatch validation
+        // pattern (non_streaming.rs:499-516).
+        if let Some(err) = validate_against_schema(&schema, &params) {
+            return Ok(ToolResult::error(format!(
+                "Invalid arguments for tool '{name}': {err}"
             )));
         }
 

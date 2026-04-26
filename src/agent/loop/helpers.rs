@@ -198,14 +198,9 @@ pub(super) async fn execute_tool_call(
         ));
     }
 
-    // Validate params against schema before execution
-    if let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args) {
-        warn!(
-            "Tool '{}' param validation failed: {}",
-            tc_name, validation_error
-        );
-        return ToolResult::error(validation_error);
-    }
+    // (JSON-schema validation runs inside ToolRegistry::execute() AFTER
+    // coerce_params_to_schema — see registry/mod.rs Phase 0.6. Validating
+    // here would reject calls like {"limit": "5"} that coerce would fix.)
 
     // LLM-as-Judge: poison-resistant semantic gate. Fires after the
     // approval workflow (operators get the explicit click) but before
@@ -392,7 +387,25 @@ async fn await_approval(
             // Clean up the timed-out entry to prevent unbounded growth
             approval.store.remove(&approval_id);
             warn!("approval timed out for {tool_name}.{display_action} (requested by {sender_id})");
-            ToolResult::error("approval timed out — action not executed")
+            // F#4 fix: include the (redacted) request the operator
+            // didn't act on so the LLM has context to retry / pivot.
+            // Previously the error was opaque ("approval timed out —
+            // action not executed") and the model couldn't recover.
+            let redacted_params = approval.leak_detector.redact(&params.to_string());
+            let trimmed_params = if redacted_params.chars().count() > 400 {
+                let mut end = 400;
+                while !redacted_params.is_char_boundary(end) {
+                    end = end.saturating_sub(1);
+                }
+                format!("{}…", &redacted_params[..end])
+            } else {
+                redacted_params
+            };
+            ToolResult::error(format!(
+                "approval timed out — action not executed. Request was: \
+                 {tool_name}.{display_action} with params {trimmed_params}. \
+                 Try again with a different approach or ask the operator directly."
+            ))
         }
     }
 }
@@ -506,14 +519,23 @@ pub fn contains_action_claims(text: &str) -> bool {
 
 /// Load media files (images and documents) from disk and base64-encode them for LLM consumption.
 /// Skips files that are missing, too large, or have unsupported formats.
-pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
+/// Returns `(encoded_images, skip_warnings)` so the caller can surface
+/// total or partial failure to the user instead of dropping silently
+/// (F#11/F#12 fix).
+pub(super) fn load_and_encode_images(media_paths: &[String]) -> (Vec<ImageData>, Vec<String>) {
     use base64::Engine;
 
     let mut images = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
     for path in media_paths.iter().take(MAX_IMAGES) {
         let file_path = std::path::Path::new(path);
+        let display_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path.as_str());
         if !file_path.exists() {
             warn!("Media file not found: {}", path);
+            warnings.push(format!("'{display_name}' was not found on disk"));
             continue;
         }
         let ext = file_path
@@ -528,6 +550,9 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
             "pdf" => "application/pdf",
             _ => {
                 warn!("Unsupported media format: {}", ext);
+                warnings.push(format!(
+                    "'{display_name}' has unsupported extension '.{ext}' (supported: jpg, png, gif, webp, pdf)"
+                ));
                 continue;
             }
         };
@@ -540,6 +565,11 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
                         MAX_IMAGE_SIZE,
                         path
                     );
+                    warnings.push(format!(
+                        "'{display_name}' is {} bytes — over the {}MB limit",
+                        data.len(),
+                        MAX_IMAGE_SIZE / (1024 * 1024)
+                    ));
                     continue;
                 }
                 // Validate magic bytes match claimed format
@@ -560,6 +590,9 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
                         ext,
                         &data[..8.min(data.len())]
                     );
+                    warnings.push(format!(
+                        "'{display_name}' is corrupted (extension is .{ext} but file content doesn't match)"
+                    ));
                     continue;
                 }
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
@@ -577,10 +610,19 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
             }
             Err(e) => {
                 warn!("Failed to read media file {}: {}", path, e);
+                warnings.push(format!("'{display_name}' could not be read: {e}"));
             }
         }
     }
-    images
+    // If MAX_IMAGES exceeded, surface that too — easy to miss otherwise.
+    if media_paths.len() > MAX_IMAGES {
+        warnings.push(format!(
+            "{} extra media file(s) skipped (limit is {})",
+            media_paths.len() - MAX_IMAGES,
+            MAX_IMAGES
+        ));
+    }
+    (images, warnings)
 }
 
 /// Replace `[prefix /path/to/file]` tags in content with an optional replacement string.

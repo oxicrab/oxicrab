@@ -34,6 +34,24 @@ impl AgentLoop {
         &self,
         msg: InboundMessage,
     ) -> Result<Option<OutboundMessage>> {
+        self.process_message_with_pending(msg, None).await
+    }
+
+    /// Variant of [`process_message_unlocked`] that takes a handle to
+    /// the per-session pending-message queue. The handle is stashed
+    /// on `self` for the duration of the call so downstream
+    /// `run_agent_loop_with_overrides` invocations can attach it via
+    /// `AgentRunOverrides.pending_queue`. T2.1: mid-turn user-message
+    /// injection — drains queued messages between tool waves so they
+    /// land in the IN-FLIGHT turn instead of being coalesced into the
+    /// next run.
+    pub(super) async fn process_message_with_pending(
+        &self,
+        msg: InboundMessage,
+        pending_queue: Option<std::sync::Arc<std::sync::Mutex<Vec<InboundMessage>>>>,
+    ) -> Result<Option<OutboundMessage>> {
+        // Per-call thread-local-ish stash; cleared on drop (RAII guard).
+        let _guard = pending_queue.map(|q| self.set_pending_queue(q));
         if msg.channel == "system" {
             return self.process_system_message(msg).await;
         }
@@ -180,15 +198,33 @@ impl AgentLoop {
         }
 
         // Load and encode attached images (audio files are skipped).
-        let images = Self::encode_non_audio_media(&msg.media);
+        let (images, media_warnings) = Self::encode_non_audio_media(&msg.media);
 
         // Strip [image: ...] and [document: ...] tags from content when media was
         // successfully encoded, since the LLM receives them as content blocks and
         // doesn't need the file paths (which can cause it to try read_file on binary data).
         let content = if images.is_empty() {
-            msg_content
+            msg_content.clone()
         } else {
             strip_document_tags(&strip_image_tags(&msg_content))
+        };
+
+        // F#11/F#12 fix: surface partial / total media-encoding failures
+        // to the LLM so it can tell the user. Without this, "I uploaded
+        // 3 images" silently drops 2 corrupt ones and the model
+        // pretends nothing was wrong. The warnings are appended to the
+        // user content as a system-style aside.
+        let content = if media_warnings.is_empty() {
+            content
+        } else {
+            warn!(
+                "media encoding produced {} warning(s) for inbound message",
+                media_warnings.len()
+            );
+            format!(
+                "{content}\n\n[media encoding warnings — please tell the user: {}]",
+                media_warnings.join("; ")
+            )
         };
 
         debug!("Acquiring context lock");
@@ -348,9 +384,25 @@ impl AgentLoop {
         // second+ compaction runs within the same session lifetime are detected.
         let (checkpoint_after, _) = self.session_checkpoint_snapshot(&session_key).await;
         let compaction_ran = checkpoint_after.is_some() && checkpoint_after != checkpoint_before;
+        // F#6 fix: when compaction reload fails (DB hiccup, file
+        // permissions, …), DON'T propagate the error and lose the
+        // router context updates. Fall back to the pre-reload session
+        // and apply context onto that. The compaction summary stays in
+        // place from the side-effect write the compactor already did;
+        // the only loss is one cycle's worth of fresh router-context
+        // changes from THIS turn — far better than dropping the whole
+        // turn's worth of state.
         let mut session = if compaction_ran {
             debug!("compaction updated session, reloading");
-            self.sessions.get_or_create(&session_key).await?
+            match self.sessions.get_or_create(&session_key).await {
+                Ok(reloaded) => reloaded,
+                Err(e) => {
+                    warn!(
+                        "session reload after compaction failed ({e}); applying router context to pre-reload session"
+                    );
+                    session
+                }
+            }
         } else {
             session
         };
@@ -609,7 +661,9 @@ impl AgentLoop {
         self.leak_detector.redact(&content)
     }
 
-    fn encode_non_audio_media(media: &[String]) -> Vec<crate::providers::base::ImageData> {
+    fn encode_non_audio_media(
+        media: &[String],
+    ) -> (Vec<crate::providers::base::ImageData>, Vec<String>) {
         let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
         let image_media: Vec<String> = media
             .iter()
@@ -624,7 +678,7 @@ impl AgentLoop {
             .collect();
 
         if image_media.is_empty() {
-            return vec![];
+            return (vec![], vec![]);
         }
 
         info!(
@@ -632,9 +686,13 @@ impl AgentLoop {
             image_media.len(),
             image_media
         );
-        let images = load_and_encode_images(&image_media);
-        info!("Encoded {} images for LLM", images.len());
-        images
+        let (images, warnings) = load_and_encode_images(&image_media);
+        info!(
+            "Encoded {} images for LLM ({} warning(s))",
+            images.len(),
+            warnings.len()
+        );
+        (images, warnings)
     }
 
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
@@ -988,6 +1046,12 @@ impl AgentLoop {
         if query.is_empty() {
             return None;
         }
+        // F#13 fix: hold the cache lock BEFORE reading tool definitions
+        // so a concurrent activate_deferred can't slip in between the
+        // defs snapshot and the signature check, leaving us with a
+        // stale-yet-cached index. Defs + signature compute are now
+        // both under the lock.
+        let mut cache = self.semantic_index_cache.lock().await;
         let defs = self
             .tools
             .get_tool_definitions_with_activated(&std::collections::HashSet::new());
@@ -995,7 +1059,6 @@ impl AgentLoop {
             return None;
         }
         let signature = Self::semantic_definitions_signature(&defs);
-        let mut cache = self.semantic_index_cache.lock().await;
         if cache
             .as_ref()
             .is_none_or(|cached| cached.signature != signature)
@@ -1843,4 +1906,18 @@ pub(super) fn is_reset_command(content: &str) -> bool {
         trimmed.as_str(),
         "reset" | "clear history" | "new session" | "start over"
     )
+}
+
+/// Detect `/stop`, `/cancel`, `stop`, `cancel`, `abort` as cancel
+/// commands. Matched before the session-lock check so they bypass
+/// the queue and fire `cancel_session` even when a turn is in flight.
+/// T2.2.
+pub(super) fn is_cancel_command(content: &str) -> bool {
+    let trimmed = content
+        .trim()
+        .trim_start_matches('/')
+        .trim_end_matches(['.', '!', '?'])
+        .trim()
+        .to_lowercase();
+    matches!(trimmed.as_str(), "stop" | "cancel" | "abort")
 }

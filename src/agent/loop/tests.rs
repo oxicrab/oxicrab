@@ -903,7 +903,7 @@ fn test_load_and_encode_images_valid_jpg() {
     std::fs::write(&img_path, JPEG_MAGIC).unwrap();
 
     let paths = vec![img_path.to_string_lossy().to_string()];
-    let images = load_and_encode_images(&paths);
+    let (images, _) = load_and_encode_images(&paths);
 
     assert_eq!(images.len(), 1);
     assert_eq!(images[0].media_type, "image/jpeg");
@@ -928,7 +928,7 @@ fn test_load_and_encode_images_multiple_formats() {
                 .to_string()
         })
         .collect();
-    let images = load_and_encode_images(&paths);
+    let (images, _) = load_and_encode_images(&paths);
 
     assert_eq!(images.len(), 4);
     assert_eq!(images[0].media_type, "image/jpeg");
@@ -939,7 +939,7 @@ fn test_load_and_encode_images_multiple_formats() {
 
 #[test]
 fn test_load_and_encode_images_skips_missing() {
-    let images = load_and_encode_images(&["/nonexistent/path/image.jpg".to_string()]);
+    let (images, _) = load_and_encode_images(&["/nonexistent/path/image.jpg".to_string()]);
     assert!(images.is_empty());
 }
 
@@ -949,7 +949,7 @@ fn test_load_and_encode_images_skips_unsupported_format() {
     let path = tmp.path().join("test.bmp");
     std::fs::write(&path, b"bmp data").unwrap();
 
-    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    let (images, _) = load_and_encode_images(&[path.to_string_lossy().to_string()]);
     assert!(images.is_empty());
 }
 
@@ -960,7 +960,7 @@ fn test_load_and_encode_images_rejects_bad_magic_bytes() {
     let path = tmp.path().join("fake.png");
     std::fs::write(&path, JPEG_MAGIC).unwrap();
 
-    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    let (images, _) = load_and_encode_images(&[path.to_string_lossy().to_string()]);
     assert!(images.is_empty(), "should reject mismatched magic bytes");
 }
 
@@ -971,7 +971,7 @@ fn test_load_and_encode_images_rejects_html_as_image() {
     let path = tmp.path().join("download.png");
     std::fs::write(&path, b"<html><body>Error</body></html>").unwrap();
 
-    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    let (images, _) = load_and_encode_images(&[path.to_string_lossy().to_string()]);
     assert!(images.is_empty(), "should reject HTML content");
 }
 
@@ -985,13 +985,13 @@ fn test_load_and_encode_images_max_limit() {
         paths.push(path.to_string_lossy().to_string());
     }
 
-    let images = load_and_encode_images(&paths);
+    let (images, _) = load_and_encode_images(&paths);
     assert_eq!(images.len(), MAX_IMAGES); // Capped at 5
 }
 
 #[test]
 fn test_load_and_encode_images_empty_input() {
-    let images = load_and_encode_images(&[]);
+    let (images, _) = load_and_encode_images(&[]);
     assert!(images.is_empty());
 }
 
@@ -1005,7 +1005,7 @@ fn test_load_and_encode_images_base64_roundtrip() {
     original_data.extend_from_slice(b"extra png data here");
     std::fs::write(&img_path, &original_data).unwrap();
 
-    let images = load_and_encode_images(&[img_path.to_string_lossy().to_string()]);
+    let (images, _) = load_and_encode_images(&[img_path.to_string_lossy().to_string()]);
     assert_eq!(images.len(), 1);
 
     // Decode and verify roundtrip
@@ -1023,7 +1023,7 @@ fn test_load_and_encode_images_pdf_support() {
     pdf_data.extend_from_slice(b"fake pdf content for testing");
     std::fs::write(&path, &pdf_data).unwrap();
 
-    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    let (images, _) = load_and_encode_images(&[path.to_string_lossy().to_string()]);
     assert_eq!(images.len(), 1);
     assert_eq!(images[0].media_type, "application/pdf");
 }
@@ -1052,7 +1052,7 @@ fn test_load_and_encode_images_rejects_fake_pdf() {
     // Not a real PDF (wrong magic bytes)
     std::fs::write(&path, b"this is not a pdf").unwrap();
 
-    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    let (images, _) = load_and_encode_images(&[path.to_string_lossy().to_string()]);
     assert!(images.is_empty(), "should reject non-PDF content");
 }
 
@@ -1526,4 +1526,22 @@ fn test_is_reset_command() {
     assert!(!is_reset_command("clear the history"));
     assert!(!is_reset_command("hello"));
     assert!(!is_reset_command(""));
+}
+
+#[test]
+fn test_is_cancel_command() {
+    use super::processing::is_cancel_command;
+
+    assert!(is_cancel_command("/stop"));
+    assert!(is_cancel_command("/cancel"));
+    assert!(is_cancel_command("stop"));
+    assert!(is_cancel_command("Cancel"));
+    assert!(is_cancel_command("abort"));
+    assert!(is_cancel_command("  stop  "));
+    assert!(is_cancel_command("/stop!"));
+
+    assert!(!is_cancel_command("stop the music"));
+    assert!(!is_cancel_command("cancel my subscription"));
+    assert!(!is_cancel_command("hello"));
+    assert!(!is_cancel_command(""));
 }

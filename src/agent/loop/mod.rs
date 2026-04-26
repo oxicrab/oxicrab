@@ -77,12 +77,43 @@ const MAX_PENDING_MESSAGES_PER_SESSION: usize = 10;
 /// as a single turn once the current run completes.
 struct SessionState {
     processing: tokio::sync::Mutex<()>,
-    pending: std::sync::Mutex<Vec<InboundMessage>>,
+    /// Queue of messages received while the session is busy. Wrapped
+    /// in `Arc<Mutex<...>>` so a handle can be passed to the agent
+    /// loop for mid-turn injection (T2.1) without copying the queue.
+    pending: Arc<std::sync::Mutex<Vec<InboundMessage>>>,
 }
 
 struct CachedSemanticIndex {
     signature: u64,
     index: crate::router::semantic::SemanticToolIndex,
+}
+
+/// RAII guard returned by `AgentLoop::set_pending_queue`. Restores the
+/// previous slot value when dropped so nested calls don't leak state.
+pub(super) struct PendingQueueGuard<'a> {
+    slot: &'a Arc<std::sync::Mutex<Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>>>>,
+    prev: Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>>,
+}
+
+impl Drop for PendingQueueGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.slot.lock() {
+            *slot = self.prev.take();
+        }
+    }
+}
+
+/// RAII guard that removes a session's cancel token from the map on
+/// drop. Held by the agent loop for the lifetime of one turn.
+pub(super) struct CancelTokenGuard {
+    map: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
+    key: String,
+}
+
+impl Drop for CancelTokenGuard {
+    fn drop(&mut self) {
+        self.map.remove(&self.key);
+    }
 }
 
 #[derive(Default)]
@@ -175,6 +206,16 @@ pub struct AgentLoop {
     skill_refine_config: crate::config::SkillRefineConfig,
     /// Activity journal — append-only NDJSON, optional.
     activity_journal: Option<Arc<crate::agent::activity_journal::ActivityJournal>>,
+    /// Per-call stash for the active session's pending-message queue.
+    /// Set by `process_message_with_pending` before invoking the
+    /// inner loop; cleared on RAII drop. Read by
+    /// `run_agent_loop_with_overrides` to drain queued messages
+    /// mid-turn (T2.1).
+    active_pending_queue: Arc<std::sync::Mutex<Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>>>>,
+    /// Per-session cancellation tokens. Registered when a turn starts;
+    /// `cancel_session(key)` looks up the token and fires it. The
+    /// agent loop checks the token before each LLM call. T2.2.
+    session_cancel_tokens: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
     /// Sender for outbound messages (approval requests, user feedback).
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
 }
@@ -797,8 +838,66 @@ impl AgentLoop {
             trajectory_turn_counters: Arc::new(std::sync::Mutex::new(HashMap::new())),
             skill_refine_config,
             activity_journal,
+            active_pending_queue: Arc::new(std::sync::Mutex::new(None)),
+            session_cancel_tokens: Arc::new(DashMap::new()),
             outbound_tx,
         })
+    }
+
+    /// Cancel an in-flight turn for the given session key. Returns
+    /// `true` when a token was registered (and thus the active turn
+    /// was signalled), `false` when no turn was running. The agent
+    /// loop polls the token before each LLM call and aborts cleanly
+    /// when fired.
+    pub fn cancel_session(&self, session_key: &str) -> bool {
+        if let Some((_, token)) = self.session_cancel_tokens.remove(session_key) {
+            token.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Register a cancel token under `session_key` and return an RAII
+    /// guard that removes it on drop. Called by the agent loop at the
+    /// start of each turn; the guard is held for the duration of the
+    /// run so a stale token can't fire on a future turn.
+    pub(super) fn register_cancel_token(
+        &self,
+        session_key: &str,
+        token: tokio_util::sync::CancellationToken,
+    ) -> CancelTokenGuard {
+        self.session_cancel_tokens
+            .insert(session_key.to_string(), token);
+        CancelTokenGuard {
+            map: self.session_cancel_tokens.clone(),
+            key: session_key.to_string(),
+        }
+    }
+
+    /// RAII guard returned by `set_pending_queue`. Clears the slot on drop.
+    pub(super) fn set_pending_queue(
+        &self,
+        queue: Arc<std::sync::Mutex<Vec<InboundMessage>>>,
+    ) -> PendingQueueGuard<'_> {
+        let prev = self
+            .active_pending_queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(queue);
+        PendingQueueGuard {
+            slot: &self.active_pending_queue,
+            prev,
+        }
+    }
+
+    pub(super) fn current_pending_queue(
+        &self,
+    ) -> Option<Arc<std::sync::Mutex<Vec<InboundMessage>>>> {
+        self.active_pending_queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     async fn take_session_checkpoint_handle(
@@ -1009,7 +1108,7 @@ impl AgentLoop {
             .or_insert_with(|| {
                 Arc::new(SessionState {
                     processing: tokio::sync::Mutex::new(()),
-                    pending: std::sync::Mutex::new(Vec::new()),
+                    pending: Arc::new(std::sync::Mutex::new(Vec::new())),
                 })
             })
             .clone()
@@ -1127,6 +1226,24 @@ impl AgentLoop {
         }
 
         let session_key = msg.session_key();
+
+        // Cancel commands bypass the lock and fire the active session's
+        // cancel token. T2.2 — without this, `/stop` would queue
+        // behind the in-flight turn and never cancel anything.
+        if processing::is_cancel_command(&msg.content) {
+            let was_active = self.cancel_session(&session_key);
+            let response_text = if was_active {
+                "Cancelled the in-flight turn."
+            } else {
+                "No active turn to cancel."
+            };
+            return Ok(Some(
+                OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), response_text)
+                    .metadata(msg.metadata.clone())
+                    .build(),
+            ));
+        }
+
         let state = self.session_state(&session_key);
 
         // Try to acquire the processing lock without blocking. If the
@@ -1177,8 +1294,12 @@ impl AgentLoop {
             return Ok(None);
         };
 
-        // Process the initial message
-        let result = self.process_message_unlocked(msg).await;
+        // Process the initial message — pass the pending queue handle so
+        // the agent loop can drain mid-turn instead of waiting for the
+        // post-turn coalesce. T2.1 mid-turn injection.
+        let result = self
+            .process_message_with_pending(msg, Some(state.pending.clone()))
+            .await;
 
         // Drain and process any messages that queued while we held the lock.
         // Stay inside the processing guard so new arrivals continue to queue.

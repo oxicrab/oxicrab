@@ -17,7 +17,7 @@ use crate::agent::tools::base::{ExecutionContext, ToolConcurrency, ToolResult};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 /// Classify the effective concurrency for a single tool call based on the
 /// tool's declared capabilities and the specific action being invoked.
@@ -131,6 +131,18 @@ impl AgentLoop {
         let mut any_tools_called = false;
         let mut last_was_tool_only = false;
         let mut tool_call_count: usize = 0;
+        // Cancellation token: register a token for this session so
+        // external callers (`AgentLoop::cancel_session(key)`) can
+        // abort the in-flight turn. Drops on guard. T2.2.
+        let cancel_token = overrides
+            .cancellation_token
+            .clone()
+            .unwrap_or_else(tokio_util::sync::CancellationToken::new);
+        let _cancel_guard = exec_ctx
+            .metadata
+            .get(SESSION_KEY_META_KEY)
+            .and_then(serde_json::Value::as_str)
+            .map(|sid| self.register_cancel_token(sid, cancel_token.clone()));
         // Text emitted alongside tool_calls is preserved here so we have
         // a fallback if the final EndTurn comes back empty. Sonnet 4.6
         // routinely emits text like "Let me check your calendar…" right
@@ -390,29 +402,45 @@ impl AgentLoop {
                     overrides.response_format.clone(),
                 )
             };
-            // Wrap the LLM call in a hard timeout so a hung provider
-            // doesn't hold the per-session lock indefinitely (channel
-            // goes silent forever). Adopted from nanobot PR #3428.
-            // 0 = disabled.
+            // Wrap the LLM call in:
+            // - a hard timeout (nanobot #3428, prevents session-lock
+            //   starvation on hung providers)
+            // - a cancellation-token select so the user / external
+            //   `cancel_session` can abort cleanly mid-call (T2.2).
+            // Cancellation takes priority over both timeout and
+            // completion via tokio::select!'s biased polling.
             let llm_timeout_secs = self.llm_request_timeout_secs;
             let invoke_future =
                 super::model_gateway::ModelGateway::invoke(effective_provider.as_ref(), request);
-            let response = if llm_timeout_secs > 0 {
-                if let Ok(r) = tokio::time::timeout(
-                    std::time::Duration::from_secs(llm_timeout_secs.into()),
-                    invoke_future,
-                )
-                .await { r } else {
-                    warn!(
-                        "LLM request timed out after {}s — releasing session lock",
-                        llm_timeout_secs
-                    );
-                    Err(anyhow::anyhow!(
-                        "LLM request timed out after {llm_timeout_secs}s"
-                    ))
+            let response = tokio::select! {
+                biased;
+                () = cancel_token.cancelled() => {
+                    info!("LLM request cancelled by token");
+                    Err(anyhow::anyhow!("turn cancelled"))
                 }
-            } else {
-                invoke_future.await
+                r = async {
+                    if llm_timeout_secs > 0 {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_secs(llm_timeout_secs.into()),
+                            invoke_future,
+                        )
+                        .await
+                        {
+                            Ok(r) => r,
+                            Err(_) => {
+                                warn!(
+                                    "LLM request timed out after {}s — releasing session lock",
+                                    llm_timeout_secs
+                                );
+                                Err(anyhow::anyhow!(
+                                    "LLM request timed out after {llm_timeout_secs}s"
+                                ))
+                            }
+                        }
+                    } else {
+                        invoke_future.await
+                    }
+                } => r,
             };
 
             // Stop typing indicator after LLM call returns (guard aborts on drop)
@@ -649,6 +677,34 @@ impl AgentLoop {
                     exec_ctx,
                 )
                 .await;
+
+                // Mid-turn injection: drain any queued user messages
+                // and append them as new user-role Message entries
+                // for the next iteration. T2.1 — adopted from
+                // microclaw chat_turn_queue.drain_pending pattern.
+                // The queue handle is on AgentLoop, set by
+                // process_message_with_pending. Skipped for cron /
+                // direct dispatch (no queue handle).
+                if let Some(queue_arc) = self.current_pending_queue() {
+                    let drained: Vec<crate::bus::InboundMessage> = {
+                        let mut q = queue_arc
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        std::mem::take(&mut *q)
+                    };
+                    if !drained.is_empty() {
+                        info!(
+                            "mid-turn injection: {} queued message(s) appended to in-flight turn",
+                            drained.len()
+                        );
+                        for queued in drained {
+                            messages.push(Message::user(format!(
+                                "[New message from user mid-turn] {}",
+                                queued.content
+                            )));
+                        }
+                    }
+                }
 
                 // If tool_search activated new deferred tools, rebuild tool
                 // definitions so the LLM sees their schemas in the next iteration.
