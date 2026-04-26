@@ -66,7 +66,28 @@ fn validate_twilio_signature(
     url: &str,
     params: &HashMap<String, String>,
 ) -> bool {
-    // Build the data string: URL + sorted params (key+value concatenated)
+    // Twilio's signature covers the exact URL it POSTs to. A
+    // trailing-slash drift between the configured webhookUrl and
+    // what Twilio actually calls fails every request with no
+    // diagnostic. Try both with-slash and without-slash so a benign
+    // operator typo doesn't black-hole inbound traffic. ct_eq guards
+    // each comparison.
+    let with_slash = if url.ends_with('/') {
+        url.to_string()
+    } else {
+        format!("{url}/")
+    };
+    let without_slash = url.trim_end_matches('/').to_string();
+    sign_matches(auth_token, signature, &with_slash, params)
+        || sign_matches(auth_token, signature, &without_slash, params)
+}
+
+fn sign_matches(
+    auth_token: &str,
+    signature: &str,
+    url: &str,
+    params: &HashMap<String, String>,
+) -> bool {
     let mut data = url.to_string();
     let mut sorted_keys: Vec<&String> = params.keys().collect();
     sorted_keys.sort();
@@ -74,14 +95,12 @@ fn validate_twilio_signature(
         data.push_str(key);
         data.push_str(&params[key]);
     }
-
     let Ok(mut mac) = HmacSha1::new_from_slice(auth_token.as_bytes()) else {
         return false;
     };
     mac.update(data.as_bytes());
     let result = mac.finalize();
     let expected = base64::engine::general_purpose::STANDARD.encode(result.into_bytes());
-
     expected.as_bytes().ct_eq(signature.as_bytes()).into()
 }
 

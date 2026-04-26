@@ -1003,6 +1003,8 @@ impl AgentLoop {
         *self.running.lock().await = true;
         info!("agent loop started, waiting for messages");
 
+        self.spawn_background_sweepers().await;
+
         loop {
             let running = {
                 let guard = self.running.lock().await;
@@ -1143,20 +1145,48 @@ impl AgentLoop {
             .clone()
     }
 
-    /// Remove session states that are only held by the map (strong count == 1).
-    /// This prevents the `session_states` map from growing unboundedly.
-    ///
-    /// Note on `Arc::strong_count`: With `DashMap`, concurrent `session_state()`
-    /// calls may briefly race with eviction. The worst case is a stale entry
-    /// survives one extra eviction cycle — acceptable for a cleanup heuristic.
-    fn evict_stale_session_states(&self) {
-        let before = self.session_states.len();
-        self.session_states
-            .retain(|_, arc| Arc::strong_count(arc) > 1);
-        let evicted = before - self.session_states.len();
-        if evicted > 0 {
-            debug!("evicted {evicted} stale session state(s)");
-        }
+    /// Spawn periodic background sweepers tied to the agent loop's shutdown
+    /// signal. The previous strong-count eviction only ran when a new
+    /// message arrived (every 100 messages), so an idle gateway would leak
+    /// session state and orphaned approval entries indefinitely. The
+    /// approval store likewise only cleared entries on `resolve()` /
+    /// `remove()`, so timed-out approvals whose caller never explicitly
+    /// removed them accumulated forever.
+    async fn spawn_background_sweepers(&self) {
+        const SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+        let session_states = self.session_states.clone();
+        let approval_store = self.approval_store.clone();
+        let approval_max_age =
+            std::time::Duration::from_secs(self.approval_config.timeout.saturating_mul(2).max(60));
+        let shutdown_notify = self.shutdown_notify.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(SWEEP_INTERVAL);
+            // Skip backlog after a runtime stall — burst sweeps add no value.
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // First tick fires immediately; consume it so we don't sweep an
+            // empty store at startup.
+            ticker.tick().await;
+            loop {
+                tokio::select! {
+                    () = shutdown_notify.notified() => break,
+                    _ = ticker.tick() => {
+                        let before = session_states.len();
+                        session_states.retain(|_, arc| Arc::strong_count(arc) > 1);
+                        let evicted = before - session_states.len();
+                        if evicted > 0 {
+                            debug!("background sweep: evicted {evicted} stale session state(s)");
+                        }
+                        approval_store.sweep_expired(approval_max_age);
+                    }
+                }
+            }
+        });
+
+        self.task_tracker
+            .spawn("background_sweepers".to_string(), handle)
+            .await;
     }
 
     /// Coalesce multiple pending messages into a single `InboundMessage`.
@@ -1233,15 +1263,9 @@ impl AgentLoop {
     }
 
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
-        // Periodically evict stale session states to prevent unbounded growth.
-        // Only run every 100 messages to avoid the overhead on every call.
-        static EVICT_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        if EVICT_COUNTER
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            .is_multiple_of(100)
-        {
-            self.evict_stale_session_states();
-        }
+        // Stale session_states eviction runs from spawn_background_sweepers
+        // on a 60s tick — independent of message arrival so idle gateways
+        // don't leak entries.
 
         // Approval callbacks bypass the session lock to prevent deadlock
         // in self-approval mode (same channel as user). The resolve_approval

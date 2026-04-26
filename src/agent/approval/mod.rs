@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
+use tracing::debug;
 
 #[derive(Debug)]
 pub enum ApprovalDecision {
@@ -16,6 +18,13 @@ pub(crate) struct ApprovalEntry {
     pub operator_channel: String,
     /// Channel the original request came from (for self-approval isolation).
     pub source_channel: String,
+}
+
+/// Internal wrapper that pairs an `ApprovalEntry` with the monotonic
+/// `Instant` at which it was registered, used by `sweep_expired`.
+struct StoredEntry {
+    entry: ApprovalEntry,
+    created_at: Instant,
 }
 
 /// Ephemeral store of pending operator approval requests.
@@ -43,7 +52,7 @@ pub(crate) struct ApprovalEntry {
 /// operator approving from the same channel as the requester (self-approval)
 /// doesn't block waiting on the lock that the original request still holds.
 pub struct ApprovalStore {
-    pending: Mutex<HashMap<String, ApprovalEntry>>,
+    pending: Mutex<HashMap<String, StoredEntry>>,
 }
 
 impl Default for ApprovalStore {
@@ -63,7 +72,13 @@ impl ApprovalStore {
         self.pending
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(approval_id.to_string(), entry);
+            .insert(
+                approval_id.to_string(),
+                StoredEntry {
+                    entry,
+                    created_at: Instant::now(),
+                },
+            );
     }
 
     /// Resolve a pending approval. Returns the tool name, action, and requester
@@ -79,32 +94,33 @@ impl ApprovalStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let Some(entry) = pending.remove(approval_id) else {
+        let Some(stored) = pending.remove(approval_id) else {
             return Err("this approval request has already been resolved or expired".into());
         };
 
         // Validate source channel:
         // - Non-empty operator_channel: must match exactly (dedicated operator)
         // - Empty operator_channel (self-approval): must match the original request channel
-        let expected_channel = if entry.operator_channel.is_empty() {
-            &entry.source_channel
+        let expected_channel = if stored.entry.operator_channel.is_empty() {
+            &stored.entry.source_channel
         } else {
-            &entry.operator_channel
+            &stored.entry.operator_channel
         };
         if source_channel != expected_channel {
             // Put entry back — wrong channel, don't consume it
-            let tool_name = entry.tool_name.clone();
-            pending.insert(approval_id.to_string(), entry);
+            let tool_name = stored.entry.tool_name.clone();
+            pending.insert(approval_id.to_string(), stored);
             return Err(format!(
                 "approval response from unauthorized channel for {tool_name}"
             ));
         }
 
-        let tool_name = entry.tool_name.clone();
-        let action = entry.action.clone();
-        let requested_by = entry.requested_by.clone();
+        let tool_name = stored.entry.tool_name.clone();
+        let action = stored.entry.action.clone();
+        let requested_by = stored.entry.requested_by.clone();
         // If the receiver was dropped (timeout), send() returns Err — surface it
-        entry
+        stored
+            .entry
             .sender
             .send(decision)
             .map_err(|_| "approval request has already timed out or been cancelled".to_string())?;
@@ -117,6 +133,29 @@ impl ApprovalStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(approval_id);
+    }
+
+    /// Drop entries older than `max_age`. Called by a periodic background
+    /// sweeper so timed-out approvals whose caller forgot to `remove()`
+    /// (e.g. agent loop crash, dropped oneshot receiver, panicking caller)
+    /// do not accumulate forever.
+    ///
+    /// The sweep uses the monotonic `Instant` recorded at `register()`, so
+    /// it is unaffected by wall-clock jumps. Returns the number of entries
+    /// removed.
+    pub fn sweep_expired(&self, max_age: Duration) -> usize {
+        let now = Instant::now();
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = pending.len();
+        pending.retain(|_, stored| now.duration_since(stored.created_at) < max_age);
+        let removed = before - pending.len();
+        if removed > 0 {
+            debug!("approval store sweep: removed {removed} expired entry(ies)");
+        }
+        removed
     }
 
     pub fn generate_id() -> String {

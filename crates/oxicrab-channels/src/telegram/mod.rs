@@ -130,6 +130,28 @@ pub(crate) fn build_inline_keyboard_from_value(
 
 /// Send a single text chunk with HTML parse mode, falling back to plain text on error.
 /// Optionally attaches `reply_to` and inline keyboard markup.
+/// Strip Telegram HTML markup so a fallback plain-text `send_message`
+/// doesn't show literal `<b>...</b>`. Telegram's HTML allowlist is
+/// small (`b`, `strong`, `i`, `em`, `u`, `s`, `code`, `pre`, `a`,
+/// `tg-spoiler`, `blockquote`) so we can drop tags without a real
+/// HTML parser. Also unescapes `&amp;`/`&lt;`/`&gt;` since those are
+/// the only entities Telegram HTML mode uses.
+fn strip_telegram_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if in_tag => {}
+            other => out.push(other),
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
 async fn send_chunk(
     bot: &Bot,
     chat_id: ChatId,
@@ -413,9 +435,18 @@ impl BaseChannel for TelegramChannel {
         let keyboard = build_inline_keyboard(msg, Some(&self.dispatch_store));
 
         for (i, html_chunk) in html_chunks.iter().enumerate() {
-            let raw_chunk = raw_chunks
-                .get(i)
-                .map_or(html_chunk.as_str(), String::as_str);
+            // When raw_chunks and html_chunks split at different
+            // boundaries, there's no matching raw chunk. Falling
+            // back to the html_chunk string for the plain-text
+            // retry sends visible `<b>...</b>` markup. Strip the
+            // Telegram HTML allowlist instead.
+            let stripped_fallback;
+            let raw_chunk = if let Some(raw) = raw_chunks.get(i) {
+                raw.as_str()
+            } else {
+                stripped_fallback = strip_telegram_html(html_chunk);
+                stripped_fallback.as_str()
+            };
             // Only reply_to on the first chunk
             let reply_id = if i == 0 { reply_to_msg_id } else { None };
             // Attach keyboard to the last chunk only
@@ -475,9 +506,18 @@ impl BaseChannel for TelegramChannel {
 
         let mut last_id = None;
         for (i, html_chunk) in html_chunks.iter().enumerate() {
-            let raw_chunk = raw_chunks
-                .get(i)
-                .map_or(html_chunk.as_str(), String::as_str);
+            // When raw_chunks and html_chunks split at different
+            // boundaries, there's no matching raw chunk. Falling
+            // back to the html_chunk string for the plain-text
+            // retry sends visible `<b>...</b>` markup. Strip the
+            // Telegram HTML allowlist instead.
+            let stripped_fallback;
+            let raw_chunk = if let Some(raw) = raw_chunks.get(i) {
+                raw.as_str()
+            } else {
+                stripped_fallback = strip_telegram_html(html_chunk);
+                stripped_fallback.as_str()
+            };
             let reply_id = if i == 0 { reply_to_msg_id } else { None };
             let kb = if i == html_chunks.len() - 1 {
                 keyboard.clone()
