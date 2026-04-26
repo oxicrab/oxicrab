@@ -90,10 +90,14 @@ async fn test_max_iterations_respected() {
     // Should have stopped and returned something (not panicked)
     assert!(!response.is_empty());
 
-    // Should not have made more than max_iterations + 1 calls
+    // Should not have made more than max_iterations + 2 calls.
+    // Budget: 3 in-loop iterations + 1 nudge call (force-text path)
+    // + 1 post-loop summary. The nudge was added in 3cc24be0 to
+    // give the model one chance to recover before falling to the
+    // no-tools post-loop summary.
     let recorded = calls.lock().expect("lock recorded calls");
     assert!(
-        recorded.len() <= 4,
+        recorded.len() <= 5,
         "Should respect max_iterations=3, got {} calls",
         recorded.len()
     );

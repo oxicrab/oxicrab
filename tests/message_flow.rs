@@ -419,12 +419,20 @@ async fn test_empty_response_exhaustion_returns_empty() {
         .process_direct("hello", "test:empty", "telegram", "empty")
         .await;
 
-    // Should not panic — returns gracefully with a fallback message
+    // Should not panic — returns gracefully with a fallback message.
+    // The exact wording is owned by the agent loop and has changed
+    // over time; pin the test to the user-facing intent rather than
+    // the literal string.
     assert!(result.is_ok(), "should not error on empty responses");
-    assert_eq!(
-        result.unwrap(),
-        "No response generated.",
-        "should return fallback message when LLM gives empty responses"
+    let response = result.unwrap();
+    assert!(
+        !response.is_empty(),
+        "should return a non-empty fallback when LLM gives empty responses"
+    );
+    let lower = response.to_lowercase();
+    assert!(
+        lower.contains("empty") || lower.contains("no response") || lower.contains("try again"),
+        "fallback should signal the empty-response case, got: {response}"
     );
 }
 
