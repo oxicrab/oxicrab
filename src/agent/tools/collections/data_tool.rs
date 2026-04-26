@@ -54,7 +54,10 @@ impl CollectionDataTool {
     }
 
     fn handle_query(&self, params: &Value) -> Result<ToolResult> {
-        let filters = parse_filters(params.get("filters"))?;
+        let filters = match parse_filters(params.get("filters")) {
+            Ok(f) => f,
+            Err(e) => return Ok(ToolResult::error(e.to_string())),
+        };
         let limit = params["limit"].as_u64().map(|v| v.min(100) as u32);
         let offset = params["offset"].as_u64().map(|v| v as u32);
 
@@ -136,7 +139,10 @@ impl CollectionDataTool {
     }
 
     fn handle_count(&self, params: &Value) -> Result<ToolResult> {
-        let filters = parse_filters(params.get("filters"))?;
+        let filters = match parse_filters(params.get("filters")) {
+            Ok(f) => f,
+            Err(e) => return Ok(ToolResult::error(e.to_string())),
+        };
         let count = self.db.count_records(&self.collection_name, &filters)?;
 
         Ok(ToolResult::new(format!(

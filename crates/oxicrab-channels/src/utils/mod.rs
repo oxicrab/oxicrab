@@ -1,6 +1,13 @@
 //! Utility functions for channel implementations
 
 /// Maximum size for downloaded image attachments (20 MB).
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 use tracing::debug;
 
 pub const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024;

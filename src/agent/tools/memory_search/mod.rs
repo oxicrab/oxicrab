@@ -7,6 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
+#[cfg(feature = "embeddings")]
 use tracing::warn;
 
 pub struct MemorySearchTool {
