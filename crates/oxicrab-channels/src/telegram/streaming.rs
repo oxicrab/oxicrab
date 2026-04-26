@@ -42,11 +42,6 @@ struct TurnState {
     chat_id: ChatId,
     message_id: MessageId,
     last_edit: Instant,
-    /// True after the most recent `update` was rate-limited (we
-    /// dropped the edit). On the next `update` or `end`, force the
-    /// edit so the user sees current content even when deltas arrive
-    /// faster than the throttle window.
-    skipped_edit: bool,
 }
 
 #[derive(Clone)]
@@ -104,7 +99,6 @@ impl StreamConsumer for TelegramStreamConsumer {
                 last_edit: Instant::now()
                     .checked_sub(EDIT_THROTTLE)
                     .unwrap_or_else(Instant::now),
-                skipped_edit: false,
             },
         );
         debug!(
@@ -123,16 +117,14 @@ impl StreamConsumer for TelegramStreamConsumer {
                 debug!("telegram stream update: unknown turn_id={turn_id}, dropping");
                 return Ok(());
             };
-            // Throttle: skip this delta unless we've waited long
-            // enough since the last edit. Mark `skipped_edit` so the
-            // next update or end() forces through even if it arrives
-            // before the throttle window expires.
-            if entry.last_edit.elapsed() < EDIT_THROTTLE && !entry.skipped_edit {
-                entry.skipped_edit = true;
+            // Throttle: drop this delta if we edited within the
+            // window. Each delta carries the FULL accumulated text,
+            // so dropping intermediate deltas only costs a temporary
+            // visual lag — `end()` always commits the final state.
+            if entry.last_edit.elapsed() < EDIT_THROTTLE {
                 return Ok(());
             }
             entry.last_edit = Instant::now();
-            entry.skipped_edit = false;
             (entry.chat_id, entry.message_id)
         };
 
@@ -163,35 +155,28 @@ impl StreamConsumer for TelegramStreamConsumer {
         if body.is_empty() && buttons.is_none() {
             return Ok(());
         }
-
-        // Two-step commit when buttons are present: first set the
-        // text via editMessageText, then attach the keyboard via
-        // editMessageReplyMarkup. Telegram's editMessageText doesn't
-        // accept reply_markup in the same call when the markup type
-        // changes (or when starting from no-markup), so the split
-        // is the safest path across teloxide versions.
         let body = if body.is_empty() { "\u{200B}" } else { body };
-        if let Err(e) = self
+
+        let keyboard = buttons.and_then(|buttons_val| {
+            build_inline_keyboard_from_value(buttons_val, Some(&self.dispatch_store))
+        });
+
+        // Single-call commit: editMessageText accepts reply_markup so
+        // text + keyboard land atomically (no window where text is
+        // updated but buttons aren't yet attached). Telegram replaces
+        // any existing markup; if `keyboard` is None the markup is
+        // cleared, which is what we want when no buttons are present.
+        let mut req = self
             .bot
-            .edit_message_text(state.chat_id, state.message_id, body)
-            .await
-        {
+            .edit_message_text(state.chat_id, state.message_id, body);
+        if let Some(kb) = keyboard {
+            req = req.reply_markup(kb);
+        }
+        if let Err(e) = req.await {
             warn!(
                 "telegram stream final edit failed (outcome={:?}) for turn={turn_id}: {e}",
                 outcome
             );
-        }
-
-        if let Some(buttons_val) = buttons
-            && let Some(keyboard) =
-                build_inline_keyboard_from_value(buttons_val, Some(&self.dispatch_store))
-            && let Err(e) = self
-                .bot
-                .edit_message_reply_markup(state.chat_id, state.message_id)
-                .reply_markup(keyboard)
-                .await
-        {
-            warn!("telegram stream keyboard edit failed for turn={turn_id}: {e}");
         }
         Ok(())
     }

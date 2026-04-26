@@ -110,7 +110,7 @@ async fn cancellation_aborts_default_stream_before_chat_completes() {
 /// where session-keyed state let late chunks corrupt the next turn.
 #[tokio::test]
 async fn per_turn_isolation_two_consecutive_turns() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
 
     // Turn A — completes fully.
     let dispatcher_a = StreamDispatcher::new(
@@ -230,23 +230,24 @@ async fn pump_abandons_after_repeated_edit_failures() {
     // contract: the consumer's update_calls should plateau well
     // below the number of deltas we send.
     let consumer_dyn: Arc<dyn oxicrab_core::streaming::StreamConsumer> = consumer.clone();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
 
-    // Fire 1 begin + 50 deltas + 1 end.
-    tx.send(StreamEvent::Begin {
+    // Fire 1 begin + 50 deltas + 1 end. try_send on a bounded
+    // channel (256-slot capacity comfortably absorbs the burst).
+    tx.try_send(StreamEvent::Begin {
         turn_id: "t".into(),
         channel: "test".into(),
         chat_id: "x".into(),
     })
     .unwrap();
     for i in 0..50 {
-        tx.send(StreamEvent::Delta {
+        tx.try_send(StreamEvent::Delta {
             turn_id: "t".into(),
             accumulated: format!("partial #{i}"),
         })
         .unwrap();
     }
-    tx.send(StreamEvent::End {
+    tx.try_send(StreamEvent::End {
         turn_id: "t".into(),
         outcome: StreamOutcome::Complete,
         final_content: "final".into(),
@@ -311,7 +312,7 @@ async fn pump_abandons_after_repeated_edit_failures() {
 /// late chunks from a "previous" turn corrupting the new one.
 #[tokio::test]
 async fn per_turn_isolation_under_interleaving() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
     let a = StreamDispatcher::new(tx.clone(), "turn-A".into(), "c".into(), "x".into());
     let b = StreamDispatcher::new(tx, "turn-B".into(), "c".into(), "x".into());
 

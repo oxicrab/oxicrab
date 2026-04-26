@@ -29,7 +29,6 @@ struct TurnState {
     channel_id: ChannelId,
     message_id: MessageId,
     last_edit: Instant,
-    skipped_edit: bool,
 }
 
 #[derive(Clone)]
@@ -83,7 +82,6 @@ impl StreamConsumer for DiscordStreamConsumer {
                 last_edit: Instant::now()
                     .checked_sub(EDIT_THROTTLE)
                     .unwrap_or_else(Instant::now),
-                skipped_edit: false,
             },
         );
         debug!(
@@ -102,12 +100,13 @@ impl StreamConsumer for DiscordStreamConsumer {
                 debug!("discord stream update: unknown turn_id={turn_id}, dropping");
                 return Ok(());
             };
-            if entry.last_edit.elapsed() < EDIT_THROTTLE && !entry.skipped_edit {
-                entry.skipped_edit = true;
+            // Throttle: drop deltas inside the window. Each delta
+            // carries the FULL accumulated text; end() commits the
+            // final state unconditionally.
+            if entry.last_edit.elapsed() < EDIT_THROTTLE {
                 return Ok(());
             }
             entry.last_edit = Instant::now();
-            entry.skipped_edit = false;
             (entry.channel_id, entry.message_id)
         };
 
@@ -134,6 +133,10 @@ impl StreamConsumer for DiscordStreamConsumer {
         if body.is_empty() && buttons.is_none() {
             return Ok(());
         }
+        // Discord rejects edits with empty content. Substitute the
+        // same zero-width-space placeholder used by Telegram so a
+        // buttons-only follow-up still commits.
+        let body = if body.is_empty() { "\u{200B}" } else { body };
         // Discord lets editMessage carry both content and components
         // in one call, so the streamed message ends up with buttons
         // attached without a sidecar.

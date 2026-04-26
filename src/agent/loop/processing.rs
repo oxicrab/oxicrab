@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -27,9 +27,15 @@ use uuid::Uuid;
 /// doc's "fail-safe to non-streaming" requirement.
 const STREAM_FAILURE_THRESHOLD: u32 = 3;
 
+/// Per-consumer-call timeout. Bounds the worst case where a channel
+/// API hangs without producing an error — without this the dispatcher
+/// drop + 5s pump-await race window in `process_message` could observe
+/// a half-completed `end()` call.
+const STREAM_CONSUMER_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 async fn run_stream_pump(
     consumer: Arc<dyn StreamConsumer>,
-    mut rx: UnboundedReceiver<StreamEvent>,
+    mut rx: Receiver<StreamEvent>,
     was_active: Arc<AtomicBool>,
 ) {
     let mut failures: u32 = 0;
@@ -45,16 +51,24 @@ async fn run_stream_pump(
             StreamEvent::Begin {
                 turn_id, chat_id, ..
             } => {
-                if let Err(e) = consumer.begin(&turn_id, &chat_id).await {
+                let result = tokio::time::timeout(
+                    STREAM_CONSUMER_CALL_TIMEOUT,
+                    consumer.begin(&turn_id, &chat_id),
+                )
+                .await;
+                let outcome = match result {
+                    Ok(r) => r,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "stream consumer begin timed out after {STREAM_CONSUMER_CALL_TIMEOUT:?}"
+                    )),
+                };
+                if let Err(e) = outcome {
                     warn!("stream consumer begin failed: {e}");
                     metrics::counter!(
                         "oxicrab_streaming_edit_failures_total",
                         "reason" => "begin",
                     )
                     .increment(1);
-                    // begin() failure means there's no live message
-                    // to edit — abandon immediately so the caller
-                    // delivers via the normal path.
                     abandoned = true;
                     continue;
                 }
@@ -64,7 +78,18 @@ async fn run_stream_pump(
                 turn_id,
                 accumulated,
             } => {
-                if let Err(e) = consumer.update(&turn_id, &accumulated).await {
+                let result = tokio::time::timeout(
+                    STREAM_CONSUMER_CALL_TIMEOUT,
+                    consumer.update(&turn_id, &accumulated),
+                )
+                .await;
+                let outcome = match result {
+                    Ok(r) => r,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "stream consumer update timed out after {STREAM_CONSUMER_CALL_TIMEOUT:?}"
+                    )),
+                };
+                if let Err(e) = outcome {
                     warn!("stream consumer update failed: {e}");
                     metrics::counter!(
                         "oxicrab_streaming_edit_failures_total",
@@ -77,8 +102,6 @@ async fn run_stream_pump(
                             "stream edits failed {failures}× — abandoning stream, falling back \
                              to non-streaming delivery"
                         );
-                        // Drop was_active so processing.rs delivers
-                        // the final content via the normal path.
                         was_active.store(false, Ordering::Release);
                         metrics::counter!(
                             "oxicrab_streaming_fallback_to_nonstream_total",
@@ -95,20 +118,24 @@ async fn run_stream_pump(
                 final_content,
                 buttons,
             } => {
-                if let Err(e) = consumer
-                    .end(&turn_id, outcome, &final_content, buttons.as_ref())
-                    .await
-                {
+                let result = tokio::time::timeout(
+                    STREAM_CONSUMER_CALL_TIMEOUT,
+                    consumer.end(&turn_id, outcome, &final_content, buttons.as_ref()),
+                )
+                .await;
+                let inner = match result {
+                    Ok(r) => r,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "stream consumer end timed out after {STREAM_CONSUMER_CALL_TIMEOUT:?}"
+                    )),
+                };
+                if let Err(e) = inner {
                     warn!("stream consumer end failed: {e}");
                     metrics::counter!(
                         "oxicrab_streaming_edit_failures_total",
                         "reason" => "end",
                     )
                     .increment(1);
-                    // A failed final edit means the user may be
-                    // looking at stale partial content. Treat the
-                    // same as edit-failure threshold: hand off to
-                    // the non-streaming fallback.
                     was_active.store(false, Ordering::Release);
                     metrics::counter!(
                         "oxicrab_streaming_fallback_to_nonstream_total",
@@ -464,7 +491,13 @@ impl AgentLoop {
         // run so per-turn isolation holds even across overlapping
         // turns in the same channel.
         let stream_pump_state = self.stream_consumer_for(&msg.channel).map(|consumer| {
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+            // 64-slot bounded channel so a slow channel API can't
+            // balloon memory: try_send drops Deltas on full (each
+            // Delta carries the full accumulated text, so dropping
+            // is recoverable). Begin / End use try_send too — if
+            // they hit `Full` it means the pump is wedged, treat as
+            // ReceiverGone and fall back to non-streaming.
+            let (tx, rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
             let turn_id = format!("turn-{}", Uuid::new_v4());
             let dispatcher =
                 StreamDispatcher::new(tx, turn_id, msg.channel.clone(), msg.chat_id.clone());

@@ -7,7 +7,7 @@ use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
 use crate::agent::trajectory::TrajectoryLogger;
 use crate::providers::base::{LLMProvider, LLMResponse, Message, StreamChunk, ToolCallRequest};
-use crate::providers::streaming::BeginOutcome as StreamBeginOutcome;
+use crate::providers::streaming::{BeginOutcome as StreamBeginOutcome, StreamOutcome};
 
 use super::helpers::{
     ApprovalContext, execute_tool_call, extract_media_paths, start_typing, strip_think_tags,
@@ -2017,10 +2017,16 @@ async fn run_streaming_call(
         }
     }
 
-    let _ = accumulated; // ownership only, content lives on the dispatcher's message
     if let Some(resp) = response {
         Ok(resp)
     } else if let Some(err) = error {
+        // Stream errored mid-flight. If a Begin was emitted, commit
+        // whatever we accumulated as the final state so the user
+        // sees a coherent partial answer rather than a "thinking…"
+        // placeholder stuck forever.
+        if dispatcher.has_begun() {
+            let _ = dispatcher.end(StreamOutcome::Failed, &accumulated, None);
+        }
         metrics::counter!(
             "oxicrab_streaming_fallback_to_nonstream_total",
             "reason" => "stream_error",
@@ -2028,6 +2034,12 @@ async fn run_streaming_call(
         .increment(1);
         Err(anyhow::anyhow!("stream error: {err}"))
     } else {
+        // Cancelled mid-stream. Same treatment: commit the
+        // accumulated content so the cancelled turn doesn't leave
+        // the visible message at the placeholder.
+        if dispatcher.has_begun() {
+            let _ = dispatcher.end(StreamOutcome::Cancelled, &accumulated, None);
+        }
         Err(anyhow::anyhow!("turn cancelled"))
     }
 }

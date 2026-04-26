@@ -32,7 +32,6 @@ struct TurnState {
     /// Slack message timestamp (its primary key for `chat.update`).
     ts: String,
     last_edit: Instant,
-    skipped_edit: bool,
 }
 
 #[derive(Clone)]
@@ -100,7 +99,6 @@ impl StreamConsumer for SlackStreamConsumer {
                 last_edit: Instant::now()
                     .checked_sub(EDIT_THROTTLE)
                     .unwrap_or_else(Instant::now),
-                skipped_edit: false,
             },
         );
         debug!("slack stream begin: turn={turn_id} channel={chat_id}");
@@ -116,12 +114,13 @@ impl StreamConsumer for SlackStreamConsumer {
                 debug!("slack stream update: unknown turn_id={turn_id}, dropping");
                 return Ok(());
             };
-            if entry.last_edit.elapsed() < EDIT_THROTTLE && !entry.skipped_edit {
-                entry.skipped_edit = true;
+            // Throttle: drop deltas inside the window. Each delta
+            // carries the FULL accumulated text; end() commits the
+            // final state unconditionally.
+            if entry.last_edit.elapsed() < EDIT_THROTTLE {
                 return Ok(());
             }
             entry.last_edit = Instant::now();
-            entry.skipped_edit = false;
             (entry.channel.clone(), entry.ts.clone())
         };
 
@@ -151,6 +150,10 @@ impl StreamConsumer for SlackStreamConsumer {
         if body.is_empty() && buttons.is_none() {
             return Ok(());
         }
+        // chat.update rejects empty `text`. Substitute a zero-width
+        // space when only buttons remain so the section block has
+        // valid text content.
+        let body = if body.is_empty() { "\u{200B}" } else { body };
 
         // Slack chat.update accepts both `text` and `blocks` in one
         // call, so the buttons land on the same message that was

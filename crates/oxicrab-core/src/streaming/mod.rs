@@ -99,22 +99,32 @@ pub enum StreamEvent {
 /// unbounded mpsc sender so the LLM stream is never blocked by a
 /// slow channel — channels apply their own throttling on receive.
 ///
-/// `begin_emitted` is shared across clones so multiple iterations of
+/// `begin_state` is shared across clones so multiple iterations of
 /// the same agent run cannot send a duplicate `Begin` (which would
-/// create a second placeholder message in the channel). The first
-/// non-empty Delta in the run wins.
+/// create a second placeholder message in the channel). A mutex
+/// (rather than a bare atomic) serialises the read-then-send-then-
+/// commit sequence so callers cannot observe an "in-flight" state
+/// where the flag is set but the Begin event has not actually been
+/// queued.
 #[derive(Debug, Clone)]
 pub struct StreamDispatcher {
-    sender: tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+    /// Bounded channel — `try_send` returns `Full` when the pump is
+    /// behind, in which case we drop the event. Each Delta carries
+    /// the full accumulated text, so dropping intermediate Deltas
+    /// only costs a bit of visual lag (the next successful Delta or
+    /// the End event will recover). Begin / End must NEVER be
+    /// dropped — they are emitted at most once per run and the
+    /// pump's lifecycle depends on seeing them.
+    sender: tokio::sync::mpsc::Sender<StreamEvent>,
     turn_id: String,
     channel: String,
     chat_id: String,
-    begin_emitted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    begin_state: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
 impl StreamDispatcher {
     pub fn new(
-        sender: tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+        sender: tokio::sync::mpsc::Sender<StreamEvent>,
         turn_id: String,
         channel: String,
         chat_id: String,
@@ -124,7 +134,7 @@ impl StreamDispatcher {
             turn_id,
             channel,
             chat_id,
-            begin_emitted: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            begin_state: std::sync::Arc::new(std::sync::Mutex::new(false)),
         }
     }
 
@@ -140,13 +150,14 @@ impl StreamDispatcher {
         &self.chat_id
     }
 
-    /// True iff a successful `Begin` has already been emitted on
-    /// this dispatcher (from any clone). The first non-empty Delta
-    /// in the agent run flips this to true; subsequent iterations
-    /// that resume streaming on the same dispatcher must skip Begin.
+    /// True iff a Begin has been successfully queued by an earlier
+    /// `begin()` call (from any clone). Callers may use this to
+    /// gate emitting an End event for the run.
     pub fn has_begun(&self) -> bool {
-        self.begin_emitted
-            .load(std::sync::atomic::Ordering::Acquire)
+        *self
+            .begin_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Emit a `Begin` exactly once per dispatcher. Returns:
@@ -155,34 +166,40 @@ impl StreamDispatcher {
     ///   an earlier call (later iterations of the same agent run)
     /// - [`BeginOutcome::ReceiverGone`] — channel-side receiver was
     ///   dropped; caller should fall back to non-streaming delivery
+    ///
+    /// The mutex serialises read-then-send-then-commit so a second
+    /// caller cannot observe `has_begun()` returning true between a
+    /// first caller's swap and its (possibly failing) send.
     pub fn begin(&self) -> BeginOutcome {
-        if self
-            .begin_emitted
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
+        let mut state = self
+            .begin_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *state {
             return BeginOutcome::AlreadySent;
         }
-        if self
-            .sender
-            .send(StreamEvent::Begin {
-                turn_id: self.turn_id.clone(),
-                channel: self.channel.clone(),
-                chat_id: self.chat_id.clone(),
-            })
-            .is_err()
-        {
-            // Restore the flag so a future retry could fire, even
-            // though in practice a closed mpsc never recovers.
-            self.begin_emitted
-                .store(false, std::sync::atomic::Ordering::Release);
-            return BeginOutcome::ReceiverGone;
+        // try_send is non-blocking. The queue is empty at the start
+        // of a turn, so a Full error here means the pump hasn't
+        // started or is wedged — treat it as ReceiverGone.
+        match self.sender.try_send(StreamEvent::Begin {
+            turn_id: self.turn_id.clone(),
+            channel: self.channel.clone(),
+            chat_id: self.chat_id.clone(),
+        }) {
+            Ok(()) => {
+                *state = true;
+                BeginOutcome::Sent
+            }
+            Err(_) => BeginOutcome::ReceiverGone,
         }
-        BeginOutcome::Sent
     }
 
     pub fn delta(&self, accumulated: &str) -> bool {
+        // try_send: drop on full. Each Delta carries the full
+        // accumulated text, so a dropped Delta is recovered by the
+        // next successful one (or by End at run completion).
         self.sender
-            .send(StreamEvent::Delta {
+            .try_send(StreamEvent::Delta {
                 turn_id: self.turn_id.clone(),
                 accumulated: accumulated.to_string(),
             })
@@ -195,8 +212,12 @@ impl StreamDispatcher {
         final_content: &str,
         buttons: Option<serde_json::Value>,
     ) -> bool {
+        // End commits the final state. With 64-slot buffer and a
+        // pump draining sequentially, Full means the pump is far
+        // behind on Deltas — best-effort: drop and let the caller
+        // fall back to non-streaming delivery.
         self.sender
-            .send(StreamEvent::End {
+            .try_send(StreamEvent::End {
                 turn_id: self.turn_id.clone(),
                 outcome,
                 final_content: final_content.to_string(),
@@ -244,7 +265,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatcher_emits_full_lifecycle() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
         let d = StreamDispatcher::new(tx, "turn-1".into(), "telegram".into(), "chat-42".into());
 
         assert_eq!(d.begin(), BeginOutcome::Sent);
@@ -269,7 +290,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatcher_returns_false_when_receiver_dropped() {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
+        let (tx, rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
         drop(rx);
         let d = StreamDispatcher::new(tx, "t".into(), "c".into(), "x".into());
         assert_eq!(d.begin(), BeginOutcome::ReceiverGone);
@@ -280,7 +301,7 @@ mod tests {
         // Mixed text+tool turns may try to emit Begin on a SECOND
         // streamed iteration of the same run. The dispatcher's
         // begin_emitted atomic must guarantee at-most-one Begin.
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
         let d = StreamDispatcher::new(tx, "turn-1".into(), "c".into(), "x".into());
         let d_clone = d.clone();
 
@@ -306,7 +327,7 @@ mod tests {
     async fn turn_ids_are_isolated() {
         // Two dispatchers with distinct turn_ids share the same
         // sender and the receiver can demultiplex by turn_id.
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
         let d1 = StreamDispatcher::new(tx.clone(), "turn-A".into(), "c".into(), "x".into());
         let d2 = StreamDispatcher::new(tx, "turn-B".into(), "c".into(), "x".into());
 
