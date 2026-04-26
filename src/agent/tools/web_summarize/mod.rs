@@ -70,7 +70,36 @@ impl WebFetchSummaryTool {
     }
 
     fn cache_key(url: &str, prompt: &str, max_tokens: u32) -> String {
-        format!("{url}\u{1f}{prompt}\u{1f}{max_tokens}")
+        // Normalise the URL so case-only differences in scheme/host
+        // (https://Example.com vs https://example.com) don't split
+        // the cache. Path/query are case-sensitive per RFC 3986 and
+        // are left as-is.
+        let normalised_url = match url::Url::parse(url) {
+            Ok(parsed) => {
+                let mut s = String::with_capacity(url.len());
+                s.push_str(parsed.scheme());
+                s.push_str("://");
+                if let Some(host) = parsed.host_str() {
+                    s.push_str(&host.to_ascii_lowercase());
+                }
+                if let Some(port) = parsed.port() {
+                    s.push(':');
+                    s.push_str(&port.to_string());
+                }
+                s.push_str(parsed.path());
+                if let Some(q) = parsed.query() {
+                    s.push('?');
+                    s.push_str(q);
+                }
+                if let Some(f) = parsed.fragment() {
+                    s.push('#');
+                    s.push_str(f);
+                }
+                s
+            }
+            Err(_) => url.to_string(),
+        };
+        format!("{normalised_url}\u{1f}{prompt}\u{1f}{max_tokens}")
     }
 
     fn cache_get(&self, key: &str) -> Option<String> {

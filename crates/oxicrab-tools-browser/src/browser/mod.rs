@@ -3,6 +3,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig as ChromeBrowserConfig};
+use chromiumoxide::cdp::browser_protocol::fetch::{
+    ContinueRequestParams, EventRequestPaused, FailRequestParams,
+};
+use chromiumoxide::cdp::browser_protocol::network::ErrorReason;
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
 use oxicrab_core::actions;
@@ -21,12 +25,14 @@ struct BrowserSession {
     browser: Browser,
     page: Page,
     handler: tokio::task::JoinHandle<()>,
+    interceptor: tokio::task::JoinHandle<()>,
     user_data_dir: PathBuf,
 }
 
 impl Drop for BrowserSession {
     fn drop(&mut self) {
         self.handler.abort();
+        self.interceptor.abort();
         // Clean up user data directory (Chrome process killed by chromiumoxide's Drop)
         if self.user_data_dir.exists() {
             let _ = std::fs::remove_dir_all(&self.user_data_dir);
@@ -146,7 +152,13 @@ impl BrowserTool {
             .arg("--dns-prefetch-disable")
             .arg("--disable-background-networking")
             .arg("--disable-component-update")
-            .arg("--block-new-web-contents");
+            .arg("--block-new-web-contents")
+            // CDP request interception: pause every request, run it
+            // through validate_and_resolve, fail-closed on private IPs.
+            // Closes the post-action SSRF window where in-page JS could
+            // call fetch('http://192.168.1.1/...') without ever
+            // changing page.url().
+            .enable_request_intercept();
 
         // Clean up stale SingletonLock files from previous crashes
         for lock_dir in [
@@ -178,14 +190,68 @@ impl BrowserTool {
             .await
             .map_err(|e| format!("failed to create initial page: {e}"))?;
 
+        let interceptor_task = Self::spawn_request_interceptor(&page).await?;
+
         **session_guard = Some(BrowserSession {
             browser,
             page,
             handler: handler_task,
+            interceptor: interceptor_task,
             user_data_dir,
         });
 
         Ok(())
+    }
+
+    /// Subscribe to `Fetch.requestPaused` and resolve each paused
+    /// request: continue if `validate_and_resolve` accepts the URL,
+    /// fail with `AddressUnreachable` otherwise. Runs for the
+    /// lifetime of the page; aborted via `BrowserSession::drop`.
+    async fn spawn_request_interceptor(page: &Page) -> Result<tokio::task::JoinHandle<()>, String> {
+        let mut paused = page
+            .event_listener::<EventRequestPaused>()
+            .await
+            .map_err(|e| format!("failed to subscribe to request interception: {e}"))?;
+        let intercept_page = page.clone();
+        let handle = tokio::spawn(async move {
+            while let Some(event) = paused.next().await {
+                let request_id = event.request_id.clone();
+                // CDP also pauses on the response side when
+                // `responseStatusCode` is set; just continue those
+                // through without re-validating.
+                if event.response_status_code.is_some() {
+                    let _ = intercept_page
+                        .execute(ContinueRequestParams::new(request_id))
+                        .await;
+                    continue;
+                }
+
+                let url = event.request.url.clone();
+                let allow = crate::utils::url_security::validate_and_resolve(&url).await;
+                let outcome = match allow {
+                    Ok(_) => intercept_page
+                        .execute(ContinueRequestParams::new(request_id))
+                        .await
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                    Err(reason) => {
+                        warn!("browser request blocked by SSRF guard: {url} ({reason})");
+                        intercept_page
+                            .execute(FailRequestParams::new(
+                                request_id,
+                                ErrorReason::AddressUnreachable,
+                            ))
+                            .await
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    }
+                };
+                if let Err(e) = outcome {
+                    warn!("failed to resolve intercepted request for {url}: {e}");
+                }
+            }
+        });
+        Ok(handle)
     }
 
     async fn with_timeout<F, T>(&self, future: F) -> Result<T, String>

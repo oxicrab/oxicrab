@@ -368,7 +368,7 @@ impl Tool for ExecTool {
             }
         }
 
-        let child = match cmd.spawn() {
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
                 return Ok(ToolResult::error(sanitize_error_message(
@@ -381,15 +381,53 @@ impl Tool for ExecTool {
         #[cfg(unix)]
         let child_pid = child.id();
 
-        match tokio::time::timeout(Duration::from_secs(self.timeout), child.wait_with_output())
-            .await
-        {
-            Ok(Ok(output)) => Ok(format_output(&output)),
+        // Take ownership of stdout/stderr handles so we can read them
+        // independently of the wait. Reading concurrently in spawned
+        // tasks lets us own `child` mutably here — `child.wait()`
+        // takes `&mut self` (no consume), so on timeout `child` is
+        // still owned and `child_pid` is still allocated. The prior
+        // `wait_with_output()` consumed `child`, meaning a timeout
+        // would drop `child` (kill_on_drop reap) BEFORE the killpg
+        // call ran, opening a PID-recycle race window where `killpg`
+        // could target an unrelated process group.
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let stdout_task = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(mut r) = stdout {
+                let _ = tokio::io::AsyncReadExt::read_to_end(&mut r, &mut buf).await;
+            }
+            buf
+        });
+        let stderr_task = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(mut r) = stderr {
+                let _ = tokio::io::AsyncReadExt::read_to_end(&mut r, &mut buf).await;
+            }
+            buf
+        });
+
+        let wait_result =
+            tokio::time::timeout(Duration::from_secs(self.timeout), child.wait()).await;
+
+        match wait_result {
+            Ok(Ok(status)) => {
+                let stdout_buf = stdout_task.await.unwrap_or_default();
+                let stderr_buf = stderr_task.await.unwrap_or_default();
+                Ok(format_output(&std::process::Output {
+                    status,
+                    stdout: stdout_buf,
+                    stderr: stderr_buf,
+                }))
+            }
             Ok(Err(e)) => Ok(ToolResult::error(sanitize_error_message(
                 &format!("error executing command: {e}"),
                 self.working_dir.as_deref(),
             ))),
             Err(_) => {
+                // Timeout fired. `child` is still owned here; on
+                // Unix the PID is still allocated to our child,
+                // so `killpg` reliably targets the right group.
                 #[cfg(unix)]
                 if let Some(pid) = child_pid {
                     // SAFETY: killpg sends SIGKILL to all processes in the group.
@@ -397,6 +435,13 @@ impl Tool for ExecTool {
                         libc::killpg(pid as libc::pid_t, libc::SIGKILL);
                     }
                 }
+                // Reap the immediate child so the kill_on_drop reap
+                // doesn't fire later against a freed handle.
+                let _ = child.kill().await;
+                // Drain the stdio readers so the spawned tasks
+                // finish promptly rather than dangling.
+                stdout_task.abort();
+                stderr_task.abort();
                 Ok(ToolResult::error(format!(
                     "command timed out after {} seconds",
                     self.timeout

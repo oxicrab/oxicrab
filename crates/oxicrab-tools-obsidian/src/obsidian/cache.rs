@@ -157,14 +157,73 @@ impl ObsidianCache {
     }
 
     /// Validate that a user-supplied path stays within the cache directory.
+    ///
+    /// Lexical normalization alone is not enough: a symlink already
+    /// in the cache dir could point outside it, and a `starts_with`
+    /// check on the lexical path would not notice. We resolve the
+    /// deepest existing ancestor of the target with `canonicalize`
+    /// (which follows symlinks), then re-check containment against
+    /// the canonicalized cache root. Writes to a path whose parent
+    /// directories don't exist yet still work — only the existing
+    /// portion gets symlink-resolved.
     fn safe_cache_path(&self, path: &str) -> Option<std::path::PathBuf> {
         let joined = self.cache_dir.join(path);
-        // Lexically normalize to collapse `..` components
         let normalized = lexical_normalize(&joined);
-        if normalized.starts_with(&self.cache_dir) {
-            Some(normalized)
+        if !normalized.starts_with(&self.cache_dir) {
+            warn!("path traversal blocked (lexical): {}", path);
+            return None;
+        }
+
+        let cache_root = match self.cache_dir.canonicalize() {
+            Ok(p) => p,
+            Err(_) => {
+                warn!(
+                    "cache dir not canonicalizable: {}",
+                    self.cache_dir.display()
+                );
+                return None;
+            }
+        };
+
+        // Walk up to the deepest ancestor that exists, canonicalize
+        // it (resolving symlinks), then append the remaining
+        // components. If any existing component is a symlink that
+        // escapes cache_root, this catches it.
+        let mut existing: Option<std::path::PathBuf> = None;
+        let mut tail: Vec<std::ffi::OsString> = Vec::new();
+        let mut walker = normalized.clone();
+        loop {
+            if walker.exists() {
+                existing = Some(walker);
+                break;
+            }
+            match walker.file_name() {
+                Some(name) => tail.push(name.to_os_string()),
+                None => break,
+            }
+            if !walker.pop() {
+                break;
+            }
+        }
+        let resolved = match existing {
+            Some(base) => {
+                let Ok(canon) = base.canonicalize() else {
+                    warn!("ancestor not canonicalizable: {}", base.display());
+                    return None;
+                };
+                let mut p = canon;
+                for seg in tail.iter().rev() {
+                    p.push(seg);
+                }
+                p
+            }
+            None => normalized,
+        };
+
+        if resolved.starts_with(&cache_root) {
+            Some(resolved)
         } else {
-            warn!("path traversal blocked: {}", path);
+            warn!("path traversal blocked (symlink escape): {}", path);
             None
         }
     }
