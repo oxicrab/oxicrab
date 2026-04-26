@@ -499,6 +499,14 @@ stream = false</code></pre>
     <h2><span class="icon">&#128241;</span>WhatsApp</h2>
     <p>Linked-device mode using <a href="https://github.com/jlucaso1/whatsapp-rust">whatsapp-rust</a>. Runs as a secondary device on your phone. Feature flag: <code>channel-whatsapp</code>.</p>
 
+    <div class="note"><strong>Important &mdash; the bot shares your WhatsApp identity.</strong> When you scan the QR with your personal phone, the bot links to <em>your</em> account &mdash; its JID is your phone number's JID. Two consequences:
+      <ul>
+        <li>In groups, <code>@</code>-mentions and quote-replies to <em>you, the human</em> cannot be distinguished from messages addressing the bot. The bot will respond. Your own typing is filtered out via <code>is_from_me</code>, but anything <em>others</em> direct at your contact wakes the bot.</li>
+        <li>The bot only acts in groups listed in <code>allowGroups</code>, both inbound and outbound. A misconfigured webhook or cron target cannot reach a group that is not on the list.</li>
+      </ul>
+      <strong>Recommended:</strong> give the bot its own WhatsApp number &mdash; a second SIM/eSIM on a separate device, or a number registered through <a href="https://business.whatsapp.com/">WhatsApp Business</a>. Then the bot's identity is distinct from yours and addressing is unambiguous. Until you do this, treat any group you add the bot to as a place where mentioning you also wakes the bot.
+    </div>
+
     <h3>1. First-time setup</h3>
     <ol>
       <li>Run <code>oxicrab gateway</code> with WhatsApp enabled in config</li>

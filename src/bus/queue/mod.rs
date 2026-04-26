@@ -34,6 +34,39 @@ fn build_keyed_limiter(burst: usize, window: Duration) -> KeyedLimiter {
     RateLimiter::keyed(quota)
 }
 
+/// Recursively redact secrets from a metadata value tree. Strings
+/// run through the leak-detector's pattern scan; objects and arrays
+/// recurse with a depth bound so a pathologically nested metadata
+/// payload can't blow the stack.
+fn redact_metadata_value(value: &mut serde_json::Value, detector: &crate::safety::LeakDetector) {
+    fn walk(value: &mut serde_json::Value, detector: &crate::safety::LeakDetector, depth: usize) {
+        if depth >= 32 {
+            return;
+        }
+        match value {
+            serde_json::Value::String(s) => {
+                let redacted = detector.redact(s);
+                if redacted != *s {
+                    warn!("security: secret leak in outbound metadata — redacting");
+                    *s = redacted;
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    walk(item, detector, depth + 1);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for v in map.values_mut() {
+                    walk(v, detector, depth + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(value, detector, 0);
+}
+
 pub struct MessageBus {
     pub inbound_tx: mpsc::Sender<InboundMessage>,
     inbound_rx: Mutex<Option<mpsc::Receiver<InboundMessage>>>,
@@ -188,8 +221,27 @@ impl MessageBus {
             msg.content = self.leak_detector.redact(&msg.content);
         }
 
-        // Scan button context metadata for leaked secrets
-        if let Some(buttons) = msg.metadata.get_mut("buttons")
+        // Scan media paths — a filename can carry a secret (e.g. a
+        // download cached as `/tmp/sk-ant-{token}.png`). Paths that
+        // redact to a different string are dropped from the outbound
+        // batch since the underlying file path is what the channel
+        // uploads and we can't rewrite the file contents.
+        msg.media.retain(|path| {
+            let redacted = self.leak_detector.redact(path);
+            if redacted == *path {
+                true
+            } else {
+                warn!("security: secret in media path — dropping from outbound");
+                false
+            }
+        });
+
+        // Scan button context metadata for leaked secrets, using the
+        // shared meta::BUTTONS constant so a future rename keeps the
+        // scan lined up.
+        if let Some(buttons) = msg
+            .metadata
+            .get_mut(oxicrab_core::bus::events::meta::BUTTONS)
             && let Some(arr) = buttons.as_array_mut()
         {
             for btn in arr.iter_mut() {
@@ -203,6 +255,18 @@ impl MessageBus {
                     }
                 }
             }
+        }
+
+        // Scan all OTHER metadata values for leaks. Tool emitters
+        // can stash arbitrary JSON on outbound; the per-string
+        // recursion catches secrets in nested fields without
+        // forcing each tool to scrub on its way out.
+        for (key, value) in &mut msg.metadata {
+            if key == oxicrab_core::bus::events::meta::BUTTONS {
+                // Already handled above with the button-aware logic.
+                continue;
+            }
+            redact_metadata_value(value, &self.leak_detector);
         }
 
         let channel = msg.channel.clone();

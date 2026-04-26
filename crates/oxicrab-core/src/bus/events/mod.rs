@@ -163,14 +163,19 @@ impl OutboundMessage {
 
     /// Build from an inbound message, moving `channel`, `chat_id`, and `metadata`.
     ///
-    /// Inbound-only metadata keys (`IS_CRON_JOB`, `RESPONSE_FORMAT`, `WEBHOOK_NAME`)
-    /// are stripped so they don't leak to outbound consumers.
+    /// Inbound-only metadata keys are stripped so they don't leak to
+    /// outbound consumers: `IS_CRON_JOB`, `RESPONSE_FORMAT`,
+    /// `WEBHOOK_NAME`, `APPROVAL_REQUIRED`, `ACTIVE_TOOL`.
+    /// `SESSION_ID` is intentionally retained so the gateway HTTP
+    /// path can thread responses to the right conversation.
     pub fn from_inbound(msg: InboundMessage, content: impl Into<String>) -> OutboundMessageBuilder {
         let mut metadata = msg.metadata;
         // Remove inbound-only metadata that shouldn't appear on outbound messages
         metadata.remove(meta::IS_CRON_JOB);
         metadata.remove(meta::RESPONSE_FORMAT);
         metadata.remove(meta::WEBHOOK_NAME);
+        metadata.remove(meta::APPROVAL_REQUIRED);
+        metadata.remove(meta::ACTIVE_TOOL);
         OutboundMessageBuilder {
             inner: OutboundMessage {
                 channel: msg.channel,

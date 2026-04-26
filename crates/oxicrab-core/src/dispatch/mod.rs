@@ -10,11 +10,29 @@ pub struct ActionDispatch {
 
 #[derive(Debug, Clone)]
 pub enum ActionSource {
-    Button { action_id: String },
-    Webhook { webhook_name: String },
-    Cron { job_id: String },
-    Command { raw: String },
-    ToolChain { parent_tool: String },
+    Button {
+        action_id: String,
+    },
+    Webhook {
+        webhook_name: String,
+    },
+    Cron {
+        job_id: String,
+    },
+    Command {
+        raw: String,
+    },
+    ToolChain {
+        parent_tool: String,
+    },
+    /// Live `ActionDirective` from the router's `RouterContext` — a
+    /// previous tool execution stashed a directive that matched the
+    /// current message. Mirrors `DispatchSource::ActionDirective`
+    /// in the router so direct-dispatch telemetry has a parallel
+    /// label across both layers.
+    Directive {
+        directive_index: usize,
+    },
 }
 
 impl ActionSource {
@@ -25,6 +43,7 @@ impl ActionSource {
             Self::Cron { .. } => "cron",
             Self::Command { .. } => "command",
             Self::ToolChain { .. } => "chain",
+            Self::Directive { .. } => "directive",
         }
     }
 }

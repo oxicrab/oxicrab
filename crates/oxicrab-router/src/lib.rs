@@ -462,6 +462,7 @@ fn action_source_to_dispatch_source(source: &ActionSource) -> DispatchSource {
         ActionSource::Cron { .. } => DispatchSource::Cron,
         ActionSource::Command { .. } => DispatchSource::Command,
         ActionSource::ToolChain { .. } => DispatchSource::ToolChain,
+        ActionSource::Directive { .. } => DispatchSource::ActionDirective,
     }
 }
 

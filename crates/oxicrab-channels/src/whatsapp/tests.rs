@@ -176,3 +176,60 @@ fn test_is_image_mime_none() {
 fn test_is_image_mime_empty() {
     assert!(!is_image_mime(Some("")));
 }
+
+// --- outbound_group_blocked tests ---
+
+#[test]
+fn test_outbound_blocks_disallowed_group() {
+    let groups = allow_list(&["120363@g.us"]);
+    assert!(outbound_group_blocked("999999@g.us", &groups));
+}
+
+#[test]
+fn test_outbound_allows_listed_group() {
+    let groups = allow_list(&["120363@g.us"]);
+    assert!(!outbound_group_blocked("120363@g.us", &groups));
+}
+
+#[test]
+fn test_outbound_blocks_all_groups_when_allowgroups_empty() {
+    // Empty DenyByDefaultList = deny-all, the same invariant the inbound
+    // gate relies on. Outbound must enforce it too — otherwise an operator
+    // who never set allowGroups could still leak via cron/webhook targets.
+    let groups = DenyByDefaultList::default();
+    assert!(outbound_group_blocked("120363@g.us", &groups));
+}
+
+#[test]
+fn test_outbound_allows_dms_regardless_of_allowgroups() {
+    // DMs are gated by allow_from / dmPolicy on the inbound side.
+    // The outbound group check must not block them.
+    let groups = DenyByDefaultList::default();
+    assert!(!outbound_group_blocked(
+        "15551234567@s.whatsapp.net",
+        &groups
+    ));
+}
+
+#[test]
+fn test_outbound_allows_dms_with_device_suffix() {
+    let groups = DenyByDefaultList::default();
+    assert!(!outbound_group_blocked(
+        "15551234567:20@s.whatsapp.net",
+        &groups
+    ));
+}
+
+#[test]
+fn test_outbound_normalizes_group_jid_with_device_suffix() {
+    // Operator listed the group's bare JID; an outbound that landed with a
+    // device suffix must still match after normalization.
+    let groups = allow_list(&["120363@g.us"]);
+    assert!(!outbound_group_blocked("120363@g.us:1", &groups));
+}
+
+#[test]
+fn test_outbound_allows_wildcard_groups() {
+    let groups = allow_list(&["*"]);
+    assert!(!outbound_group_blocked("120363@g.us", &groups));
+}

@@ -542,6 +542,14 @@ impl BaseChannel for WhatsAppChannel {
             return Ok(None);
         }
 
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "whatsapp: dropping outbound to group {} — not in allowGroups",
+                msg.chat_id
+            );
+            return Ok(None);
+        }
+
         // Clone the Arc<Client> out of the mutex, then release the lock
         // before doing network I/O (same pattern as send())
         let client_arc = {
@@ -567,6 +575,14 @@ impl BaseChannel for WhatsAppChannel {
             debug!(
                 "WhatsApp send: ignoring message for channel {}",
                 msg.channel
+            );
+            return Ok(());
+        }
+
+        if outbound_group_blocked(&msg.chat_id, &self.config.allow_groups) {
+            warn!(
+                "whatsapp: dropping outbound to group {} — not in allowGroups",
+                msg.chat_id
             );
             return Ok(());
         }
@@ -791,6 +807,22 @@ fn should_skip_own_message(
         .next()
         .unwrap_or(recip);
     !check_allowed_sender(recip_phone, allow_from, "whatsapp")
+}
+
+/// True when an outbound `chat_id` targets a `WhatsApp` group JID that is
+/// not in `allow_groups`. Defense-in-depth so the rule "this bot only
+/// acts in groups on `allowGroups`" is enforced on the outbound path
+/// too — not just inbound. DM JIDs (`@s.whatsapp.net`) are unaffected;
+/// sender-level access for DMs is enforced inbound via `check_dm_access`.
+fn outbound_group_blocked(
+    chat_id: &str,
+    allow_groups: &oxicrab_core::config::schema::DenyByDefaultList,
+) -> bool {
+    let normalized = normalize_jid(chat_id);
+    if !normalized.ends_with("@g.us") {
+        return false;
+    }
+    !check_group_access(&normalized, allow_groups)
 }
 
 mod mention;
