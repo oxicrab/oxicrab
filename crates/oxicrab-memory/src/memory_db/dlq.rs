@@ -110,11 +110,19 @@ impl MemoryDB {
         Ok(updated > 0)
     }
 
+    /// Maximum retry count tracked in the DLQ. The cron tool's
+    /// max-5 check is the LLM-facing gate; this is a hard ceiling
+    /// on the database row to bound long-tail accumulation when an
+    /// operator scripts replays directly.
+    const MAX_DLQ_RETRIES: i64 = 16;
+
     pub fn increment_dlq_retry(&self, id: i64) -> Result<bool> {
         let conn = self.lock_conn()?;
         let updated = conn.execute(
-            "UPDATE scheduled_task_dlq SET retry_count = retry_count + 1 WHERE id = ?1",
-            params![id],
+            "UPDATE scheduled_task_dlq
+                SET retry_count = retry_count + 1
+              WHERE id = ?1 AND retry_count < ?2",
+            params![id, Self::MAX_DLQ_RETRIES],
         )?;
         Ok(updated > 0)
     }

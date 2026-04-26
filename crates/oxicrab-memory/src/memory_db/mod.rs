@@ -84,7 +84,18 @@ use search::fts_query;
 /// A `half_life_days` of 0 disables decay (returns 1.0).
 /// Floor of 0.01 prevents very old but relevant entries from becoming invisible.
 pub fn recency_decay(age_days: f64, half_life_days: u32) -> f32 {
-    if half_life_days == 0 || age_days <= 0.0 {
+    if half_life_days == 0 {
+        return 1.0;
+    }
+    if age_days < 0.0 {
+        // Future-timestamped entries imply clock skew, DB
+        // corruption, or import from a host on a different clock.
+        // Don't silently boost them to 1.0 — log once at warn so
+        // operators see the drift.
+        tracing::warn!("recency_decay: future-dated entry (age_days={age_days})");
+        return 1.0;
+    }
+    if age_days == 0.0 {
         return 1.0;
     }
     let decay = (0.5_f64.powf(age_days / f64::from(half_life_days))) as f32;
