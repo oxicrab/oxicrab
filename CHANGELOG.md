@@ -2,6 +2,112 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.18.0] - 2026-04-27
+
+### Added
+- **streaming:** first-turn streaming + buttons on streamed message ([3cee596](https://github.com/oxicrab/oxicrab/commit/3cee596b783bf6f01a79933f3832dd9628bf82f8))
+- **streaming:** channel streaming + bug fixes from agent loop review ([1a48a0b](https://github.com/oxicrab/oxicrab/commit/1a48a0b8bd487fec3155dc21ab4194e23c0d46ca))
+- **loop:** T2 + UX fixes — mid-turn injection, cancellation, schema validate, F#4/6/11/12/13 ([09d4ddf](https://github.com/oxicrab/oxicrab/commit/09d4ddf3e40a5ebabe25b26021c715b900b8b12b))
+- **loop:** T1 robustness — accumulated text, force-text, dup-detection, budget notices ([43abfcb](https://github.com/oxicrab/oxicrab/commit/43abfcb57b2af6298057d3e13cbeab766944f15c))
+- **memory:** structured claims with confidence + status + evidence + lint ([d9930a9](https://github.com/oxicrab/oxicrab/commit/d9930a97337443fa1ae07b6c9f01d094a19adfcc))
+- **trajectory:** LLM-written skill bodies for auto-suggested candidates ([e8b6034](https://github.com/oxicrab/oxicrab/commit/e8b60340fa327692ee3ba587bc4054195405b933))
+- **cli:** interactive onboard wizard (provider + channel choice) ([9af8916](https://github.com/oxicrab/oxicrab/commit/9af891681e187e8910105f8368bc6beaa219b6ad))
+- **memory:** recall-driven promotion of daily notes to knowledge ([cfd5efd](https://github.com/oxicrab/oxicrab/commit/cfd5efd11f35283d6bb9b33950751856d6f70067))
+- **compaction:** tool-replay-repair preserves 'I tried X' context ([004a7fb](https://github.com/oxicrab/oxicrab/commit/004a7fb6ee143bc223a57d24707662d58146d26c))
+- **loop:** tier-1 hardening from nanobot + openclaw review ([198a388](https://github.com/oxicrab/oxicrab/commit/198a3886e8868700d071c4a2a9ce813b467965e8))
+- **cron:** finish_cron tool — explicit completion signal ([8b54e2e](https://github.com/oxicrab/oxicrab/commit/8b54e2eadce17f0631012a7b7d22f4990f3da6ee))
+- **safety:** LLM-as-Judge before-tool-call gate (off by default) ([58280fa](https://github.com/oxicrab/oxicrab/commit/58280fa069b9f450bf0a03d4b016dbfb348b05e8))
+- **tools:** add web_fetch_summary with cheap-LLM summariser + 15-min cache ([55eeeb5](https://github.com/oxicrab/oxicrab/commit/55eeeb5ecda5c8026519ba7460a363c5ab991feb))
+- **safety:** credential scrubber for tool recording boundaries ([c63593c](https://github.com/oxicrab/oxicrab/commit/c63593c5748acffdfeb2f875a44ca033897e3f2b))
+- **agent:** skill auto-refine + daily maintenance ticker ([16d1da8](https://github.com/oxicrab/oxicrab/commit/16d1da83b1804d08ec9ac2862ef613cdac71225d))
+- **agent:** trajectory logging, activity journal, query_activity tool ([31ea798](https://github.com/oxicrab/oxicrab/commit/31ea798806fc54f0e2e80c121827065ec16063f4))
+- **memory:** add TrajectoryStore for tool-loop observability ([a87729c](https://github.com/oxicrab/oxicrab/commit/a87729cca037376d618fadc11874cd2149672408))
+- **self-improvement:** Tracks 1 (Reflexion) + 2 (skill library) (#163) ([4ebc195](https://github.com/oxicrab/oxicrab/commit/4ebc195f20a741d2d53bd3517f6e1ba688cf189c))
+
+
+### CI/CD
+- bump mozilla-actions/sccache-action from 0.0.9 to 0.0.10 (#168) ([17d9c16](https://github.com/oxicrab/oxicrab/commit/17d9c16b242e3728b655c5866be8d3fd6c9f7aaf))
+- bump trufflesecurity/trufflehog from 3.94.3 to 3.95.2 (#167) ([be09c6f](https://github.com/oxicrab/oxicrab/commit/be09c6fc2bc11be8c732640eb7e745c701096361))
+- bump actions/upload-pages-artifact from 4 to 5 (#165) ([ea42d99](https://github.com/oxicrab/oxicrab/commit/ea42d99a5822d195403fba02e9e34c456c72b758))
+- bump softprops/action-gh-release from 2 to 3 (#166) ([d6e3c33](https://github.com/oxicrab/oxicrab/commit/d6e3c3362f4a292a3327786f6db1eb6ae5fbc70f))
+
+
+### Changed
+- **tools:** use unwrap_or_else(PoisonError::into_inner) on registry locks ([b7f526a](https://github.com/oxicrab/oxicrab/commit/b7f526a6ec7ad691580ab48dba510df3cad80490))
+- **logs:** drop trailing periods from tracing messages ([89b6f29](https://github.com/oxicrab/oxicrab/commit/89b6f29263d28d43aaf948502e59192e9ea85792))
+- **logs:** lowercase first letter of tracing messages ([70b792c](https://github.com/oxicrab/oxicrab/commit/70b792c83c028ee7fa64114a0d92d7668ee9aff0))
+- remove legacy and backward-compat fallback paths ([28adfdb](https://github.com/oxicrab/oxicrab/commit/28adfdb5dab86f7609922c5a53afbd36ca7ab5c6))
+
+
+### Dependencies
+- bump whatsapp-rust from 0.4.3 to 0.5.0 (#173) ([d754d10](https://github.com/oxicrab/oxicrab/commit/d754d109d29c07ee0b23476be4066ff7e57a4556))
+- bump lru from 0.16.3 to 0.17.0 (#178) ([c16595e](https://github.com/oxicrab/oxicrab/commit/c16595e2b387720cf2f181bea4b86c64101c8382))
+- bump metrics-exporter-prometheus from 0.17.2 to 0.18.1 (#177) ([098709e](https://github.com/oxicrab/oxicrab/commit/098709ed059452b94ee808bfd606f5bc241eb41e))
+- bump open from 5.3.3 to 5.3.4 (#176) ([1d0ca96](https://github.com/oxicrab/oxicrab/commit/1d0ca9628bb6024da5d079ac44c789ead9d63209))
+- bump rustls from 0.23.37 to 0.23.39 (#175) ([f0da913](https://github.com/oxicrab/oxicrab/commit/f0da9134c004fcb57a916776959006217ee98e53))
+- bump toml from 0.9.12+spec-1.1.0 to 1.1.2+spec-1.1.0 (#174) ([e04fe46](https://github.com/oxicrab/oxicrab/commit/e04fe4670ee59ebdc44347ad144edd10cc1efb8d))
+- bump clap_complete from 4.6.1 to 4.6.2 (#172) ([ee7ba2e](https://github.com/oxicrab/oxicrab/commit/ee7ba2ef11c6f05089d1c6f1b8bd0d6c595dee0a))
+- bump rmcp from 1.4.0 to 1.5.0 (#171) ([a865ef6](https://github.com/oxicrab/oxicrab/commit/a865ef6d1e03b6e1fa2b0331b01e672d32c21cee))
+- bump clap from 4.6.0 to 4.6.1 (#170) ([0c68367](https://github.com/oxicrab/oxicrab/commit/0c683671b649dad130176d335a8e9c28dc6d08d1))
+- bump axum from 0.8.8 to 0.8.9 (#169) ([750784f](https://github.com/oxicrab/oxicrab/commit/750784fffcbcaa1518561ab539723ade432c2ec4))
+
+
+### Documentation
+- **agent-loop:** close §1-1/2 docstring + dual-state invariant ([bce0fad](https://github.com/oxicrab/oxicrab/commit/bce0fad8f8ab21bc4d7b6d924d0387afe742f1cf))
+- **claude:** refresh §Channels, §Memory, §Loop notes for streaming v2 ([c525299](https://github.com/oxicrab/oxicrab/commit/c5252995c9b1d15a8c8406cdf15d7ee62e535917))
+- **claude:** trim §Safety, §Gateway, §Slack; move impl detail to doc comments ([d03fa50](https://github.com/oxicrab/oxicrab/commit/d03fa500057466db4cef562498595b1b82fd2499))
+- **streaming:** reflect first-turn streaming + buttons-on-message ([41bc067](https://github.com/oxicrab/oxicrab/commit/41bc0675df8ac9ae911a4174c696a95b2535f84e))
+- **streaming:** T3 streaming-v2 design with Feb-2026 regression analysis ([0a59d4c](https://github.com/oxicrab/oxicrab/commit/0a59d4c8863e5235d972bebb34364606544703ea))
+- cover claims, memory promotion, LLM timeout, autoSuggest LLM body ([5cf482d](https://github.com/oxicrab/oxicrab/commit/5cf482db02340fa2b1ad7a85a2d9f9e194f0b615))
+- **loop:** correct stale handle_text_response references ([e3c27bc](https://github.com/oxicrab/oxicrab/commit/e3c27bcb415a0c57bce94a36356da5de0100c436))
+- cover trajectory, skill auto-refine, activity journal, query_activity ([36b2e7a](https://github.com/oxicrab/oxicrab/commit/36b2e7a2d9ad031d97f2adb4cef2f3df1ee006b2))
+
+
+### Fixed
+- **build:** keep workspace compiling under --no-default-features ([2efd9fd](https://github.com/oxicrab/oxicrab/commit/2efd9fd088b595e26811e49a23e54646d6f32204))
+- fix some whatsapp and channel edge cases. removed docs ([6af5fa5](https://github.com/oxicrab/oxicrab/commit/6af5fa5f5ad01d5b63fd87db3396d85c6ca29d0c))
+- **utils:** close §23-1/3/4 media canon, pairing cleanup, workspace TTL ([ffeda74](https://github.com/oxicrab/oxicrab/commit/ffeda7499ad0dc80145af07257e328cb6d9e769a))
+- **transcription:** close §22-1/2/3/5 mime case, tag boundary, race, retry ([834dff0](https://github.com/oxicrab/oxicrab/commit/834dff073b677a8e98910d2f0061784dbd1e639e))
+- **mcp:** close §21-2/3 null-strip recursion and graceful shutdown ([0b3cc8b](https://github.com/oxicrab/oxicrab/commit/0b3cc8b6adb04b93d2a91f6506e4790ec0a40dbb))
+- **cli:** close §18-1/2/3/4 startup wiring gaps ([9b846d0](https://github.com/oxicrab/oxicrab/commit/9b846d0849d40edf70bee4d3002a222b98dbab4d))
+- **router:** close §8-2/3/4 prune boundary, blocked-tools, lock window ([9f75f25](https://github.com/oxicrab/oxicrab/commit/9f75f255ccce3a8dd013b7a09a3b620b50ee0a94))
+- **bus:** close §15 outbound scan, inbound-only metadata, source variant ([3e0b4df](https://github.com/oxicrab/oxicrab/commit/3e0b4df0264829a14333fbb81bea972ea666280d))
+- **cron:** close §13-2/4/5 trace timeout, update guard, DLQ status ([b6eff2d](https://github.com/oxicrab/oxicrab/commit/b6eff2dab59985a8495865c14caa03716a9713cd))
+- **subagent:** close §12-2 surface failed start to user ([d69251b](https://github.com/oxicrab/oxicrab/commit/d69251bb8faa1356be7a5e83ea608525ec68691a))
+- **skills:** close §11-4 propagate index_one embedding failures ([93d1a2d](https://github.com/oxicrab/oxicrab/commit/93d1a2d6a593e4188f205963dc4ff66fd8a3247c))
+- **skills:** close §11 hardlink, propose race, and refine atomicity ([6372a56](https://github.com/oxicrab/oxicrab/commit/6372a56d0552d8bf7083fe7ecfc56af86960e2f6))
+- **compaction:** close §10-7 truncation thresholds and §10-8 split tests ([38776e4](https://github.com/oxicrab/oxicrab/commit/38776e46036a103352ab79ff0b2c3e7410ae0964))
+- **compaction:** close §10 truncation, redaction-order, SOH guards ([cf485f6](https://github.com/oxicrab/oxicrab/commit/cf485f6c5d509182e02122df45c0b6a186339a32))
+- **memory:** close §5-3 header-without-body and §5-6 dim-mismatch summary ([dbb8e16](https://github.com/oxicrab/oxicrab/commit/dbb8e16f2d93388756f62c19fdf4caf6747a3d3e))
+- **memory:** close §5 dlq retry cap + recency decay diagnostic ([619d214](https://github.com/oxicrab/oxicrab/commit/619d214c29795095f88ea4de15ea773f52ba5346))
+- **gateway:** close §7 HTTP API gaps ([f58b623](https://github.com/oxicrab/oxicrab/commit/f58b623d527786967b0e07a38d5938dc68eed516))
+- **channels:** close §6-8 telegram fallback and §6-9 twilio HMAC ([56cefcd](https://github.com/oxicrab/oxicrab/commit/56cefcdbfc249ad7139263f284c9ba8f9a4b9d82))
+- **channels:** close §6 channel pipeline gaps ([b9a4d34](https://github.com/oxicrab/oxicrab/commit/b9a4d3442f97a32953da57f06195be7c9de25b84))
+- **tools:** close §2 registry + middleware gaps ([a631b82](https://github.com/oxicrab/oxicrab/commit/a631b82986e6049c03c976dc6d8647f1b2f4cd61))
+- **self-improvement:** close §16 reflection / trajectory / journal gaps ([7dd1c79](https://github.com/oxicrab/oxicrab/commit/7dd1c794e0c2b88d18ff84e485799cf2bbc06da4))
+- **safety:** close §9 credential-scrubber and skill/reasoning gaps ([291e8b2](https://github.com/oxicrab/oxicrab/commit/291e8b27318b54dfccb1bd6c87252f72057369e6))
+- **tools:** close §20 external-service tool gaps ([a527fbf](https://github.com/oxicrab/oxicrab/commit/a527fbf094edd933a7b78fb907f2ede456e76323))
+- **tools:** close §19 built-in tool security gaps ([a1e4e92](https://github.com/oxicrab/oxicrab/commit/a1e4e928eebfcf8c2329cdac2e3b677004871d89))
+- **providers:** defensive header filter + OpenAI empty-id drop (§3) ([667acc9](https://github.com/oxicrab/oxicrab/commit/667acc970761d1dd46dfc55c4c1b6d2619bf390d))
+- **streaming:** close per-channel race + bound + timeout (§4) ([bc5f43a](https://github.com/oxicrab/oxicrab/commit/bc5f43a21138e75fb28fec9df6ff62a4a30c5de6))
+- **tools:** collections data_tool — return ToolResult::error for parse_filters validation ([ba8daf2](https://github.com/oxicrab/oxicrab/commit/ba8daf2a8ed0ecdc8e295e97843fa30af04a14d6))
+- **loop:** nudge before falling to no-tools post-loop summary ([3cc24be](https://github.com/oxicrab/oxicrab/commit/3cc24be0c04ca2ff313bfc436b25a3e78e939578))
+- **loop:** rebuild post-loop summary messages without tool protocol ([278ee6e](https://github.com/oxicrab/oxicrab/commit/278ee6e1c2dfa4bae5fdf1055aea768fb09eaa5e))
+- **loop:** post-loop summary now retries + bumps max_tokens on empty ([c4febea](https://github.com/oxicrab/oxicrab/commit/c4febea68d3adb89d9ec8963d7b0d269a02c44d3))
+- **clippy:** clear pedantic warnings on recent feature commits ([2874e84](https://github.com/oxicrab/oxicrab/commit/2874e8459bdc63849028e7a8a7335a19f3affef8))
+- resolve concurrency, UX, and security issues from code review ([ed8f3e4](https://github.com/oxicrab/oxicrab/commit/ed8f3e4e5ce43224c4c13f17b45a444d2df20317))
+
+
+### Maintenance
+- **deps:** bump whatsapp-rust to 0.5 in root crate, sync lockfile ([d000f46](https://github.com/oxicrab/oxicrab/commit/d000f4695404ec1fff820a2bfc6b0aa43ed8323d))
+- **security:** address RUSTSEC-2026-0104 in rustls-webpki ([2844141](https://github.com/oxicrab/oxicrab/commit/284414127952edcb00a57268c68d05f3e43a381c))
+
+
+### Testing
+- align with current loop budget + fallback message ([ad41254](https://github.com/oxicrab/oxicrab/commit/ad412548311284964184d318ef8f115b58e7835e))
+- **memory:** bump migration assertion to v10, cover trajectory tables ([dd6f9d0](https://github.com/oxicrab/oxicrab/commit/dd6f9d06a9c7625edf244e43e1ff512ed0006e73))
+- cover real-bug surfaces flagged by coverage audit (#164) ([d3a113c](https://github.com/oxicrab/oxicrab/commit/d3a113cc954923e66d431102ee36b30f085114e6))
+
 ## [0.17.4] - 2026-04-17
 
 ### Added
