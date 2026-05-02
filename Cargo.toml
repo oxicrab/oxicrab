@@ -32,7 +32,7 @@ hmac = "0.13"
 humantime = "2.3.0"
 ipnet = "2.12"
 libc = "0.2"
-lru = "0.17"
+lru = "0.18"
 metrics = "0.24"
 moka = { version = "0.12", features = ["sync"] }
 regex = "1"
