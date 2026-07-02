@@ -254,3 +254,33 @@ fn pre_restore_snapshots_are_bounded() {
     // The manual snapshot is never pruned.
     assert!(snaps.iter().any(|s| s.id == manual && s.label == "manual"));
 }
+
+/// The public `snapshot_memory` rejects the reserved `pre-restore` label so
+/// a user snapshot can't hijack it — otherwise that manual snapshot would be
+/// swept by restore's pre-restore prune and silently lost. FAILS if the
+/// reserved-label guard is removed: the reserved snapshot row gets created.
+#[test]
+fn snapshot_memory_rejects_reserved_label() {
+    let (db, _g) = db();
+    db.insert_memory("knowledge:a", "alpha").unwrap();
+
+    let err = db.snapshot_memory(PRE_RESTORE_LABEL).unwrap_err();
+    assert!(
+        err.to_string().contains("reserved"),
+        "error should mention the label is reserved, got: {err}"
+    );
+
+    // The rejected call created no snapshot row at all.
+    let snaps = db.list_snapshots(100).unwrap();
+    assert!(
+        !snaps.iter().any(|s| s.label == PRE_RESTORE_LABEL),
+        "no reserved-label snapshot must be persisted"
+    );
+    assert_eq!(snaps.len(), 0, "the rejected call must persist nothing");
+
+    // The guard rejects only the reserved label — a normal one still works.
+    db.snapshot_memory("mine").unwrap();
+    let snaps = db.list_snapshots(100).unwrap();
+    assert_eq!(snaps.len(), 1);
+    assert_eq!(snaps[0].label, "mine");
+}

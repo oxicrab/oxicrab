@@ -26,6 +26,12 @@ const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 /// (labeled) snapshots are never pruned — only `pre-restore` ones.
 const MAX_PRE_RESTORE_SNAPSHOTS: usize = 10;
 
+/// Reserved label for the auto-captured checkpoint each restore takes.
+/// The prune keys on it, so a user snapshot MUST NOT use this label —
+/// `snapshot_memory` rejects it (otherwise a manual snapshot named this
+/// would be swept by the pre-restore prune).
+const PRE_RESTORE_LABEL: &str = "pre-restore";
+
 /// One serialized `memory_entries` row. Embeddings are intentionally NOT
 /// captured — they are derived and get rebuilt by the backfill pass after
 /// restore, so snapshots stay small and model-agnostic.
@@ -59,7 +65,15 @@ pub struct RestoreOutcome {
 impl MemoryDB {
     /// Capture the current durable memory as a labeled snapshot. Returns
     /// the new snapshot id.
+    ///
+    /// The [`PRE_RESTORE_LABEL`] sentinel is reserved for restore's
+    /// auto-checkpoint (the prune keys on it), so a user snapshot with that
+    /// label is rejected — otherwise it would be swept by the pre-restore
+    /// prune and silently lost.
     pub fn snapshot_memory(&self, label: &str) -> Result<i64> {
+        if label == PRE_RESTORE_LABEL {
+            anyhow::bail!("'{PRE_RESTORE_LABEL}' is a reserved snapshot label");
+        }
         let conn = self.lock_conn()?;
         Self::snapshot_memory_inner(&conn, label)
     }
@@ -194,7 +208,7 @@ impl MemoryDB {
         // inside the transaction, so if the restore fails to commit it
         // rolls back with everything else (no ghost snapshot). Captures
         // current state — must run before the DELETE below.
-        let pre_restore_snapshot_id = Self::snapshot_memory_inner(&tx, "pre-restore")?;
+        let pre_restore_snapshot_id = Self::snapshot_memory_inner(&tx, PRE_RESTORE_LABEL)?;
 
         // Embeddings cascade via ON DELETE CASCADE on memory_embeddings.
         tx.execute("DELETE FROM memory_entries", [])?;
@@ -222,14 +236,14 @@ impl MemoryDB {
         // consistent with the just-added pre-restore entry.
         tx.execute(
             "DELETE FROM memory_snapshots
-              WHERE label = 'pre-restore'
+              WHERE label = ?1
                 AND id NOT IN (
                     SELECT id FROM memory_snapshots
-                     WHERE label = 'pre-restore'
+                     WHERE label = ?1
                      ORDER BY created_at_ms DESC, id DESC
-                     LIMIT ?1
+                     LIMIT ?2
                 )",
-            [MAX_PRE_RESTORE_SNAPSHOTS as i64],
+            params![PRE_RESTORE_LABEL, MAX_PRE_RESTORE_SNAPSHOTS as i64],
         )?;
 
         tx.commit()?;
