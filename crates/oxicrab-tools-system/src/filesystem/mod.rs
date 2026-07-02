@@ -445,6 +445,135 @@ impl Tool for WriteFileTool {
     }
 }
 
+/// Optional line-grounding guards for [`EditFileTool`]. Each is 1-indexed
+/// to match `read_file`'s numbered output. When present, they disambiguate
+/// which occurrence of `old_text` to replace instead of failing on the
+/// first duplicate — the model passes the line it read the text on.
+#[derive(Debug, Clone, Copy, Default)]
+struct EditLineGuards {
+    /// Soft window: the match must begin within ±`LINE_HINT_WINDOW` lines.
+    line_hint: Option<usize>,
+    /// Hard: the replaced span must cover this line.
+    target_line: Option<usize>,
+    /// Hard: the replaced span must begin exactly on this line.
+    target_start_line: Option<usize>,
+}
+
+impl EditLineGuards {
+    fn from_params(params: &Value) -> Self {
+        let get = |k: &str| {
+            params
+                .get(k)
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .filter(|&n| n >= 1)
+        };
+        Self {
+            line_hint: get("line_hint"),
+            target_line: get("target_line"),
+            target_start_line: get("target_start_line"),
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.line_hint.is_none() && self.target_line.is_none() && self.target_start_line.is_none()
+    }
+}
+
+/// Soft-match tolerance for `line_hint`, in lines either side.
+const LINE_HINT_WINDOW: usize = 5;
+
+/// The 1-indexed start and end line a byte offset span occupies in `content`.
+fn span_lines(content: &str, start: usize, len: usize) -> (usize, usize) {
+    let start_line = content[..start].bytes().filter(|&b| b == b'\n').count() + 1;
+    let inner_newlines = content[start..start + len]
+        .bytes()
+        .filter(|&b| b == b'\n')
+        .count();
+    (start_line, start_line + inner_newlines)
+}
+
+/// Resolve which occurrence of `old_text` to replace, honoring line guards.
+/// Returns `Ok(byte_offset)` for a unique target, or `Err(message)` with an
+/// actionable diagnostic (not found / ambiguous / guard mismatch).
+fn resolve_edit_occurrence(
+    content: &str,
+    old_text: &str,
+    guards: EditLineGuards,
+) -> std::result::Result<usize, String> {
+    if old_text.is_empty() {
+        return Err("old_text must not be empty".to_string());
+    }
+
+    // Collect every occurrence with its 1-indexed line span.
+    let mut occurrences: Vec<(usize, usize, usize)> = Vec::new();
+    let mut search_from = 0;
+    while let Some(rel) = content[search_from..].find(old_text) {
+        let start = search_from + rel;
+        let (s_line, e_line) = span_lines(content, start, old_text.len());
+        occurrences.push((start, s_line, e_line));
+        search_from = start + old_text.len();
+    }
+
+    if occurrences.is_empty() {
+        return Err("old_text not found in file. Make sure it matches exactly".to_string());
+    }
+
+    // Apply guards strongest-first. Each returns the surviving matches so a
+    // guard mismatch can report where the text actually is.
+    let matches: Vec<&(usize, usize, usize)> = if let Some(ts) = guards.target_start_line {
+        occurrences.iter().filter(|(_, s, _)| *s == ts).collect()
+    } else if let Some(tl) = guards.target_line {
+        occurrences
+            .iter()
+            .filter(|(_, s, e)| *s <= tl && tl <= *e)
+            .collect()
+    } else if let Some(h) = guards.line_hint {
+        occurrences
+            .iter()
+            .filter(|(_, s, _)| s.abs_diff(h) <= LINE_HINT_WINDOW)
+            .collect()
+    } else {
+        occurrences.iter().collect()
+    };
+
+    match matches.as_slice() {
+        [only] => Ok(only.0),
+        [] => {
+            let found: Vec<String> = occurrences
+                .iter()
+                .map(|(_, s, e)| {
+                    if s == e {
+                        s.to_string()
+                    } else {
+                        format!("{s}-{e}")
+                    }
+                })
+                .collect();
+            Err(format!(
+                "old_text does not appear at the requested line guard. \
+                 It was found at line(s): {}. Re-read the file and pass a \
+                 target_line/target_start_line that matches one of these.",
+                found.join(", ")
+            ))
+        }
+        many if guards.is_empty() => Err(format!(
+            "old_text appears {} times. Provide more surrounding context, or pass \
+             target_line (a line the edit must cover) from the numbered read_file output.",
+            many.len()
+        )),
+        many => {
+            let found: Vec<String> = many.iter().map(|(_, s, _)| s.to_string()).collect();
+            Err(format!(
+                "old_text still matches {} occurrences under the given guard (start lines: {}). \
+                 Use target_start_line to pin the exact one.",
+                many.len(),
+                found.join(", ")
+            ))
+        }
+    }
+}
+
 pub struct EditFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
     backup_dir: Option<PathBuf>,
@@ -472,7 +601,9 @@ impl Tool for EditFileTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file."
+        "Edit a file by replacing old_text with new_text. old_text must match the file exactly. \
+         If old_text is not unique, pass target_line (a line the edit must cover) or \
+         target_start_line from the numbered read_file output to pick the right occurrence."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -500,6 +631,21 @@ impl Tool for EditFileTool {
                 "new_text": {
                     "type": "string",
                     "description": "The text to replace with"
+                },
+                "target_line": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional 1-indexed line (from read_file output) that the replaced span must cover. Use to disambiguate when old_text is not unique."
+                },
+                "target_start_line": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional 1-indexed line the replaced span must begin on. Strongest guard; use when target_line is still ambiguous."
+                },
+                "line_hint": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional 1-indexed approximate line; the match must begin within a few lines of it. Weaker than target_line."
                 }
             },
             "required": ["path", "old_text", "new_text"]
@@ -510,19 +656,20 @@ impl Tool for EditFileTool {
         let path_str = require_param!(params, "path");
         let old_text = require_param!(params, "old_text");
         let new_text = require_param!(params, "new_text");
+        let guards = EditLineGuards::from_params(&params);
 
         let file_path = PathBuf::from(path_str);
         let expanded = expand_path(&file_path).await?;
 
         let ws = self.workspace.as_deref();
 
-        if let Some(ref roots) = self.allowed_roots {
+        if let Some(roots) = &self.allowed_roots {
             let (dir, relative) = match open_confined(&expanded, roots) {
                 Ok(v) => v,
                 Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
             };
 
-            if let Some(ref backup_dir) = self.backup_dir {
+            if let Some(backup_dir) = &self.backup_dir {
                 backup_file(&expanded, backup_dir).await;
             }
 
@@ -553,20 +700,17 @@ impl Tool for EditFileTool {
                     )));
                 };
 
-                if !content.contains(&*old_text_owned) {
-                    return Ok(ToolResult::error(
-                        "old_text not found in file. Make sure it matches exactly".to_string(),
-                    ));
-                }
+                let start = match resolve_edit_occurrence(&content, &old_text_owned, guards) {
+                    Ok(s) => s,
+                    Err(msg) => return Ok(ToolResult::error(msg)),
+                };
+                let mut new_content = String::with_capacity(
+                    content.len() - old_text_owned.len() + new_text_owned.len(),
+                );
+                new_content.push_str(&content[..start]);
+                new_content.push_str(&new_text_owned);
+                new_content.push_str(&content[start + old_text_owned.len()..]);
 
-                let count = content.matches(&*old_text_owned).count();
-                if count > 1 {
-                    return Ok(ToolResult::error(format!(
-                        "old_text appears {count} times. Please provide more context to make it unique"
-                    )));
-                }
-
-                let new_content = content.replacen(&*old_text_owned, &new_text_owned, 1);
                 match dir.write(&relative, &new_content) {
                     Ok(()) => Ok(ToolResult::new(format!(
                         "Successfully edited {path_str_owned}"
@@ -596,24 +740,20 @@ impl Tool for EditFileTool {
 
         match tokio::fs::read_to_string(&expanded).await {
             Ok(content) => {
-                if !content.contains(old_text) {
-                    return Ok(ToolResult::error(
-                        "old_text not found in file. Make sure it matches exactly".to_string(),
-                    ));
-                }
+                let start = match resolve_edit_occurrence(&content, old_text, guards) {
+                    Ok(s) => s,
+                    Err(msg) => return Ok(ToolResult::error(msg)),
+                };
 
-                let count = content.matches(old_text).count();
-                if count > 1 {
-                    return Ok(ToolResult::error(format!(
-                        "old_text appears {count} times. Please provide more context to make it unique"
-                    )));
-                }
-
-                if let Some(ref backup_dir) = self.backup_dir {
+                if let Some(backup_dir) = &self.backup_dir {
                     backup_file(&expanded, backup_dir).await;
                 }
 
-                let new_content = content.replacen(old_text, new_text, 1);
+                let mut new_content =
+                    String::with_capacity(content.len() - old_text.len() + new_text.len());
+                new_content.push_str(&content[..start]);
+                new_content.push_str(new_text);
+                new_content.push_str(&content[start + old_text.len()..]);
                 match tokio::fs::write(&expanded, new_content).await {
                     Ok(()) => Ok(ToolResult::new(format!("Successfully edited {path_str}"))),
                     Err(e) => Ok(ToolResult::error(sanitize_err(
