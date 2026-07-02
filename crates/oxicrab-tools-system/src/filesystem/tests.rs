@@ -444,3 +444,125 @@ async fn test_edit_file_ambiguous_without_guard_errors_and_leaves_file() {
 
     fs::remove_dir_all(&dir).unwrap();
 }
+
+// ---- ambiguous-under-guard: the `many` arm's guard-aware advice ----
+
+/// Two copies of `x` on the SAME line (line 2). Any guard keyed to line 2
+/// keeps both occurrences, so the resolver hits the "still ambiguous" arm.
+const SAME_LINE_DUP: &str = "a = 1\nx = x + 1\nb = 2\n";
+
+#[test]
+fn test_target_start_line_still_ambiguous_avoids_circular_advice() {
+    // Sanity: both `x` occurrences really begin on line 2.
+    let starts: Vec<usize> = SAME_LINE_DUP
+        .match_indices('x')
+        .map(|(i, _)| span_lines(SAME_LINE_DUP, i, 1).0)
+        .collect();
+    assert_eq!(starts, vec![2, 2], "fixture must have two line-2 matches");
+
+    let guards = EditLineGuards {
+        target_start_line: Some(2),
+        ..Default::default()
+    };
+    let err = resolve_edit_occurrence(SAME_LINE_DUP, "x", guards)
+        .expect_err("target_start_line=2 leaves two matches, must error");
+
+    // The active guard was target_start_line, so re-suggesting it is circular.
+    assert!(
+        err.contains("Extend old_text") || err.contains("more surrounding context"),
+        "must advise widening old_text, not re-pinning: {err}"
+    );
+    assert!(
+        !err.contains("Use target_start_line"),
+        "must NOT give circular target_start_line advice: {err}"
+    );
+    // Still names the surviving start line so the model can orient.
+    assert!(
+        err.contains('2'),
+        "must list the surviving start line: {err}"
+    );
+}
+
+#[test]
+fn test_target_line_ambiguous_suggests_start_line() {
+    // Same fixture, weaker guard: target_line=2 keeps both matches because
+    // each single-char span covers line 2. target_start_line is unset, so the
+    // start-line pin is the genuine next lever and SHOULD be suggested.
+    let guards = EditLineGuards {
+        target_line: Some(2),
+        ..Default::default()
+    };
+    let err = resolve_edit_occurrence(SAME_LINE_DUP, "x", guards)
+        .expect_err("target_line=2 leaves two matches, must error");
+
+    assert!(
+        err.contains("target_start_line"),
+        "should suggest pinning with target_start_line: {err}"
+    );
+    assert!(
+        err.contains('2'),
+        "must list the surviving start line: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_confined_failed_edit_does_not_backup() {
+    // Root and backup dir are separate trees so the backup dir can be counted
+    // in isolation.
+    let root = std::env::temp_dir().join("oxicrab_test_confined_nobackup_root");
+    let backup_dir = std::env::temp_dir().join("oxicrab_test_confined_nobackup_bak");
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&backup_dir);
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    let file = root.join("dup.rs");
+    fs::write(&file, "fn main() {\n    x = 1\n    x = 1\n}\n").unwrap();
+
+    let tool = EditFileTool::new(
+        Some(vec![root.clone()]),
+        Some(backup_dir.clone()),
+        Some(root.clone()),
+    );
+
+    // Ambiguous edit: resolution fails in phase 1, before any backup runs.
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "    x = 1",
+                "new_text": "z"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error, "ambiguous edit must be rejected");
+    assert_eq!(
+        fs::read_dir(&backup_dir).unwrap().count(),
+        0,
+        "failed edit must not create a backup"
+    );
+
+    // Positive control: a unique edit validates, so exactly one backup lands.
+    let ok = tool
+        .execute(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "fn main()",
+                "new_text": "fn run()"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!ok.is_error, "unique edit should succeed: {}", ok.content);
+    assert_eq!(
+        fs::read_dir(&backup_dir).unwrap().count(),
+        1,
+        "validated edit must create exactly one backup"
+    );
+
+    fs::remove_dir_all(&root).unwrap();
+    fs::remove_dir_all(&backup_dir).unwrap();
+}

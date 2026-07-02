@@ -564,11 +564,19 @@ fn resolve_edit_occurrence(
         )),
         many => {
             let found: Vec<String> = many.iter().map(|(_, s, _)| s.to_string()).collect();
+            // If target_start_line was the active guard, suggesting it again is
+            // circular — the only way forward is to widen old_text. Otherwise a
+            // start-line pin is the next lever.
+            let tip = if guards.target_start_line.is_some() {
+                "Extend old_text with more surrounding context to make it unique on that line."
+            } else {
+                "Use target_start_line to pin the exact one."
+            };
             Err(format!(
-                "old_text still matches {} occurrences under the given guard (start lines: {}). \
-                 Use target_start_line to pin the exact one.",
+                "old_text still matches {} occurrences under the given guard (start lines: {}). {}",
                 many.len(),
-                found.join(", ")
+                found.join(", "),
+                tip,
             ))
         }
     }
@@ -669,51 +677,65 @@ impl Tool for EditFileTool {
                 Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
             };
 
+            let old_text_owned = old_text.to_string();
+            let new_text_owned = new_text.to_string();
+            let path_str_owned = path_str.to_string();
+            let path_str_display = path_str.to_string();
+            let Ok(dir_read) = dir.try_clone() else {
+                return Ok(ToolResult::error(
+                    "failed to access file for edit".to_string(),
+                ));
+            };
+            let relative_read = relative.clone();
+
+            // Phase 1: read + resolve + build the new content. No write, no
+            // backup yet — so a failed edit (not found / ambiguous) never
+            // touches the backup dir. Inner Ok = new content; inner Err =
+            // user-facing error message.
+            let phase1: std::result::Result<String, String> =
+                tokio::task::spawn_blocking(move || {
+                    match dir_read.metadata(&relative_read) {
+                        Ok(meta) if meta.len() > MAX_READ_BYTES => {
+                            return Err(format!(
+                                "file too large for edit ({} bytes, max {})",
+                                meta.len(),
+                                MAX_READ_BYTES
+                            ));
+                        }
+                        Err(_) => return Err(format!("file not found: {path_str_owned}")),
+                        _ => {}
+                    }
+                    let Ok(content) = dir_read.read_to_string(&relative_read) else {
+                        return Err(format!("file not found: {path_str_owned}"));
+                    };
+                    let start = resolve_edit_occurrence(&content, &old_text_owned, guards)?;
+                    let mut new_content = String::with_capacity(
+                        content.len() - old_text_owned.len() + new_text_owned.len(),
+                    );
+                    new_content.push_str(&content[..start]);
+                    new_content.push_str(&new_text_owned);
+                    new_content.push_str(&content[start + old_text_owned.len()..]);
+                    Ok(new_content)
+                })
+                .await?;
+
+            let new_content = match phase1 {
+                Ok(c) => c,
+                Err(msg) => return Ok(ToolResult::error(msg)),
+            };
+
+            // Edit validated — now it's safe to back up the pre-edit file.
             if let Some(backup_dir) = &self.backup_dir {
                 backup_file(&expanded, backup_dir).await;
             }
 
-            let old_text_owned = old_text.to_string();
-            let new_text_owned = new_text.to_string();
-            let path_str_owned = path_str.to_string();
-            let ws_owned = ws.map(Path::to_path_buf);
+            // Phase 2: write the validated content.
+            let ws_owned2 = ws.map(Path::to_path_buf);
             return tokio::task::spawn_blocking(move || {
-                let ws_ref = ws_owned.as_deref();
-                match dir.metadata(&relative) {
-                    Ok(meta) if meta.len() > MAX_READ_BYTES => {
-                        return Ok(ToolResult::error(format!(
-                            "file too large for edit ({} bytes, max {})",
-                            meta.len(),
-                            MAX_READ_BYTES
-                        )));
-                    }
-                    Err(_) => {
-                        return Ok(ToolResult::error(format!(
-                            "file not found: {path_str_owned}"
-                        )));
-                    }
-                    _ => {}
-                }
-                let Ok(content) = dir.read_to_string(&relative) else {
-                    return Ok(ToolResult::error(format!(
-                        "file not found: {path_str_owned}"
-                    )));
-                };
-
-                let start = match resolve_edit_occurrence(&content, &old_text_owned, guards) {
-                    Ok(s) => s,
-                    Err(msg) => return Ok(ToolResult::error(msg)),
-                };
-                let mut new_content = String::with_capacity(
-                    content.len() - old_text_owned.len() + new_text_owned.len(),
-                );
-                new_content.push_str(&content[..start]);
-                new_content.push_str(&new_text_owned);
-                new_content.push_str(&content[start + old_text_owned.len()..]);
-
+                let ws_ref = ws_owned2.as_deref();
                 match dir.write(&relative, &new_content) {
                     Ok(()) => Ok(ToolResult::new(format!(
-                        "Successfully edited {path_str_owned}"
+                        "Successfully edited {path_str_display}"
                     ))),
                     Err(e) => Ok(ToolResult::error(sanitize_err(
                         &format!("error writing file: {e}"),
