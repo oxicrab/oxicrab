@@ -9,7 +9,9 @@
 //!   and return a markdown report
 //! - `update_status` — accept / retract / mark contradicted
 
-use crate::agent::memory::memory_db::{ClaimStatus, EvidencePointer, MemoryDB};
+use crate::agent::memory::memory_db::{
+    ClaimStatus, EvidencePointer, MemoryDB, Provenance, StatusUpdate,
+};
 use async_trait::async_trait;
 use oxicrab_core::actions;
 use oxicrab_core::tools::base::{
@@ -134,8 +136,8 @@ impl Tool for ClaimTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "get", "lint", "update_status"],
-                    "description": "Which claim operation to perform."
+                    "enum": ["add", "list", "get", "lint", "update_status", "confirm"],
+                    "description": "Which claim operation to perform. Use 'confirm' when the user validates a previously agent-inferred claim, which unblocks promoting it to 'accepted'."
                 },
                 "text": {
                     "type": "string",
@@ -158,6 +160,11 @@ impl Tool for ClaimTool {
                         "required": ["kind", "value"]
                     },
                     "description": "Optional list of evidence pointers."
+                },
+                "provenance": {
+                    "type": "string",
+                    "enum": ["user_confirmed", "observed", "agent_inferred"],
+                    "description": "For add: where the claim came from. 'user_confirmed' = the user stated it; 'observed' = a tool/file showed it (default); 'agent_inferred' = your own guess. Agent-inferred claims cannot be promoted to 'accepted' until 'confirm'ed by a later user turn."
                 },
                 "id": {
                     "type": "integer",
@@ -192,7 +199,8 @@ impl Tool for ClaimTool {
                 list: ro,
                 get,
                 lint: ro,
-                update_status
+                update_status,
+                confirm
             ],
             category: ToolCategory::Productivity,
             concurrency: ToolConcurrency::SideEffect,
@@ -215,13 +223,22 @@ impl Tool for ClaimTool {
                     .and_then(serde_json::Value::as_f64)
                     .map_or(DEFAULT_CONFIDENCE, |c| c as f32);
                 let evidence = Self::parse_evidence(params.get("evidence"));
-                match self
-                    .db
-                    .insert_claim(text, confidence, ClaimStatus::Open, &evidence)
-                {
+                let provenance = params
+                    .get("provenance")
+                    .and_then(Value::as_str)
+                    .and_then(Provenance::parse)
+                    .unwrap_or(Provenance::Observed);
+                match self.db.insert_claim_with_provenance(
+                    text,
+                    confidence,
+                    ClaimStatus::Open,
+                    provenance,
+                    &evidence,
+                ) {
                     Ok(id) => Ok(ToolResult::new(format!(
-                        "Recorded claim #{id} (confidence {:.2}, {} evidence pointer(s))",
+                        "Recorded claim #{id} (confidence {:.2}, provenance {}, {} evidence pointer(s))",
                         confidence,
+                        provenance.as_str(),
                         evidence.len()
                     ))),
                     Err(e) => Ok(ToolResult::error(format!("claim add failed: {e}"))),
@@ -246,9 +263,10 @@ impl Tool for ClaimTool {
                         for c in claims {
                             let _ = writeln!(
                                 out,
-                                "- #{} [{}] ({:.2}) {}",
+                                "- #{} [{}/{}] ({:.2}) {}",
                                 c.id,
                                 c.status.as_str(),
+                                c.provenance.as_str(),
                                 c.confidence,
                                 c.text
                             );
@@ -266,9 +284,10 @@ impl Tool for ClaimTool {
                     Ok(Some(c)) => {
                         use std::fmt::Write as _;
                         let mut out = format!(
-                            "Claim #{}\nStatus: {}\nConfidence: {:.2}\nText: {}\n",
+                            "Claim #{}\nStatus: {}\nProvenance: {}\nConfidence: {:.2}\nText: {}\n",
                             c.id,
                             c.status.as_str(),
+                            c.provenance.as_str(),
                             c.confidence,
                             c.text
                         );
@@ -327,14 +346,33 @@ impl Tool for ClaimTool {
                     )));
                 };
                 match self.db.update_claim_status(id, status) {
-                    Ok(true) => Ok(ToolResult::new(format!(
+                    Ok(StatusUpdate::Updated) => Ok(ToolResult::new(format!(
                         "Claim #{id} marked {}.",
                         status.as_str()
                     ))),
-                    Ok(false) => Ok(ToolResult::error(format!("claim #{id} not found"))),
+                    Ok(StatusUpdate::BlockedInferred) => Ok(ToolResult::error(format!(
+                        "claim #{id} is agent-inferred and cannot be promoted to 'accepted' \
+                         without user confirmation. When the user confirms it, call \
+                         claim with action 'confirm' and id {id} first, then retry."
+                    ))),
+                    Ok(StatusUpdate::NotFound) => {
+                        Ok(ToolResult::error(format!("claim #{id} not found")))
+                    }
                     Err(e) => Ok(ToolResult::error(format!(
                         "claim update_status failed: {e}"
                     ))),
+                }
+            }
+            "confirm" => {
+                let Some(id) = params.get("id").and_then(serde_json::Value::as_i64) else {
+                    return Ok(ToolResult::error("claim confirm: missing 'id'".to_string()));
+                };
+                match self.db.set_claim_provenance(id, Provenance::UserConfirmed) {
+                    Ok(true) => Ok(ToolResult::new(format!(
+                        "Claim #{id} confirmed by user. It can now be promoted to 'accepted'."
+                    ))),
+                    Ok(false) => Ok(ToolResult::error(format!("claim #{id} not found"))),
+                    Err(e) => Ok(ToolResult::error(format!("claim confirm failed: {e}"))),
                 }
             }
             other => Ok(ToolResult::error(format!(

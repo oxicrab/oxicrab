@@ -54,6 +54,44 @@ impl ClaimStatus {
     }
 }
 
+/// Where a claim's assertion came from. Gates promotion to durable
+/// (`Accepted`) memory: an `AgentInferred` claim — the agent's own guess,
+/// not something the user said or a tool observed — must NOT be promoted
+/// to `Accepted` until a later user turn confirms it (which upgrades its
+/// provenance to `UserConfirmed`). This stops the agent from laundering
+/// its own speculation into fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provenance {
+    /// The user stated it directly. Highest trust.
+    UserConfirmed,
+    /// A tool result or file/source observation. Concrete but not
+    /// user-blessed.
+    Observed,
+    /// The agent inferred it. Lowest trust; cannot be promoted to
+    /// `Accepted` without user confirmation.
+    AgentInferred,
+}
+
+impl Provenance {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::UserConfirmed => "user_confirmed",
+            Self::Observed => "observed",
+            Self::AgentInferred => "agent_inferred",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "user_confirmed" => Some(Self::UserConfirmed),
+            "observed" => Some(Self::Observed),
+            "agent_inferred" => Some(Self::AgentInferred),
+            _ => None,
+        }
+    }
+}
+
 /// One typed pointer back to whatever supports a claim. Different kinds
 /// of evidence need different schemas, so we store the kind explicitly
 /// instead of pretending all sources are URLs.
@@ -91,10 +129,21 @@ pub struct Claim {
     pub text: String,
     pub confidence: f32,
     pub status: ClaimStatus,
+    pub provenance: Provenance,
     pub evidence: Vec<EvidencePointer>,
     pub last_seen_ms: i64,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+/// Outcome of a claim status transition. `BlockedInferred` means the
+/// caller tried to promote an `AgentInferred` claim to `Accepted` without
+/// user confirmation — the write was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusUpdate {
+    Updated,
+    NotFound,
+    BlockedInferred,
 }
 
 /// One pair flagged as a potential contradiction. Heuristic — the
@@ -118,15 +167,44 @@ impl MemoryDB {
         status: ClaimStatus,
         evidence: &[EvidencePointer],
     ) -> Result<i64> {
+        self.insert_claim_with_provenance(text, confidence, status, Provenance::Observed, evidence)
+    }
+
+    /// Insert a claim with an explicit provenance tier. `insert_claim`
+    /// defaults to `Observed`; callers that know the source should use
+    /// this so the promotion gate can enforce trust.
+    pub fn insert_claim_with_provenance(
+        &self,
+        text: &str,
+        confidence: f32,
+        status: ClaimStatus,
+        provenance: Provenance,
+        evidence: &[EvidencePointer],
+    ) -> Result<i64> {
         let now = chrono::Utc::now().timestamp_millis();
         let confidence = confidence.clamp(0.0, 1.0);
+        // Enforce the same gate as `update_claim_status`: an agent-inferred
+        // claim cannot be born already `Accepted`. Downgrade to `Open` so
+        // promotion still requires user confirmation.
+        let status = if status == ClaimStatus::Accepted && provenance == Provenance::AgentInferred {
+            ClaimStatus::Open
+        } else {
+            status
+        };
         let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT INTO claims (text, confidence, status, last_seen_ms,
+            "INSERT INTO claims (text, confidence, status, provenance, last_seen_ms,
                                   created_at_ms, updated_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-            params![text, confidence, status.as_str(), now, now],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            params![
+                text,
+                confidence,
+                status.as_str(),
+                provenance.as_str(),
+                now,
+                now
+            ],
         )?;
         let id = tx.last_insert_rowid();
         for e in evidence {
@@ -141,11 +219,51 @@ impl MemoryDB {
     }
 
     /// Update the status of an existing claim (and bump `updated_at_ms`).
-    pub fn update_claim_status(&self, id: i64, status: ClaimStatus) -> Result<bool> {
+    ///
+    /// Promotion gate: moving an `AgentInferred` claim to `Accepted` is
+    /// refused (`StatusUpdate::BlockedInferred`) until its provenance is
+    /// upgraded via [`set_claim_provenance`] — i.e. a later user turn
+    /// confirmed it. All other transitions (retract, contradict, or
+    /// promoting user-confirmed/observed claims) proceed normally.
+    pub fn update_claim_status(&self, id: i64, status: ClaimStatus) -> Result<StatusUpdate> {
         let conn = self.lock_conn()?;
+        if status == ClaimStatus::Accepted {
+            let provenance: Option<String> = conn
+                .query_row("SELECT provenance FROM claims WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .ok();
+            match provenance {
+                None => return Ok(StatusUpdate::NotFound),
+                Some(p) if Provenance::parse(&p) == Some(Provenance::AgentInferred) => {
+                    return Ok(StatusUpdate::BlockedInferred);
+                }
+                Some(_) => {}
+            }
+        }
         let n = conn.execute(
             "UPDATE claims SET status = ?1, updated_at_ms = ?2 WHERE id = ?3",
             params![status.as_str(), chrono::Utc::now().timestamp_millis(), id],
+        )?;
+        Ok(if n > 0 {
+            StatusUpdate::Updated
+        } else {
+            StatusUpdate::NotFound
+        })
+    }
+
+    /// Set a claim's provenance tier and bump `updated_at_ms`. Used to
+    /// record that a later user turn confirmed a previously agent-inferred
+    /// claim, which unblocks promotion to `Accepted`.
+    pub fn set_claim_provenance(&self, id: i64, provenance: Provenance) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "UPDATE claims SET provenance = ?1, updated_at_ms = ?2 WHERE id = ?3",
+            params![
+                provenance.as_str(),
+                chrono::Utc::now().timestamp_millis(),
+                id
+            ],
         )?;
         Ok(n > 0)
     }
@@ -166,7 +284,7 @@ impl MemoryDB {
         let conn = self.lock_conn()?;
         let mut head = conn.prepare(
             "SELECT id, text, confidence, status, last_seen_ms,
-                    created_at_ms, updated_at_ms
+                    created_at_ms, updated_at_ms, provenance
                FROM claims WHERE id = ?1",
         )?;
         let mut rows = head.query([id])?;
@@ -175,11 +293,14 @@ impl MemoryDB {
         };
         let raw_status: String = row.get(3)?;
         let status = ClaimStatus::parse(&raw_status).unwrap_or(ClaimStatus::Open);
+        let raw_provenance: String = row.get(7)?;
+        let provenance = Provenance::parse(&raw_provenance).unwrap_or(Provenance::Observed);
         let mut claim = Claim {
             id: row.get(0)?,
             text: row.get(1)?,
             confidence: row.get::<_, f64>(2)? as f32,
             status,
+            provenance,
             evidence: Vec::new(),
             last_seen_ms: row.get(4)?,
             created_at_ms: row.get(5)?,
@@ -608,5 +729,177 @@ mod tests {
             db.count_claims_by_status().unwrap().into_iter().collect();
         assert_eq!(counts.get(&ClaimStatus::Open).copied(), Some(2));
         assert_eq!(counts.get(&ClaimStatus::Accepted).copied(), Some(1));
+    }
+
+    #[test]
+    fn provenance_str_roundtrip() {
+        for p in [
+            Provenance::UserConfirmed,
+            Provenance::Observed,
+            Provenance::AgentInferred,
+        ] {
+            assert_eq!(Provenance::parse(p.as_str()), Some(p));
+        }
+        assert_eq!(
+            Provenance::parse("user_confirmed"),
+            Some(Provenance::UserConfirmed)
+        );
+        assert_eq!(Provenance::parse("observed"), Some(Provenance::Observed));
+        assert_eq!(
+            Provenance::parse("agent_inferred"),
+            Some(Provenance::AgentInferred)
+        );
+        assert_eq!(Provenance::parse("nonsense"), None);
+    }
+
+    #[test]
+    fn default_insert_is_observed() {
+        let (db, _g) = db();
+        let id = db
+            .insert_claim("plain insert", 0.5, ClaimStatus::Open, &[])
+            .unwrap();
+        assert_eq!(
+            db.get_claim(id).unwrap().unwrap().provenance,
+            Provenance::Observed
+        );
+    }
+
+    #[test]
+    fn blocks_accept_of_agent_inferred() {
+        let (db, _g) = db();
+        let id = db
+            .insert_claim_with_provenance(
+                "agent guessed the user likes tabs",
+                0.6,
+                ClaimStatus::Open,
+                Provenance::AgentInferred,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            db.update_claim_status(id, ClaimStatus::Accepted).unwrap(),
+            StatusUpdate::BlockedInferred
+        );
+        // The refused promotion must leave the stored status untouched.
+        assert_eq!(db.get_claim(id).unwrap().unwrap().status, ClaimStatus::Open);
+    }
+
+    #[test]
+    fn promotes_observed_and_user_confirmed() {
+        let (db, _g) = db();
+        let observed = db
+            .insert_claim_with_provenance(
+                "tool observed the repo uses cargo",
+                0.7,
+                ClaimStatus::Open,
+                Provenance::Observed,
+                &[],
+            )
+            .unwrap();
+        let confirmed = db
+            .insert_claim_with_provenance(
+                "user said they prefer Rust",
+                0.9,
+                ClaimStatus::Open,
+                Provenance::UserConfirmed,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            db.update_claim_status(observed, ClaimStatus::Accepted)
+                .unwrap(),
+            StatusUpdate::Updated
+        );
+        assert_eq!(
+            db.update_claim_status(confirmed, ClaimStatus::Accepted)
+                .unwrap(),
+            StatusUpdate::Updated
+        );
+        assert_eq!(
+            db.get_claim(observed).unwrap().unwrap().status,
+            ClaimStatus::Accepted
+        );
+        assert_eq!(
+            db.get_claim(confirmed).unwrap().unwrap().status,
+            ClaimStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn confirm_then_promote_path() {
+        let (db, _g) = db();
+        let id = db
+            .insert_claim_with_provenance(
+                "agent inferred the user is on macOS",
+                0.5,
+                ClaimStatus::Open,
+                Provenance::AgentInferred,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            db.update_claim_status(id, ClaimStatus::Accepted).unwrap(),
+            StatusUpdate::BlockedInferred
+        );
+        assert!(
+            db.set_claim_provenance(id, Provenance::UserConfirmed)
+                .unwrap()
+        );
+        assert_eq!(
+            db.update_claim_status(id, ClaimStatus::Accepted).unwrap(),
+            StatusUpdate::Updated
+        );
+        assert_eq!(
+            db.get_claim(id).unwrap().unwrap().status,
+            ClaimStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn insert_accepted_inferred_is_downgraded() {
+        let (db, _g) = db();
+        let id = db
+            .insert_claim_with_provenance(
+                "agent tried to be born accepted",
+                0.8,
+                ClaimStatus::Accepted,
+                Provenance::AgentInferred,
+                &[],
+            )
+            .unwrap();
+        let c = db.get_claim(id).unwrap().unwrap();
+        assert_eq!(c.status, ClaimStatus::Open);
+        assert_eq!(c.provenance, Provenance::AgentInferred);
+    }
+
+    #[test]
+    fn retract_of_inferred_is_allowed() {
+        let (db, _g) = db();
+        let id = db
+            .insert_claim_with_provenance(
+                "agent inferred something wrong",
+                0.4,
+                ClaimStatus::Open,
+                Provenance::AgentInferred,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            db.update_claim_status(id, ClaimStatus::Retracted).unwrap(),
+            StatusUpdate::Updated
+        );
+        assert_eq!(
+            db.get_claim(id).unwrap().unwrap().status,
+            ClaimStatus::Retracted
+        );
+    }
+
+    #[test]
+    fn update_status_missing_id_is_notfound() {
+        let (db, _g) = db();
+        assert_eq!(
+            db.update_claim_status(9999, ClaimStatus::Accepted).unwrap(),
+            StatusUpdate::NotFound
+        );
     }
 }

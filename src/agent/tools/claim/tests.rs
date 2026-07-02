@@ -41,7 +41,7 @@ async fn add_then_list() {
         .unwrap();
     assert!(!l.is_error);
     assert!(l.content.contains("User prefers Rust"));
-    assert!(l.content.contains("[open]"));
+    assert!(l.content.contains("[open/observed]"));
 }
 
 #[tokio::test]
@@ -156,4 +156,134 @@ async fn confidence_clamps() {
         .await
         .unwrap();
     assert!(g.content.contains("Confidence: 1.00"));
+}
+
+#[tokio::test]
+async fn add_agent_inferred_then_accept_is_blocked() {
+    let (tool, _g) = tool();
+    let a = tool
+        .execute(
+            json!({
+                "action": "add",
+                "text": "User is probably a night owl",
+                "provenance": "agent_inferred"
+            }),
+            &ctx(),
+        )
+        .await
+        .unwrap();
+    assert!(!a.is_error);
+    assert!(a.content.contains("#1"));
+
+    let r = tool
+        .execute(
+            json!({"action": "update_status", "id": 1, "status": "accepted"}),
+            &ctx(),
+        )
+        .await
+        .unwrap();
+    assert!(r.is_error);
+    let lower = r.content.to_lowercase();
+    assert!(
+        lower.contains("confirm"),
+        "block message should mention confirmation: {}",
+        r.content
+    );
+
+    let g = tool
+        .execute(json!({"action": "get", "id": 1}), &ctx())
+        .await
+        .unwrap();
+    assert!(!g.is_error);
+    assert!(
+        g.content.contains("Status: open"),
+        "blocked accept must leave status open: {}",
+        g.content
+    );
+}
+
+#[tokio::test]
+async fn confirm_unblocks_accept() {
+    let (tool, _g) = tool();
+    tool.execute(
+        json!({
+            "action": "add",
+            "text": "User is probably a night owl",
+            "provenance": "agent_inferred"
+        }),
+        &ctx(),
+    )
+    .await
+    .unwrap();
+
+    let c = tool
+        .execute(json!({"action": "confirm", "id": 1}), &ctx())
+        .await
+        .unwrap();
+    assert!(!c.is_error);
+
+    let r = tool
+        .execute(
+            json!({"action": "update_status", "id": 1, "status": "accepted"}),
+            &ctx(),
+        )
+        .await
+        .unwrap();
+    assert!(!r.is_error);
+
+    let g = tool
+        .execute(json!({"action": "get", "id": 1}), &ctx())
+        .await
+        .unwrap();
+    assert!(
+        g.content.contains("Status: accepted"),
+        "confirmed claim must promote to accepted: {}",
+        g.content
+    );
+}
+
+#[tokio::test]
+async fn add_observed_can_accept_directly() {
+    let (tool, _g) = tool();
+    tool.execute(
+        json!({
+            "action": "add",
+            "text": "Project builds with cargo",
+            "provenance": "observed"
+        }),
+        &ctx(),
+    )
+    .await
+    .unwrap();
+
+    let r = tool
+        .execute(
+            json!({"action": "update_status", "id": 1, "status": "accepted"}),
+            &ctx(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !r.is_error,
+        "observed claim should accept directly: {}",
+        r.content
+    );
+}
+
+#[tokio::test]
+async fn get_shows_provenance() {
+    let (tool, _g) = tool();
+    tool.execute(
+        json!({"action": "add", "text": "Default provenance claim"}),
+        &ctx(),
+    )
+    .await
+    .unwrap();
+    let g = tool
+        .execute(json!({"action": "get", "id": 1}), &ctx())
+        .await
+        .unwrap();
+    assert!(!g.is_error);
+    assert!(g.content.contains("Provenance:"));
+    assert!(g.content.contains("observed"));
 }

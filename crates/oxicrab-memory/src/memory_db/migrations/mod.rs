@@ -355,6 +355,26 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 14 {
+        run_migration(conn, 14, || {
+            // Add provenance tier to claims. Existing rows default to
+            // 'observed' (neutral middle trust) — we can't retroactively
+            // know whether an old claim was user-confirmed or inferred,
+            // and 'observed' neither blocks nor auto-promotes. New
+            // agent-inferred claims must be inserted explicitly and are
+            // gated from promotion until user-confirmed.
+            let has_provenance = conn
+                .prepare("SELECT 1 FROM pragma_table_info('claims') WHERE name = 'provenance'")?
+                .exists([])?;
+            if !has_provenance {
+                conn.execute_batch(
+                    "ALTER TABLE claims ADD COLUMN provenance TEXT NOT NULL DEFAULT 'observed';",
+                )?;
+            }
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 
