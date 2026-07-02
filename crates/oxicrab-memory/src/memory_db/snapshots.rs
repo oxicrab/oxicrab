@@ -20,6 +20,12 @@ use sha2::{Digest, Sha256};
 /// old snapshots are rejected clearly instead of restoring garbage.
 const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
+/// How many auto-captured `pre-restore` snapshots to keep. Each restore
+/// appends one for reversibility; without a bound, repeated/agent restores
+/// would grow the table unboundedly with large JSON payloads. Manual
+/// (labeled) snapshots are never pruned — only `pre-restore` ones.
+const MAX_PRE_RESTORE_SNAPSHOTS: usize = 10;
+
 /// One serialized `memory_entries` row. Embeddings are intentionally NOT
 /// captured — they are derived and get rebuilt by the backfill pass after
 /// restore, so snapshots stay small and model-agnostic.
@@ -137,21 +143,28 @@ impl MemoryDB {
 
     /// Restore durable memory to a stored snapshot.
     ///
-    /// Auto-captures a `pre-restore` snapshot first (so the restore is
-    /// reversible), then — inside a single transaction — clears
-    /// `memory_entries` (and cascades embeddings) and reinserts the
-    /// snapshot rows verbatim, preserving original `created_at`. Rebuilds
-    /// `memory_sources` from the restored rows and invalidates the
-    /// embedding cache so the backfill pass re-embeds.
+    /// Everything happens inside a single transaction: capture a
+    /// `pre-restore` snapshot (so the restore is reversible), clear
+    /// `memory_entries` (embeddings cascade) and `memory_sources`, then
+    /// reinsert the snapshot rows verbatim (preserving original
+    /// `created_at`) and rebuild `memory_sources`. If the commit fails,
+    /// **nothing** persists — not even the pre-restore snapshot — so a
+    /// failed restore can't leave a ghost entry or half-empty memory.
+    ///
+    /// The stored `content_sha256` is re-verified against the payload
+    /// before any mutation, so a corrupted payload is rejected rather than
+    /// silently overwriting intact memory. Old `pre-restore` snapshots are
+    /// pruned to [`MAX_PRE_RESTORE_SNAPSHOTS`] within the same transaction.
     pub fn restore_snapshot(&self, id: i64) -> Result<RestoreOutcome> {
         let mut conn = self.lock_conn()?;
 
         // Load + validate the target payload before mutating anything.
-        let (schema_version, payload): (u32, String) = conn
+        let (schema_version, stored_hash, payload): (u32, String, String) = conn
             .query_row(
-                "SELECT schema_version, payload FROM memory_snapshots WHERE id = ?1",
+                "SELECT schema_version, content_sha256, payload
+                   FROM memory_snapshots WHERE id = ?1",
                 [id],
-                |r| Ok((r.get::<_, i64>(0)? as u32, r.get(1)?)),
+                |r| Ok((r.get::<_, i64>(0)? as u32, r.get(1)?, r.get(2)?)),
             )
             .with_context(|| format!("snapshot #{id} not found"))?;
         if schema_version != SNAPSHOT_SCHEMA_VERSION {
@@ -160,14 +173,29 @@ impl MemoryDB {
                  {SNAPSHOT_SCHEMA_VERSION}; refusing to restore an incompatible payload"
             );
         }
+        // Integrity gate: the stored hash must match the payload, or the
+        // snapshot is corrupt and must not overwrite live memory.
+        let mut hasher = Sha256::new();
+        hasher.update(payload.as_bytes());
+        let recomputed = hex::encode(hasher.finalize());
+        if recomputed != stored_hash {
+            anyhow::bail!(
+                "snapshot #{id} failed integrity check (stored hash {stored_hash}, \
+                 computed {recomputed}); refusing to restore a corrupt payload"
+            );
+        }
         let entries: Vec<SnapshotEntry> = serde_json::from_str(&payload)
             .with_context(|| format!("snapshot #{id} payload is corrupt"))?;
 
-        // Reversibility: capture current state before overwriting it.
-        let pre_restore_snapshot_id = Self::snapshot_memory_inner(&conn, "pre-restore")?;
-
         let now = chrono::Utc::now().to_rfc3339();
         let tx = conn.transaction()?;
+
+        // Reversibility, but atomic: the pre-restore snapshot is written
+        // inside the transaction, so if the restore fails to commit it
+        // rolls back with everything else (no ghost snapshot). Captures
+        // current state — must run before the DELETE below.
+        let pre_restore_snapshot_id = Self::snapshot_memory_inner(&tx, "pre-restore")?;
+
         // Embeddings cascade via ON DELETE CASCADE on memory_embeddings.
         tx.execute("DELETE FROM memory_entries", [])?;
         tx.execute("DELETE FROM memory_sources", [])?;
@@ -178,6 +206,9 @@ impl MemoryDB {
                  VALUES (?1, ?2, ?3, ?4)",
                 params![e.source_key, e.content, e.content_hash, e.created_at],
             )?;
+            // mtime_ns=0 matches the `insert_memory` convention for
+            // DB-originated memory (no backing file mtime); the column is
+            // not consulted for skip decisions.
             tx.execute(
                 "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
                  VALUES (?1, 0, ?2)
@@ -185,6 +216,22 @@ impl MemoryDB {
                 params![e.source_key, now],
             )?;
         }
+
+        // Bound pre-restore snapshot growth: keep the newest N, delete the
+        // rest. Manual/labeled snapshots are untouched. Runs in-tx so it's
+        // consistent with the just-added pre-restore entry.
+        tx.execute(
+            "DELETE FROM memory_snapshots
+              WHERE label = 'pre-restore'
+                AND id NOT IN (
+                    SELECT id FROM memory_snapshots
+                     WHERE label = 'pre-restore'
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?1
+                )",
+            [MAX_PRE_RESTORE_SNAPSHOTS as i64],
+        )?;
+
         tx.commit()?;
 
         // Derived embeddings are now stale/absent; let the backfill pass rebuild.

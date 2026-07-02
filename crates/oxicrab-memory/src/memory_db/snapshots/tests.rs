@@ -135,3 +135,122 @@ fn snapshot_preserves_content_exactly() {
     assert!(restored.contains(&exact.to_string()));
     assert!(!restored.contains(&"some other content".to_string()));
 }
+
+/// The integrity gate recomputes SHA-256 of the stored payload and rejects
+/// a restore whose payload no longer matches its recorded `content_sha256`,
+/// so a corrupted snapshot can't silently overwrite intact live memory.
+/// FAILS if the hash gate is removed: restore would proceed and wipe memory
+/// to the corrupt (empty) payload.
+#[test]
+fn restore_rejects_corrupt_payload() {
+    let (db, _g) = db();
+    db.insert_memory("knowledge:a", "AAA").unwrap();
+    db.insert_memory("knowledge:b", "BBB").unwrap();
+    let id = db.snapshot_memory("s").unwrap();
+
+    // Corrupt the stored payload so its SHA-256 no longer matches the
+    // recorded content_sha256. `[]` is a valid (empty) SnapshotEntry list,
+    // so only the hash gate — not deserialization — can catch this.
+    {
+        let conn = db.lock_conn().unwrap();
+        conn.execute(
+            "UPDATE memory_snapshots SET payload = '[]' WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+    }
+
+    let err = db.restore_snapshot(id).unwrap_err();
+    assert!(
+        err.to_string().contains("integrity check"),
+        "expected integrity check error, got: {err}"
+    );
+
+    // Live memory is untouched: both pre-corruption entries survive.
+    assert!(
+        db.get_recent_entries("knowledge:a", 10)
+            .unwrap()
+            .contains(&"AAA".to_string())
+    );
+    assert!(
+        db.get_recent_entries("knowledge:b", 10)
+            .unwrap()
+            .contains(&"BBB".to_string())
+    );
+}
+
+/// The auto `pre-restore` snapshot is captured INSIDE the restore
+/// transaction, after the pre-mutation gates, so no failed restore leaves a
+/// ghost `pre-restore` row. Two failure classes are covered: (a) gate
+/// failures (bad id, corrupt payload) bail before the tx even opens, and
+/// (b) a mid-tx failure AFTER the capture rolls the capture back with the
+/// aborted tx. FAILS if the capture is moved before the gates (a corrupt /
+/// bad-id restore would persist a pre-restore row) or committed outside the
+/// tx (the aborted restore would leave one behind).
+#[test]
+fn failed_restore_leaves_no_pre_restore_snapshot() {
+    let count_pre = |d: &MemoryDB| {
+        d.list_snapshots(1000)
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.label == "pre-restore")
+            .count()
+    };
+
+    // (a) Gate failures bail before the transaction opens.
+    let (db1, _g) = db();
+    db1.insert_memory("knowledge:a", "AAA").unwrap();
+    let id = db1.snapshot_memory("s").unwrap();
+    assert!(db1.restore_snapshot(9999).is_err());
+    {
+        let conn = db1.lock_conn().unwrap();
+        conn.execute(
+            "UPDATE memory_snapshots SET payload = '[]' WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+    }
+    assert!(db1.restore_snapshot(id).is_err());
+    assert_eq!(count_pre(&db1), 0);
+
+    // (b) Mid-tx failure: a valid snapshot, but a trigger aborts the DELETE
+    // that runs AFTER the in-tx pre-restore capture. The whole tx rolls
+    // back, so the just-captured pre-restore row must not persist.
+    let (db2, _g2) = db();
+    db2.insert_memory("knowledge:a", "AAA").unwrap();
+    let good = db2.snapshot_memory("s").unwrap();
+    {
+        let conn = db2.lock_conn().unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER block_del BEFORE DELETE ON memory_entries \
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+    }
+    assert!(db2.restore_snapshot(good).is_err());
+    assert_eq!(count_pre(&db2), 0);
+}
+
+/// `MAX_PRE_RESTORE_SNAPSHOTS` caps the auto `pre-restore` snapshots: each
+/// restore appends one and prunes the oldest beyond the cap, so repeated
+/// restores can't grow the snapshot table unboundedly. Manual/labeled
+/// snapshots are never pruned. FAILS if the prune DELETE is removed: the
+/// pre-restore count would exceed the cap.
+#[test]
+fn pre_restore_snapshots_are_bounded() {
+    let (db, _g) = db();
+    db.insert_memory("knowledge:a", "AAA").unwrap();
+    let manual = db.snapshot_memory("manual").unwrap();
+
+    // Restore well past the cap; each restore appends one pre-restore snap.
+    for _ in 0..13 {
+        db.restore_snapshot(manual).unwrap();
+    }
+
+    let snaps = db.list_snapshots(1000).unwrap();
+    let pre_count = snaps.iter().filter(|s| s.label == "pre-restore").count();
+    assert_eq!(pre_count, MAX_PRE_RESTORE_SNAPSHOTS);
+
+    // The manual snapshot is never pruned.
+    assert!(snaps.iter().any(|s| s.id == manual && s.label == "manual"));
+}
