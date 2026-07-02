@@ -117,6 +117,7 @@ fastrand = "2.0"
 fs2 = "0.4"
 futures-util = { workspace = true }
 governor = { workspace = true }
+getrandom = "0.3"
 hex = { workspace = true }
 html-escape = "0.2"
 jsonschema = { version = "0.37", default-features = false, features = ["resolve-http"] }

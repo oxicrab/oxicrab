@@ -3684,6 +3684,7 @@ dependencies = [
  "filetime",
  "fs2",
  "futures-util",
+ "getrandom 0.3.4",
  "governor",
  "hex",
  "hmac 0.13.0",
