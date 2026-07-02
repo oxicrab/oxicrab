@@ -137,7 +137,7 @@ impl Tool for ClaimTool {
                 "action": {
                     "type": "string",
                     "enum": ["add", "list", "get", "lint", "update_status", "confirm"],
-                    "description": "Which claim operation to perform. Use 'confirm' when the user validates a previously agent-inferred claim, which unblocks promoting it to 'accepted'."
+                    "description": "Which claim operation to perform. Claims you add are recorded as agent-inferred and cannot be promoted to 'accepted' until an operator approves a 'confirm' — you cannot self-confirm."
                 },
                 "text": {
                     "type": "string",
@@ -161,14 +161,9 @@ impl Tool for ClaimTool {
                     },
                     "description": "Optional list of evidence pointers."
                 },
-                "provenance": {
-                    "type": "string",
-                    "enum": ["user_confirmed", "observed", "agent_inferred"],
-                    "description": "For add: where the claim came from. 'user_confirmed' = the user stated it; 'observed' = a tool/file showed it (default); 'agent_inferred' = your own guess. Agent-inferred claims cannot be promoted to 'accepted' until 'confirm'ed by a later user turn."
-                },
                 "id": {
                     "type": "integer",
-                    "description": "Required for get / update_status."
+                    "description": "Required for get / update_status / confirm."
                 },
                 "status": {
                     "type": "string",
@@ -208,6 +203,17 @@ impl Tool for ClaimTool {
         }
     }
 
+    /// `confirm` upgrades a claim's provenance to `user_confirmed`, which is
+    /// the only path that unblocks promotion to `accepted`. It must never be
+    /// something the agent can do unilaterally — otherwise the provenance gate
+    /// is self-bypassable (add inferred → confirm → accept). Requiring approval
+    /// routes it through the operator (interactive click when the approval
+    /// workflow is enabled, hard-block when it isn't), so a real human is
+    /// always in the loop for "the user confirmed this".
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        action == "confirm"
+    }
+
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
         let Some(action) = params.get("action").and_then(Value::as_str) else {
             return Ok(ToolResult::error("claim: missing 'action'".to_string()));
@@ -223,22 +229,23 @@ impl Tool for ClaimTool {
                     .and_then(serde_json::Value::as_f64)
                     .map_or(DEFAULT_CONFIDENCE, |c| c as f32);
                 let evidence = Self::parse_evidence(params.get("evidence"));
-                let provenance = params
-                    .get("provenance")
-                    .and_then(Value::as_str)
-                    .and_then(Provenance::parse)
-                    .unwrap_or(Provenance::Observed);
+                // Provenance is NOT accepted from the agent: anything the model
+                // records is, by definition, agent-inferred. `observed` and
+                // `user_confirmed` are reserved for trusted non-LLM callers via
+                // `insert_claim_with_provenance`. This keeps the promotion gate
+                // unforgeable — the agent cannot self-label a claim into a tier
+                // that promotes without operator approval.
                 match self.db.insert_claim_with_provenance(
                     text,
                     confidence,
                     ClaimStatus::Open,
-                    provenance,
+                    Provenance::AgentInferred,
                     &evidence,
                 ) {
                     Ok(id) => Ok(ToolResult::new(format!(
-                        "Recorded claim #{id} (confidence {:.2}, provenance {}, {} evidence pointer(s))",
+                        "Recorded claim #{id} (confidence {:.2}, provenance agent_inferred, {} evidence pointer(s)). \
+                         Promotion to 'accepted' requires an operator-approved 'confirm'.",
                         confidence,
-                        provenance.as_str(),
                         evidence.len()
                     ))),
                     Err(e) => Ok(ToolResult::error(format!("claim add failed: {e}"))),
@@ -351,9 +358,9 @@ impl Tool for ClaimTool {
                         status.as_str()
                     ))),
                     Ok(StatusUpdate::BlockedInferred) => Ok(ToolResult::error(format!(
-                        "claim #{id} is agent-inferred and cannot be promoted to 'accepted' \
-                         without user confirmation. When the user confirms it, call \
-                         claim with action 'confirm' and id {id} first, then retry."
+                        "claim #{id} is agent-inferred and cannot be promoted to 'accepted'. \
+                         Leave it as-is; promotion requires an operator to approve a 'confirm' \
+                         for this claim. Do not attempt to confirm it yourself."
                     ))),
                     Ok(StatusUpdate::NotFound) => {
                         Ok(ToolResult::error(format!("claim #{id} not found")))
