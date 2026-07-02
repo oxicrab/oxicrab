@@ -187,7 +187,10 @@ fn test_save_credentials_file_is_0600() {
 
     save_credentials_to_file(&creds, &path).unwrap();
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode, 0o600, "re-saving over a 0644 file must re-narrow to 0600");
+    assert_eq!(
+        mode, 0o600,
+        "re-saving over a 0644 file must re-narrow to 0600"
+    );
 }
 
 // -- has_valid_credentials -----

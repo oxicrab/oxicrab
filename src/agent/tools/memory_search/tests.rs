@@ -120,7 +120,10 @@ async fn test_memory_search_excludes_daily_in_group_chat() {
     // either keyword backend (FTS5 MATCH or the LIKE fallback).
     store
         .db()
-        .insert_memory("daily:2020-01-01", "zorptok reminder PERSONAL_DAILY_SECRET_XYZ")
+        .insert_memory(
+            "daily:2020-01-01",
+            "zorptok reminder PERSONAL_DAILY_SECRET_XYZ",
+        )
         .unwrap();
     store
         .db()
@@ -167,7 +170,9 @@ async fn test_memory_search_excludes_daily_in_group_chat() {
         .unwrap();
     assert!(!personal_result.is_error);
     assert!(
-        personal_result.content.contains("PERSONAL_DAILY_SECRET_XYZ"),
+        personal_result
+            .content
+            .contains("PERSONAL_DAILY_SECRET_XYZ"),
         "non-group search should surface personal daily notes: {}",
         personal_result.content
     );
