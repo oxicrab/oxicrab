@@ -19,6 +19,7 @@ mod pairing;
 pub mod rss;
 mod search;
 mod skills_index;
+mod snapshots;
 mod stats;
 mod subagent_log;
 mod tool_reflections;
@@ -39,6 +40,7 @@ pub use oxicrab_core::credential_store::OAuthTokenRow;
 pub use pairing::DbPendingRequest;
 pub use search::MemoryHit;
 pub use skills_index::SkillIndexEntry;
+pub use snapshots::{RestoreOutcome, SnapshotInfo};
 pub use stats::SearchDetails;
 pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, SearchStats,

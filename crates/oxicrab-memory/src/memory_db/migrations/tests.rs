@@ -7,7 +7,7 @@ fn applies_latest_user_version() {
     let v: u32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(v, 14);
+    assert_eq!(v, 15);
 }
 
 #[test]

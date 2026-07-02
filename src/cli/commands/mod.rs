@@ -3,6 +3,7 @@ mod cli_types;
 mod credentials_cmd;
 mod cron_cmd;
 mod gateway_setup;
+mod memory_cmd;
 mod onboard;
 mod stats_cmd;
 mod subcommands;
@@ -57,6 +58,9 @@ pub async fn run() -> Result<()> {
         }
         Commands::Stats { ref cmd } => {
             stats_cmd::stats_command(cmd)?;
+        }
+        Commands::Memory { cmd } => {
+            memory_cmd::memory_command(&cmd)?;
         }
         Commands::Completion { shell } => {
             clap_complete::generate(
