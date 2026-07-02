@@ -1,7 +1,6 @@
 [advisories]
 yanked = "warn"
 unmaintained = "workspace"
-unsound = "workspace"
 ignore = [
     # rustls-webpki 0.102.8 via serenity → rustls 0.22. No 0.102.x patch exists;
     # fix requires >=0.103.12. Blocked on serenity upgrading to rustls 0.23.
@@ -17,6 +16,14 @@ ignore = [
     # is bumped to 0.103.13 in the lockfile; this ignore covers only the
     # 0.102 path.
     { id = "RUSTSEC-2026-0104", reason = "no patch for 0.102.x; blocked on serenity upstream (CRL parsing — oxicrab does not load CRLs)" },
+    # quick-xml 0.37.5 DoS pair (CPU-quadratic duplicate-attr check + unbounded
+    # namespace allocation), reachable only through the RSS feed parser
+    # (feed-rs 2.3.1 → quick-xml 0.37.x). Fix requires quick-xml >= 0.41, which
+    # feed-rs has not yet adopted (2.3.1 is its latest release). Availability-
+    # only, and the RSS tool is opt-in (`tool-rss` feature) with a 10 MB body
+    # cap on fetched feeds. Revisit when feed-rs ships a quick-xml >= 0.41 bump.
+    { id = "RUSTSEC-2026-0194", reason = "no fix until feed-rs adopts quick-xml >=0.41; RSS-only, opt-in, 10MB fetch cap" },
+    { id = "RUSTSEC-2026-0195", reason = "no fix until feed-rs adopts quick-xml >=0.41; RSS-only, opt-in, 10MB fetch cap" },
 ]
 
 [sources]
