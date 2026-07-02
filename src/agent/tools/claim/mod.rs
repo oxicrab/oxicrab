@@ -1,13 +1,17 @@
 //! `claim` tool — exposes the structured claims store to the LLM.
 //!
-//! Five actions:
+//! Six actions:
 //!
 //! - `add` — assert a claim with text + confidence + optional evidence
+//!   (always recorded as `agent_inferred`; the agent cannot set provenance)
 //! - `list` — list claims, optionally filtered by status
 //! - `get` — fetch one claim by id (with evidence)
 //! - `lint` — run all three lint passes (contradictions, stale, orphan)
 //!   and return a markdown report
 //! - `update_status` — accept / retract / mark contradicted
+//! - `confirm` — upgrade provenance to `user_confirmed`, unblocking
+//!   promotion to `accepted`. Requires operator approval, so the agent
+//!   cannot self-confirm its own inferences.
 
 use crate::agent::memory::memory_db::{
     ClaimStatus, EvidencePointer, MemoryDB, Provenance, StatusUpdate,

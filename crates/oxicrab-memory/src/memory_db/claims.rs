@@ -15,7 +15,7 @@
 
 use super::MemoryDB;
 use anyhow::Result;
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 /// Status of a claim. Lifecycle: every claim starts `Open`. Operators
 /// (or the agent itself via the claims tool) move them through:
@@ -232,7 +232,7 @@ impl MemoryDB {
                 .query_row("SELECT provenance FROM claims WHERE id = ?1", [id], |r| {
                     r.get(0)
                 })
-                .ok();
+                .optional()?;
             match provenance {
                 None => return Ok(StatusUpdate::NotFound),
                 Some(p) if Provenance::parse(&p) == Some(Provenance::AgentInferred) => {
