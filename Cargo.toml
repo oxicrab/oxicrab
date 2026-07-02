@@ -32,7 +32,7 @@ hmac = "0.13"
 humantime = "2.3.0"
 ipnet = "2.12"
 libc = "0.2"
-lru = "0.17"
+lru = "0.18"
 metrics = "0.24"
 moka = { version = "0.12", features = ["sync"] }
 regex = "1"
@@ -126,7 +126,7 @@ keyring = { version = "3", optional = true }
 lru = { workspace = true }
 metrics = { workspace = true }
 moka = { workspace = true }
-metrics-exporter-prometheus = "0.17"
+metrics-exporter-prometheus = "0.18"
 regex = { workspace = true }
 rmcp = { version = "1.2", features = ["client", "transport-child-process"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
@@ -134,7 +134,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_ignored = "0.1"
 sha2 = { workspace = true }
-toml = "0.9"
+toml = "1"
 serde_yaml_ng = "0.10"
 subtle = "2.6"
 tempfile = { workspace = true }
