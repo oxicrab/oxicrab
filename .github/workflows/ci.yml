@@ -270,6 +270,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Free disk space
+        # Reclaim ~30GB of preinstalled toolchains the Rust build never uses,
+        # so nextest archive extraction doesn't exhaust the runner disk.
+        # rm -rf is right on an ephemeral runner (nothing to recover);
+        # best-effort (|| true) so a missing path never fails the job.
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -403,6 +415,18 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
+
+      - name: Free disk space
+        # Reclaim ~30GB of preinstalled toolchains the Rust build never uses,
+        # so llvm-cov profraw / archive extraction don't exhaust the runner.
+        # rm -rf is right on an ephemeral runner (nothing to recover);
+        # best-effort (|| true) so a missing path never fails the job.
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
