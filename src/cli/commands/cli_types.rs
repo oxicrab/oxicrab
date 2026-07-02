@@ -62,11 +62,42 @@ pub(super) enum Commands {
         #[command(subcommand)]
         cmd: StatsCommands,
     },
+    /// Manage durable-memory snapshots (capture, list, restore)
+    Memory {
+        #[command(subcommand)]
+        cmd: MemoryCommands,
+    },
     /// Generate shell completion scripts
     Completion {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Subcommand)]
+pub(super) enum MemoryCommands {
+    /// Capture the current durable memory as a labeled snapshot
+    Snapshot {
+        /// Human-readable label for the snapshot
+        #[arg(default_value = "manual")]
+        label: String,
+    },
+    /// List stored memory snapshots (newest first)
+    Snapshots {
+        /// Maximum number of snapshots to show
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Restore durable memory to a snapshot by id (auto-captures a pre-restore snapshot first)
+    Restore {
+        /// Snapshot id to restore (see `oxicrab memory snapshots`)
+        id: i64,
+    },
+    /// Delete a snapshot by id
+    DeleteSnapshot {
+        /// Snapshot id to delete
+        id: i64,
     },
 }
 

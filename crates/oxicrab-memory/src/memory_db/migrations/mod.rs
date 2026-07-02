@@ -375,6 +375,28 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         })?;
     }
 
+    if user_version(conn)? < 15 {
+        run_migration(conn, 15, || {
+            // Point-in-time snapshots of durable memory for user-restorable
+            // rollback. Payload is a versioned JSON serialization of
+            // memory_entries; embeddings are excluded (rebuilt on restore).
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS memory_snapshots (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label          TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    entry_count    INTEGER NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    payload        TEXT NOT NULL,
+                    created_at_ms  INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_memory_snapshots_created
+                    ON memory_snapshots(created_at_ms);",
+            )?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 
