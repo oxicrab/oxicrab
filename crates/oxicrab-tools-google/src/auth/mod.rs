@@ -676,11 +676,29 @@ fn save_credentials_to_file(creds: &GoogleCredentials, path: &Path) -> Result<()
         std::fs::create_dir_all(parent)?;
     }
     let content = serde_json::to_string_pretty(creds)?;
-    std::fs::write(path, &content)?;
+
+    // On Unix, create the file with 0600 up front. Writing then chmod'ing
+    // leaves a window where the OAuth refresh token is world/group-readable
+    // at the umask default (typically 0644).
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("failed to open credentials file {}", path.display()))?;
+        // Re-assert mode in case the file pre-existed with looser permissions
+        // (mode() only applies to newly created files).
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file.write_all(content.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, &content)?;
     }
     Ok(())
 }

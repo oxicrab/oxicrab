@@ -162,6 +162,34 @@ fn test_save_sets_restricted_permissions() {
     assert_eq!(mode, 0o600);
 }
 
+// Direct-call test for save_credentials_to_file: defends both the creation
+// mode (line ~691) and the re-assert on a pre-existing loose file (line ~696).
+#[cfg(unix)]
+#[test]
+fn test_save_credentials_file_is_0600() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tokens.json");
+    let creds = make_creds(Some(9_999_999_999));
+
+    // Fresh write must create the file at 0600 — no group/world bits.
+    save_credentials_to_file(&creds, &path).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "fresh credentials file must be 0600");
+
+    // Loosen to 0644, then re-save: the OpenOptions.mode() is ignored for an
+    // existing file, so only the explicit set_permissions re-assert can narrow
+    // it back. Sanity-check the precondition so the re-narrow assert can't pass
+    // vacuously.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let pre = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(pre, 0o644, "precondition: file must be 0644 before re-save");
+
+    save_credentials_to_file(&creds, &path).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "re-saving over a 0644 file must re-narrow to 0600");
+}
+
 // -- has_valid_credentials -----
 
 #[test]

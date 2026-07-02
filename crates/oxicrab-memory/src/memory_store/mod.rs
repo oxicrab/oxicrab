@@ -242,24 +242,35 @@ impl MemoryStore {
         self.get_memory_context_scoped(query, false)
     }
 
+    /// Build the source-key exclude set enforcing group-chat memory isolation.
+    ///
+    /// In group mode, personal `daily:` entries must never surface, so this
+    /// returns every `daily:`-prefixed source key; otherwise it returns an
+    /// empty set. Shared by the passive system-prompt retrieval path
+    /// (`get_memory_context_scoped`) and the active `memory_search` tool so
+    /// both enforce isolation identically. On a DB error the daily lookup
+    /// falls back to empty — acceptable for retrieval because a stale/empty
+    /// exclude only risks over-fetching, which downstream group callers then
+    /// discard by prefix.
+    #[must_use]
+    pub fn group_exclude_set(&self, is_group: bool) -> HashSet<String> {
+        if is_group {
+            self.db
+                .list_daily_source_keys()
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        } else {
+            HashSet::new()
+        }
+    }
+
     /// Get memory context with optional group scoping.
     /// When `is_group` is true, personal daily notes are excluded from search results.
     pub fn get_memory_context_scoped(&self, query: Option<&str>, is_group: bool) -> Result<String> {
         let mut chunks = Vec::new();
         if let Some(query) = query {
-            let exclude = if is_group {
-                // In group mode, exclude daily: prefixed keys at query time
-                // to avoid fetching results we'd discard.
-                let daily_keys: HashSet<String> = self
-                    .db
-                    .list_daily_source_keys()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect();
-                daily_keys
-            } else {
-                HashSet::new()
-            };
+            let exclude = self.group_exclude_set(is_group);
             let result_limit = self.search_result_limit;
             let initial_hits = if self.has_embeddings() {
                 #[cfg(feature = "embeddings")]
