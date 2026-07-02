@@ -7,7 +7,7 @@ fn test_db() -> Arc<MemoryDB> {
 
 #[test]
 fn test_generate_code_format() {
-    let code = PairingStore::generate_code();
+    let code = PairingStore::generate_code().expect("CSPRNG should be available in tests");
     assert_eq!(code.len(), CODE_LENGTH);
     for c in code.chars() {
         assert!(

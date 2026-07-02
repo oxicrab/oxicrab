@@ -165,7 +165,7 @@ impl Tool for MemorySearchTool {
         })
     }
 
-    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = params["action"].as_str().unwrap_or("search");
 
         if action == "explain_last" {
@@ -197,10 +197,20 @@ impl Tool for MemorySearchTool {
             }
         };
 
+        // Group-chat memory isolation: personal `daily:` entries must never
+        // surface in a shared context. Mirror the system-prompt retrieval path
+        // by excluding them from both search backends.
+        let is_group = ctx
+            .metadata
+            .get(crate::bus::meta::IS_GROUP)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
         // Use hybrid search when embeddings are available
         #[cfg(feature = "embeddings")]
         if self.memory.has_embeddings() {
-            match self.memory.hybrid_search(query, 8, None) {
+            let exclude = self.memory.group_exclude_set(is_group);
+            match self.memory.hybrid_search(query, 8, Some(&exclude)) {
                 Ok(hits) if !hits.is_empty() => {
                     Self::record_retrieval_metrics(&hits);
                     let chunks: Vec<String> = hits
@@ -219,7 +229,7 @@ impl Tool for MemorySearchTool {
         }
 
         // Fallback to keyword-only search
-        match self.memory.get_memory_context(Some(query)) {
+        match self.memory.get_memory_context_scoped(Some(query), is_group) {
             Ok(context) => {
                 if context.trim().is_empty() {
                     Ok(ToolResult::new(

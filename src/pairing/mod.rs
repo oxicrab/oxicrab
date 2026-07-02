@@ -53,13 +53,21 @@ impl PairingStore {
             .as_secs()
     }
 
-    fn generate_code() -> String {
+    fn generate_code() -> Result<String> {
+        // Pairing codes are a security credential, so draw from the OS CSPRNG
+        // rather than a predictable PRNG. The alphabet is exactly 32 chars and
+        // 256 % 32 == 0, so mapping each random byte with `% 32` is uniform
+        // (no modulo bias, no rejection sampling needed).
+        debug_assert_eq!(CODE_ALPHABET.len(), 32);
+        let mut bytes = [0u8; CODE_LENGTH];
+        getrandom::fill(&mut bytes)
+            .map_err(|e| anyhow::anyhow!("OS CSPRNG unavailable for pairing code: {e}"))?;
         let mut code = String::with_capacity(CODE_LENGTH);
-        for _ in 0..CODE_LENGTH {
-            let idx = fastrand::usize(0..CODE_ALPHABET.len());
+        for b in bytes {
+            let idx = (b as usize) % CODE_ALPHABET.len();
             code.push(CODE_ALPHABET[idx] as char);
         }
-        code
+        Ok(code)
     }
 
     /// Request pairing for a sender on a channel.
@@ -90,7 +98,7 @@ impl PairingStore {
             return Ok(Some(existing.code));
         }
 
-        let code = Self::generate_code();
+        let code = Self::generate_code()?;
         self.db
             .add_pending_request(channel, sender_id, &code, Self::now_secs())?;
 

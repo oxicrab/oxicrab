@@ -98,7 +98,7 @@ pub fn apply_to_command(
 ) -> anyhow::Result<()> {
     use landlock::{
         ABI, Access, AccessFs, AccessNet, PathBeneath, PathFd, Ruleset, RulesetAttr,
-        RulesetCreatedAttr,
+        RulesetCreatedAttr, RulesetStatus,
     };
 
     let abi = ABI::V5;
@@ -159,9 +159,20 @@ pub fn apply_to_command(
             // No network port rules = all TCP connections blocked
             // (only applies when block_network is true and AccessNet is handled)
 
-            created
+            let status = created
                 .restrict_self()
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+            // Fail closed: if the kernel accepted the call but did not actually
+            // enforce the ruleset (Landlock absent/disabled), the child would
+            // otherwise run fully unsandboxed while the operator believes
+            // `sandbox.enabled` protects them. Abort the exec instead.
+            if matches!(status.ruleset, RulesetStatus::NotEnforced) {
+                return Err(std::io::Error::other(
+                    "Landlock sandbox not enforced by kernel (LSM absent or disabled); \
+                     refusing to run unsandboxed",
+                ));
+            }
 
             Ok(())
         });
