@@ -26,7 +26,9 @@ mod traces;
 mod trajectories;
 mod workspace;
 
-pub use claims::{Claim, ClaimStatus, ContradictionPair, EvidencePointer};
+pub use claims::{
+    Claim, ClaimStatus, ContradictionPair, EvidencePointer, Provenance, StatusUpdate,
+};
 pub use collections::{
     AggFunction, AggregationRequest, AggregationResult, CollectionInfo, CollectionRecord,
     CollectionSchema, FieldDef, FieldType, FilterOp, RecordFilter,

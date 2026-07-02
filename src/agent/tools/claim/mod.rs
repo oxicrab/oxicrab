@@ -1,15 +1,21 @@
 //! `claim` tool — exposes the structured claims store to the LLM.
 //!
-//! Five actions:
+//! Six actions:
 //!
 //! - `add` — assert a claim with text + confidence + optional evidence
+//!   (always recorded as `agent_inferred`; the agent cannot set provenance)
 //! - `list` — list claims, optionally filtered by status
 //! - `get` — fetch one claim by id (with evidence)
 //! - `lint` — run all three lint passes (contradictions, stale, orphan)
 //!   and return a markdown report
 //! - `update_status` — accept / retract / mark contradicted
+//! - `confirm` — upgrade provenance to `user_confirmed`, unblocking
+//!   promotion to `accepted`. Requires operator approval, so the agent
+//!   cannot self-confirm its own inferences.
 
-use crate::agent::memory::memory_db::{ClaimStatus, EvidencePointer, MemoryDB};
+use crate::agent::memory::memory_db::{
+    ClaimStatus, EvidencePointer, MemoryDB, Provenance, StatusUpdate,
+};
 use async_trait::async_trait;
 use oxicrab_core::actions;
 use oxicrab_core::tools::base::{
@@ -134,8 +140,8 @@ impl Tool for ClaimTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "get", "lint", "update_status"],
-                    "description": "Which claim operation to perform."
+                    "enum": ["add", "list", "get", "lint", "update_status", "confirm"],
+                    "description": "Which claim operation to perform. Claims you add are recorded as agent-inferred and cannot be promoted to 'accepted' until an operator approves a 'confirm' — you cannot self-confirm."
                 },
                 "text": {
                     "type": "string",
@@ -161,7 +167,7 @@ impl Tool for ClaimTool {
                 },
                 "id": {
                     "type": "integer",
-                    "description": "Required for get / update_status."
+                    "description": "Required for get / update_status / confirm."
                 },
                 "status": {
                     "type": "string",
@@ -192,12 +198,24 @@ impl Tool for ClaimTool {
                 list: ro,
                 get,
                 lint: ro,
-                update_status
+                update_status,
+                confirm
             ],
             category: ToolCategory::Productivity,
             concurrency: ToolConcurrency::SideEffect,
             ..Default::default()
         }
+    }
+
+    /// `confirm` upgrades a claim's provenance to `user_confirmed`, which is
+    /// the only path that unblocks promotion to `accepted`. It must never be
+    /// something the agent can do unilaterally — otherwise the provenance gate
+    /// is self-bypassable (add inferred → confirm → accept). Requiring approval
+    /// routes it through the operator (interactive click when the approval
+    /// workflow is enabled, hard-block when it isn't), so a real human is
+    /// always in the loop for "the user confirmed this".
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        action == "confirm"
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
@@ -215,12 +233,22 @@ impl Tool for ClaimTool {
                     .and_then(serde_json::Value::as_f64)
                     .map_or(DEFAULT_CONFIDENCE, |c| c as f32);
                 let evidence = Self::parse_evidence(params.get("evidence"));
-                match self
-                    .db
-                    .insert_claim(text, confidence, ClaimStatus::Open, &evidence)
-                {
+                // Provenance is NOT accepted from the agent: anything the model
+                // records is, by definition, agent-inferred. `observed` and
+                // `user_confirmed` are reserved for trusted non-LLM callers via
+                // `insert_claim_with_provenance`. This keeps the promotion gate
+                // unforgeable — the agent cannot self-label a claim into a tier
+                // that promotes without operator approval.
+                match self.db.insert_claim_with_provenance(
+                    text,
+                    confidence,
+                    ClaimStatus::Open,
+                    Provenance::AgentInferred,
+                    &evidence,
+                ) {
                     Ok(id) => Ok(ToolResult::new(format!(
-                        "Recorded claim #{id} (confidence {:.2}, {} evidence pointer(s))",
+                        "Recorded claim #{id} (confidence {:.2}, provenance agent_inferred, {} evidence pointer(s)). \
+                         Promotion to 'accepted' requires an operator-approved 'confirm'.",
                         confidence,
                         evidence.len()
                     ))),
@@ -246,9 +274,10 @@ impl Tool for ClaimTool {
                         for c in claims {
                             let _ = writeln!(
                                 out,
-                                "- #{} [{}] ({:.2}) {}",
+                                "- #{} [{}/{}] ({:.2}) {}",
                                 c.id,
                                 c.status.as_str(),
+                                c.provenance.as_str(),
                                 c.confidence,
                                 c.text
                             );
@@ -266,9 +295,10 @@ impl Tool for ClaimTool {
                     Ok(Some(c)) => {
                         use std::fmt::Write as _;
                         let mut out = format!(
-                            "Claim #{}\nStatus: {}\nConfidence: {:.2}\nText: {}\n",
+                            "Claim #{}\nStatus: {}\nProvenance: {}\nConfidence: {:.2}\nText: {}\n",
                             c.id,
                             c.status.as_str(),
+                            c.provenance.as_str(),
                             c.confidence,
                             c.text
                         );
@@ -327,14 +357,33 @@ impl Tool for ClaimTool {
                     )));
                 };
                 match self.db.update_claim_status(id, status) {
-                    Ok(true) => Ok(ToolResult::new(format!(
+                    Ok(StatusUpdate::Updated) => Ok(ToolResult::new(format!(
                         "Claim #{id} marked {}.",
                         status.as_str()
                     ))),
-                    Ok(false) => Ok(ToolResult::error(format!("claim #{id} not found"))),
+                    Ok(StatusUpdate::BlockedInferred) => Ok(ToolResult::error(format!(
+                        "claim #{id} is agent-inferred and cannot be promoted to 'accepted'. \
+                         Leave it as-is; promotion requires an operator to approve a 'confirm' \
+                         for this claim. Do not attempt to confirm it yourself."
+                    ))),
+                    Ok(StatusUpdate::NotFound) => {
+                        Ok(ToolResult::error(format!("claim #{id} not found")))
+                    }
                     Err(e) => Ok(ToolResult::error(format!(
                         "claim update_status failed: {e}"
                     ))),
+                }
+            }
+            "confirm" => {
+                let Some(id) = params.get("id").and_then(serde_json::Value::as_i64) else {
+                    return Ok(ToolResult::error("claim confirm: missing 'id'".to_string()));
+                };
+                match self.db.set_claim_provenance(id, Provenance::UserConfirmed) {
+                    Ok(true) => Ok(ToolResult::new(format!(
+                        "Claim #{id} confirmed by user. It can now be promoted to 'accepted'."
+                    ))),
+                    Ok(false) => Ok(ToolResult::error(format!("claim #{id} not found"))),
+                    Err(e) => Ok(ToolResult::error(format!("claim confirm failed: {e}"))),
                 }
             }
             other => Ok(ToolResult::error(format!(
