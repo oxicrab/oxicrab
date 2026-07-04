@@ -10,7 +10,7 @@ license = "MIT"
 oxicrab-core = { path = "../oxicrab-core" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-brush-parser = "0.3"
+brush-parser = "0.4"
 cap-std = "4"
 chrono = { workspace = true }
 dirs = { workspace = true }
