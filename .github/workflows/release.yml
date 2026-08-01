@@ -74,7 +74,7 @@ jobs:
 
       - name: Install packaging tools
         if: runner.os == 'Linux'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-deb,cargo-generate-rpm
 
