@@ -87,7 +87,7 @@ jobs:
           components: rustfmt
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-deny@0.18.9
 
@@ -128,7 +128,7 @@ jobs:
           toolchain: ${{ needs.changes.outputs.toolchain }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-nextest
 
@@ -191,7 +191,7 @@ jobs:
           components: clippy
 
       - name: Install tools
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -239,7 +239,7 @@ jobs:
           toolchain: ${{ needs.changes.outputs.toolchain }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-nextest
 
@@ -288,7 +288,7 @@ jobs:
           toolchain: ${{ needs.changes.outputs.toolchain }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-nextest
 
@@ -357,7 +357,7 @@ jobs:
           toolchain: ${{ needs.changes.outputs.toolchain }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-nextest
 
@@ -435,7 +435,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-llvm-cov
 
@@ -598,7 +598,7 @@ jobs:
           RUSTC_WRAPPER: sccache
 
       - name: Install packaging tools
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-deb,cargo-generate-rpm
 
